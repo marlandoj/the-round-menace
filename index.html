@@ -1108,7 +1108,7 @@ const MAZE_GRID_TEMPLATE = [
   "#.....#.....#.....#", // 3
   "#.###.#.###.#.###.#", // 4
   "#.................#", // 5: Cross corridor above house
-  "#.###.##=#=##.###.#", // 6: Door at (9, 6)
+  "#.###.##===##.###.#", // 6: Door at (9, 6)
   "#...#.# HHH #.#...#", // 7: House interior
   "###.#.# HHH #.#.###", // 8
   "  ....# HHH #....  ", // 9: Tunnel wrap (cols 2-5 and 13-16 dots)
@@ -2266,7 +2266,7 @@ class Game {
         }
         if (ny >= 0 && ny < this.rows && nx >= 0 && nx < this.cols) {
           const nextCell = this.grid[ny][nx];
-          if (nextCell !== '#' && nextCell !== '=' && !visited[ny][nx]) {
+          if (nextCell !== '#' && nextCell !== '=' && nextCell !== 'H' && !visited[ny][nx]) {
             visited[ny][nx] = true;
             // Threat weighting: higher cost if within 2 tiles of an active ghost
             let threatCost = 0;
@@ -2315,6 +2315,7 @@ class Game {
       if (ny >= 0 && ny < this.rows && nx >= 0 && nx < this.cols) {
         const cell = this.grid[ny][nx];
         if (cell === '#') return;
+        if (cell === 'H') return; // House interior is not a corridor; only the EXITING/RETURNING paths cross it
         if (cell === '=' && !canPassDoor) return;
         moves.push(d);
       }
@@ -2741,7 +2742,7 @@ class Ghost {
     if ((this.dir.x === -d.x && this.dir.y === -d.y) || (this.dir.x === 0 && this.dir.y === 0)) {
       const nx = this.tileX + d.x;
       const ny = this.tileY + d.y;
-      if (grid && grid[ny] && grid[ny][nx] !== '#') {
+      if (grid && grid[ny] && grid[ny][nx] !== '#' && grid[ny][nx] !== 'H' && grid[ny][nx] !== '=') {
         this.dir = d;
         this.facing = d;
       }

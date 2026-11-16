@@ -33,7 +33,7 @@ async function runAcceptanceTests() {
 
   const indexPath = `file://${path.resolve(__dirname, '../index.html')}`;
   let passedCount = 0;
-  let totalCount = 9;
+  let totalCount = 10;
 
   // Screenshot directory
   const screenshotDir = path.resolve(__dirname, '../screenshots');
@@ -43,7 +43,7 @@ async function runAcceptanceTests() {
 
   try {
     // Check 1: Page loads with zero console errors
-    console.log('[Check 1/9] Loading game page...');
+    console.log('[Check 1/10] Loading game page...');
     await page.goto(indexPath, { waitUntil: 'load' });
     await page.waitForTimeout(500);
 
@@ -59,7 +59,7 @@ async function runAcceptanceTests() {
     console.log('  📸 Captured screenshot: screenshots/title.png');
 
     // Check 2: Game starts from PLAY
-    console.log('\n[Check 2/9] Starting game from PLAY button...');
+    console.log('\n[Check 2/10] Starting game from PLAY button...');
     await page.click('#btn-play');
     await page.waitForTimeout(400);
 
@@ -76,7 +76,7 @@ async function runAcceptanceTests() {
     console.log('  📸 Captured screenshot: screenshots/gameplay.png');
 
     // Check 3: Menace eats pellets autonomously
-    console.log('\n[Check 3/9] Testing autonomous Menace pellet eating...');
+    console.log('\n[Check 3/10] Testing autonomous Menace pellet eating...');
     const initialPellets = await page.evaluate(() => window.__RM_GAME__.getPellets().remaining);
     // Let Menace move and eat for 2 seconds
     await page.waitForTimeout(2000);
@@ -89,7 +89,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 4: Possession switching works for all four ghosts (1-4 and squad bar clicks)
-    console.log('\n[Check 4/9] Testing possession switching across all 4 squad ghosts...');
+    console.log('\n[Check 4/10] Testing possession switching across all 4 squad ghosts...');
     const ghostNames = ['Ember', 'Rosé', 'Tide', 'Goldie'];
     for (let i = 0; i < 4; i++) {
       // Test key press
@@ -110,7 +110,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 5: Touch input moves the possessed ghost
-    console.log('\n[Check 5/9] Testing touch input steering...');
+    console.log('\n[Check 5/10] Testing touch input steering...');
     // Ensure ghost 0 is possessed and positioned at open corridor (5, 5)
     await page.evaluate(() => {
       window.__RM_GAME__.possess(0);
@@ -130,7 +130,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 6: A catch registers when a ghost is steered onto Menace
-    console.log('\n[Check 6/9] Testing ghost catch detection...');
+    console.log('\n[Check 6/10] Testing ghost catch detection...');
     const initialLives = await page.evaluate(() => window.__RM_GAME__.getMenace().lives);
     const initialScore = await page.evaluate(() => window.__RM_GAME__.getScore());
 
@@ -155,7 +155,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 7: Fright mode flips on power pellet and ghost can be eaten & benched
-    console.log('\n[Check 7/9] Testing Fright Mode & ghost benching...');
+    console.log('\n[Check 7/10] Testing Fright Mode & ghost benching...');
     await page.evaluate(() => window.__RM_GAME__.triggerFright(5.0));
     await page.waitForTimeout(200);
 
@@ -182,7 +182,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 8: Win / Maze Clear screen reachable
-    console.log('\n[Check 8/9] Testing Win / Maze Clear screen...');
+    console.log('\n[Check 8/10] Testing Win / Maze Clear screen...');
     await page.evaluate(() => window.__RM_GAME__.forceWin());
     await page.waitForTimeout(300);
 
@@ -198,7 +198,7 @@ async function runAcceptanceTests() {
     console.log('  📸 Captured screenshot: screenshots/win.png');
 
     // Check 9: Lose screen reachable
-    console.log('\n[Check 9/9] Testing Game Over screen...');
+    console.log('\n[Check 9/10] Testing Game Over screen...');
     await page.evaluate(() => window.__RM_GAME__.forceLose());
     await page.waitForTimeout(300);
 
@@ -212,6 +212,37 @@ async function runAcceptanceTests() {
     // Capture Game Over screenshot
     await page.screenshot({ path: path.join(screenshotDir, 'gameover.png') });
     console.log('  📸 Captured screenshot: screenshots/gameover.png');
+
+    // Check 10: Squad exits the house and hunts (regression: ghosts once looped in the house pocket)
+    console.log('\n[Check 10/10] Testing squad house exit and hunting range...');
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForTimeout(400);
+    await page.click('#btn-play');
+    const visited = [new Set(), new Set(), new Set(), new Set()];
+    const ranged = [false, false, false, false];
+    let lastSquad = null;
+    for (let i = 0; i < 38; i++) {
+      lastSquad = await page.evaluate(() => window.__RM_GAME__.getSquad());
+      lastSquad.forEach((g, gi) => {
+        visited[gi].add(g.tileX + ',' + g.tileY);
+        if (g.tileY <= 5 || g.tileY >= 11 || g.tileX <= 5 || g.tileX >= 13) ranged[gi] = true;
+      });
+      await page.waitForTimeout(400);
+    }
+    const inInterior = t => t.tileY >= 7 && t.tileY <= 9 && t.tileX >= 7 && t.tileX <= 11;
+    // A catch during the window legitimately resets the squad into the house;
+    // a ghost found inside at the end must simply exit again within its delay + exit travel.
+    for (let w = 0; w < 18 && lastSquad.slice(1).some(inInterior); w++) {
+      await page.waitForTimeout(400);
+      lastSquad = await page.evaluate(() => window.__RM_GAME__.getSquad());
+    }
+    for (let gi = 1; gi < 4; gi++) {
+      if (visited[gi].size < 6) throw new Error(`Ghost ${gi} (${ghostNames[gi]}) barely moved: ${visited[gi].size} distinct tiles in 15s`);
+      if (!ranged[gi]) throw new Error(`Ghost ${gi} (${ghostNames[gi]}) never left the house neighbourhood`);
+      if (inInterior(lastSquad[gi])) throw new Error(`Ghost ${gi} (${ghostNames[gi]}) is stuck inside the house interior at ${lastSquad[gi].tileX},${lastSquad[gi].tileY}`);
+    }
+    console.log(`  ✓ PASS: All AI ghosts left the house and hunted (distinct tiles: Rosé ${visited[1].size}, Tide ${visited[2].size}, Goldie ${visited[3].size}).`);
+    passedCount++;
 
   } catch (err) {
     console.error(`\n❌ TEST FAILED: ${err.message}`);
