@@ -135,10 +135,10 @@
       background: rgba(255, 255, 255, 0.2);
     }
 
-    /* Fright Mode Timer Bar */
+    /* Green Valley Flip Bar (the HUD banner that lights up while the hunt is flipped) */
     #fright-bar-container {
       display: none;
-      background: #1e1b4b;
+      background: #0f2e1a;
       padding: 4px 12px;
       border-bottom: 2px solid #ef4444;
       animation: frightGlow 1s infinite alternate;
@@ -176,10 +176,38 @@
     }
 
     #fright-progress-fill {
-      width: 100%;
+      width: 0%;
       height: 100%;
-      background: linear-gradient(90deg, #ef4444, #f59e0b);
+      background: linear-gradient(90deg, #22c55e, #a3e635);
       transition: width 0.1s linear;
+    }
+
+    /* Villain taunt banner — short lines in the Menace's voice */
+    #taunt-banner {
+      position: absolute;
+      top: 96px;
+      left: 50%;
+      transform: translateX(-50%) scale(0.7);
+      background: rgba(60, 6, 10, 0.94);
+      border: 2px solid #ff3344;
+      color: #fff1f2;
+      padding: 8px 18px;
+      border-radius: 6px;
+      font-size: 18px;
+      font-weight: 900;
+      letter-spacing: 2px;
+      box-shadow: 0 0 22px rgba(255, 51, 68, 0.6);
+      opacity: 0;
+      pointer-events: none;
+      transition: all 0.18s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      z-index: 31;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    #taunt-banner.show {
+      opacity: 1;
+      transform: translateX(-50%) scale(1);
     }
 
     /* Canvas Viewport */
@@ -599,11 +627,11 @@
     </div>
   </div>
 
-  <!-- Fright Mode Banner / Timer -->
+  <!-- Green Valley Flip Banner / Gate Progress -->
   <div id="fright-bar-container">
     <div class="fright-header">
-      <span>⚠️ Hunt Flip! Scatter! ⚠️</span>
-      <span id="fright-timer-text">6.0s</span>
+      <span>⚠️ Hunt Flipped — Run to the Maze Gate</span>
+      <span id="fright-timer-text">22.0s</span>
     </div>
     <div class="fright-progress-track">
       <div id="fright-progress-fill"></div>
@@ -614,6 +642,7 @@
   <div id="canvas-wrap">
     <canvas id="gameCanvas"></canvas>
     <div id="notification-toast"></div>
+    <div id="taunt-banner"></div>
 
     <!-- On-screen D-pad for mobile -->
     <div id="touch-controls">
@@ -688,7 +717,11 @@
       </div>
       <div class="info-rule">
         <span class="info-rule-bullet">3.</span>
-        <span><strong>Catch him 3 times</strong> before he eats all the pellets. And when he grabs a power pellet, <strong>RUN!</strong></span>
+        <span><strong>Catch him 3 times</strong> before he eats all the pellets.</span>
+      </div>
+      <div class="info-rule">
+        <span class="info-rule-bullet">4.</span>
+        <span><strong>The Green Valley Flip.</strong> When he grabs a power pellet the maze tears open and your ghost is thrown into Green Valley with the Menace rolling after you. <strong>Jump</strong> (Space / ↑ / W / tap) and <strong>fast-fall</strong> (↓ / S / swipe down) over rocks and logs. Reach the Maze Gate (+200) or get benched.</span>
       </div>
 
       <div class="squad-info-grid">
@@ -759,7 +792,7 @@
         <span id="gameover-pellets" style="color:#ffd32a;">0</span>
       </div>
       <div class="tally-row" id="gameover-chain-row" style="display: none;">
-        <span>Fright Casualties</span>
+        <span>Benched in the Valley</span>
         <span id="gameover-chain-text" style="color:#f87171;">He ate 0 of your squad</span>
       </div>
       <div class="tally-row grand">
@@ -813,34 +846,38 @@ class SoundEngine {
   constructor() {
     this.ctx = null;
     this.muted = localStorage.getItem('rm_muted') === 'true';
-    this.frightOsc1 = null;
-    this.frightOsc2 = null;
-    this.frightGain = null;
-    this.heartbeatTimer = null;
-    this.ambientHum = null;
     this.pelletToggle = false;
+    this.gestureSeen = false;   // Music may only start after the first user gesture
+    this.onGesture = null;      // Callback wired by the Game (starts the soundtrack)
+    this.music = null;          // MusicEngine, attached by the Game
   }
 
   init() {
     if (!this.ctx) {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
       if (AudioCtx) {
-        this.ctx = new AudioCtx();
+        try { this.ctx = new AudioCtx(); } catch (e) { this.ctx = null; }
       }
     }
     if (this.ctx && this.ctx.state === 'suspended') {
       this.ctx.resume().catch(() => {});
+    }
+    if (!this.gestureSeen) {
+      this.gestureSeen = true;
+      if (this.onGesture) this.onGesture();
     }
   }
 
   toggleMute() {
     this.muted = !this.muted;
     localStorage.setItem('rm_muted', this.muted);
-    if (this.muted) {
-      this.stopFrightWarble();
-      this.stopAmbient();
-    }
+    if (this.music) this.music.apply();
     return this.muted;
+  }
+
+  // Music ducks slightly under the big stingers
+  duck(amount, seconds) {
+    if (this.music) this.music.duck(amount, seconds);
   }
 
   playChomp() {
@@ -868,6 +905,7 @@ class SoundEngine {
   playCatch() {
     if (this.muted || !this.ctx) return;
     this.init();
+    this.duck(0.45, 0.6);
     const now = this.ctx.currentTime;
     // Rising triad fanfare (C5, E5, G5, C6)
     const notes = [523.25, 659.25, 783.99, 1046.50];
@@ -886,67 +924,152 @@ class SoundEngine {
     });
   }
 
-  startFrightWarble() {
-    if (this.muted || !this.ctx || this.frightGain) return;
+  // Short burst of filtered noise — used by the tear and the stumble
+  noiseBurst(t, dur, gainVal, filterType, freq) {
+    const len = Math.max(1, Math.floor(this.ctx.sampleRate * dur));
+    const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = filterType || 'bandpass';
+    filter.frequency.setValueAtTime(freq || 800, t);
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(gainVal, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    src.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.ctx.destination);
+    src.start(t);
+    src.stop(t + dur + 0.01);
+  }
+
+  // The maze tears open: noise rip + rising glide. Music ducks under it.
+  playFlipStinger() {
+    if (this.muted || !this.ctx) return;
+    this.init();
+    this.duck(0.4, 0.9);
+    const now = this.ctx.currentTime;
+    this.noiseBurst(now, 0.45, 0.16, 'bandpass', 1400);
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(90, now);
+    osc.frequency.exponentialRampToValueAtTime(720, now + 0.5);
+    gain.gain.setValueAtTime(0.09, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.55);
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.56);
+  }
+
+  // Back through the gate: bright descending zip + soft thump
+  playGateBurst() {
+    if (this.muted || !this.ctx) return;
+    this.init();
+    this.duck(0.5, 0.6);
+    const now = this.ctx.currentTime;
+    this.noiseBurst(now, 0.25, 0.08, 'highpass', 2500);
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(1200, now);
+    osc.frequency.exponentialRampToValueAtTime(220, now + 0.35);
+    gain.gain.setValueAtTime(0.1, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.38);
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.4);
+  }
+
+  playJump() {
+    if (this.muted || !this.ctx) return;
     this.init();
     const now = this.ctx.currentTime;
-    this.frightGain = this.ctx.createGain();
-    this.frightGain.gain.setValueAtTime(0.06, now);
-
-    this.frightOsc1 = this.ctx.createOscillator();
-    this.frightOsc2 = this.ctx.createOscillator();
-    this.frightOsc1.type = 'sawtooth';
-    this.frightOsc2.type = 'sawtooth';
-
-    this.frightOsc1.frequency.setValueAtTime(110, now);
-    this.frightOsc2.frequency.setValueAtTime(114, now); // Detuned beating
-
-    // Lowpass filter
-    const filter = this.ctx.createBiquadFilter();
-    filter.type = 'lowpass';
-    filter.frequency.setValueAtTime(320, now);
-
-    this.frightOsc1.connect(filter);
-    this.frightOsc2.connect(filter);
-    filter.connect(this.frightGain);
-    this.frightGain.connect(this.ctx.destination);
-
-    this.frightOsc1.start(now);
-    this.frightOsc2.start(now);
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(300, now);
+    osc.frequency.exponentialRampToValueAtTime(640, now + 0.12);
+    gain.gain.setValueAtTime(0.045, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.15);
   }
 
-  stopFrightWarble() {
-    if (this.frightOsc1) {
-      try { this.frightOsc1.stop(); } catch(e) {}
-      this.frightOsc1 = null;
-    }
-    if (this.frightOsc2) {
-      try { this.frightOsc2.stop(); } catch(e) {}
-      this.frightOsc2 = null;
-    }
-    this.frightGain = null;
+  playStumble() {
+    if (this.muted || !this.ctx) return;
+    this.init();
+    const now = this.ctx.currentTime;
+    this.noiseBurst(now, 0.12, 0.1, 'lowpass', 500);
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(220, now);
+    osc.frequency.exponentialRampToValueAtTime(90, now + 0.18);
+    gain.gain.setValueAtTime(0.1, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.21);
   }
 
-  playHeartbeat() {
+  playSmash() {
+    if (this.muted || !this.ctx) return;
+    this.init();
+    const now = this.ctx.currentTime;
+    this.noiseBurst(now, 0.2, 0.12, 'lowpass', 900);
+  }
+
+  playValleyPellet(count) {
     if (this.muted || !this.ctx) return;
     this.init();
     const now = this.ctx.currentTime;
     const osc = this.ctx.createOscillator();
     const gain = this.ctx.createGain();
     osc.type = 'sine';
-    osc.frequency.setValueAtTime(75, now);
-    osc.frequency.exponentialRampToValueAtTime(35, now + 0.12);
-    gain.gain.setValueAtTime(0.18, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+    // Climbs through a pentatonic ladder as the chain grows
+    const ladder = [659.25, 739.99, 880, 987.77, 1174.66];
+    osc.frequency.setValueAtTime(ladder[count % ladder.length], now);
+    gain.gain.setValueAtTime(0.06, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
     osc.connect(gain);
     gain.connect(this.ctx.destination);
     osc.start(now);
-    osc.stop(now + 0.13);
+    osc.stop(now + 0.11);
+  }
+
+  playSurge() {
+    if (this.muted || !this.ctx) return;
+    this.init();
+    const now = this.ctx.currentTime;
+    const notes = [523.25, 659.25, 783.99, 1046.5, 1318.5];
+    notes.forEach((freq, idx) => {
+      const t = now + idx * 0.04;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(freq, t);
+      gain.gain.setValueAtTime(0.09, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(t);
+      osc.stop(t + 0.21);
+    });
+    this.noiseBurst(now, 0.3, 0.05, 'highpass', 3000);
   }
 
   playGhostEaten() {
     if (this.muted || !this.ctx) return;
     this.init();
+    this.duck(0.5, 0.5);
     const now = this.ctx.currentTime;
     // Downward slide whistle
     const osc = this.ctx.createOscillator();
@@ -1077,26 +1200,272 @@ class SoundEngine {
     osc.stop(now + 0.025);
   }
 
-  startAmbient() {
-    // Ambient quiet hum
-    if (this.muted || !this.ctx || this.ambientHum) return;
-    this.init();
-    const now = this.ctx.currentTime;
-    this.ambientHum = this.ctx.createOscillator();
-    const gain = this.ctx.createGain();
-    gain.gain.setValueAtTime(0.015, now);
-    this.ambientHum.type = 'sine';
-    this.ambientHum.frequency.setValueAtTime(55, now); // A1 hum
-    this.ambientHum.connect(gain);
-    gain.connect(this.ctx.destination);
-    this.ambientHum.start(now);
+}
+
+// 1b. Original Soundtrack — a small lookahead-scheduled music engine on the same AudioContext.
+// Three states: 'title' (sparse, moody), 'maze' (104 BPM night-shift groove in A minor),
+// 'valley' (140 BPM, brighter voicing, driving arpeggio). Every note is synthesized; nothing is sampled.
+const NOTE = (semitonesFromA4) => 440 * Math.pow(2, semitonesFromA4 / 12);
+
+const MUSIC_MODES = {
+  title: {
+    bpm: 72,
+    bars: 2,
+    chords: null,
+    // Low pulse on A1 at beats 1 and 3, occasional bell notes from A minor pentatonic
+    bass: { steps: [0, 8], octave: -36, type: 'sine', gain: 0.16, decay: 0.7, lp: 200 },
+    bells: { pool: [12, 15, 19, 22, 24, 27], chance: 0.6, gain: 0.045, decay: 1.9 },
+    arp: null, pad: null, hat: null
+  },
+  maze: {
+    bpm: 104,
+    bars: 4,
+    // Am · Fmaj · Dm · Em  (root / 3rd / 5th as semitones from A4)
+    chords: [[0, 3, 7], [-4, 0, 3], [-7, -4, 0], [-5, -2, 2]],
+    bass: { steps: 'eighths', octaveLow: -36, octaveHigh: -24, type: 'square', gain: 0.1, decay: 0.16, lp: 260 },
+    arp: {
+      mask:  [1, 0, 1, 1, 0, 1, 1, 0, 1, 0, 1, 1, 0, 1, 0, 1],
+      order: [0, 1, 2, 1, 2, 0, 1, 2, 0, 2, 1, 0, 1, 2, 0, 2],
+      octave: 0, type: 'triangle', gain: 0.04, decay: 0.22, lp: 1800
+    },
+    pad: { octave: -12, type: 'sawtooth', gain: 0.016, lp: 520, detune: 5 },
+    hat: null,
+    bells: null
+  },
+  valley: {
+    bpm: 140,
+    bars: 4,
+    // C · G · Am · F — the same engine, lifted into a brighter voicing
+    chords: [[3, 7, 10], [-2, 2, 5], [0, 3, 7], [-4, 0, 3]],
+    bass: { steps: 'eighths', octaveLow: -24, octaveHigh: -12, type: 'square', gain: 0.09, decay: 0.13, lp: 420 },
+    arp: {
+      mask:  [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+      order: [0, 1, 2, 1, 0, 2, 1, 2, 0, 1, 2, 0, 1, 2, 0, 2],
+      octave: 12, type: 'square', gain: 0.026, decay: 0.12, lp: 2600
+    },
+    pad: { octave: -12, type: 'sawtooth', gain: 0.018, lp: 1400, detune: 7 },
+    hat: { steps: [2, 6, 10, 14], gain: 0.03, dur: 0.04 },
+    bells: null
+  }
+};
+
+class MusicEngine {
+  constructor(sound) {
+    this.sound = sound;
+    this.mode = 'off';      // Logical state requested by the game: off / title / maze / valley
+    this.running = null;    // Mode currently sounding (null when silent)
+    this.spec = null;
+    this.timer = null;
+    this.master = null;
+    this.duckGain = null;
+    this.nextTime = 0;
+    this.step = 0;
+    this.stepDur = 0.15;
+    this.lookahead = 0.16;  // seconds scheduled ahead of the clock
+    this.tickMs = 40;
   }
 
-  stopAmbient() {
-    if (this.ambientHum) {
-      try { this.ambientHum.stop(); } catch(e) {}
-      this.ambientHum = null;
+  get ctx() { return this.sound.ctx; }
+
+  // Exposed to the test hooks. Music is 'off' before the first gesture and while muted.
+  getState() {
+    if (!this.sound.gestureSeen || this.sound.muted) return 'off';
+    return this.mode;
+  }
+
+  setMode(mode) {
+    this.mode = mode;
+    this.apply();
+  }
+
+  // Reconcile the logical mode with what is actually sounding (mute, gesture, context availability)
+  apply() {
+    const want = (this.sound.gestureSeen && !this.sound.muted && this.ctx) ? this.mode : 'off';
+    if (want === this.running) return;
+    this.stopActual();
+    if (want !== 'off') this.startActual(want);
+  }
+
+  startActual(mode) {
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+    this.duckGain = ctx.createGain();
+    this.duckGain.gain.setValueAtTime(1, now);
+    this.master = ctx.createGain();
+    this.master.gain.setValueAtTime(0, now);
+    this.master.gain.linearRampToValueAtTime(1, now + 0.35);
+    this.master.connect(this.duckGain);
+    this.duckGain.connect(ctx.destination);
+
+    this.running = mode;
+    this.spec = MUSIC_MODES[mode];
+    this.stepDur = 60 / this.spec.bpm / 4; // sixteenth notes
+    this.step = 0;
+    this.nextTime = now + 0.06;
+    this.timer = setInterval(() => this.tick(), this.tickMs);
+  }
+
+  stopActual() {
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
     }
+    if (this.master && this.ctx) {
+      const m = this.master;
+      const now = this.ctx.currentTime;
+      m.gain.cancelScheduledValues(now);
+      m.gain.setValueAtTime(m.gain.value, now);
+      m.gain.linearRampToValueAtTime(0, now + 0.08);
+      setTimeout(() => { try { m.disconnect(); } catch (e) {} }, 400);
+    }
+    this.master = null;
+    this.duckGain = null;
+    this.running = null;
+  }
+
+  duck(amount, seconds) {
+    if (!this.duckGain || !this.ctx) return;
+    const now = this.ctx.currentTime;
+    const g = this.duckGain.gain;
+    g.cancelScheduledValues(now);
+    g.setValueAtTime(amount, now);
+    g.linearRampToValueAtTime(1, now + seconds);
+  }
+
+  tick() {
+    if (!this.ctx || !this.master) return;
+    while (this.nextTime < this.ctx.currentTime + this.lookahead) {
+      this.scheduleStep(this.step, this.nextTime);
+      this.nextTime += this.stepDur;
+      this.step++;
+    }
+  }
+
+  scheduleStep(step, t) {
+    const s = this.spec;
+    const bar = Math.floor(step / 16) % s.bars;
+    const i = step % 16;
+    const chord = s.chords ? s.chords[bar] : [0, 3, 7];
+
+    if (s.bass) {
+      if (s.bass.steps === 'eighths') {
+        if (i % 2 === 0) {
+          // Octave bass pulse: low on the beat, high on the off-beat eighth
+          const high = (i % 4 === 2);
+          let freq = NOTE(chord[0] + (high ? s.bass.octaveHigh : s.bass.octaveLow));
+          while (freq < 48) freq *= 2;
+          this.tone(freq, t, s.bass);
+        }
+      } else if (s.bass.steps.includes(i)) {
+        this.tone(NOTE(s.bass.octave), t, s.bass);
+      }
+    }
+
+    if (s.arp && s.arp.mask[i]) {
+      const semi = chord[s.arp.order[i] % chord.length] + s.arp.octave;
+      this.tone(NOTE(semi), t, s.arp);
+    }
+
+    if (s.pad && i === 0) {
+      this.pad(chord, t, s.pad, this.stepDur * 16);
+    }
+
+    if (s.hat && s.hat.steps.includes(i)) {
+      this.hat(t, s.hat);
+    }
+
+    if (s.bells && i === 0 && Math.random() < s.bells.chance) {
+      const bellStep = [2, 5, 9, 12][Math.floor(Math.random() * 4)];
+      const semi = s.bells.pool[Math.floor(Math.random() * s.bells.pool.length)];
+      this.bell(NOTE(semi), t + bellStep * this.stepDur, s.bells);
+    }
+  }
+
+  tone(freq, t, v) {
+    const ctx = this.ctx;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = v.type;
+    osc.frequency.setValueAtTime(freq, t);
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.linearRampToValueAtTime(v.gain, t + 0.008);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + v.decay);
+    let node = osc;
+    if (v.lp) {
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(v.lp, t);
+      osc.connect(filter);
+      node = filter;
+    }
+    node.connect(gain);
+    gain.connect(this.master);
+    osc.start(t);
+    osc.stop(t + v.decay + 0.02);
+  }
+
+  pad(chord, t, v, dur) {
+    const ctx = this.ctx;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.linearRampToValueAtTime(v.gain, t + 0.3);
+    gain.gain.setValueAtTime(v.gain, t + dur - 0.35);
+    gain.gain.linearRampToValueAtTime(0.0001, t + dur);
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(v.lp, t);
+    filter.connect(gain);
+    gain.connect(this.master);
+    chord.forEach(semi => {
+      [-v.detune, v.detune].forEach(cents => {
+        const osc = ctx.createOscillator();
+        osc.type = v.type;
+        osc.frequency.setValueAtTime(NOTE(semi + v.octave), t);
+        osc.detune.setValueAtTime(cents, t);
+        osc.connect(filter);
+        osc.start(t);
+        osc.stop(t + dur + 0.02);
+      });
+    });
+  }
+
+  hat(t, v) {
+    const ctx = this.ctx;
+    const len = Math.floor(ctx.sampleRate * v.dur);
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'highpass';
+    filter.frequency.setValueAtTime(6000, t);
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(v.gain, t);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + v.dur);
+    src.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.master);
+    src.start(t);
+    src.stop(t + v.dur + 0.01);
+  }
+
+  bell(freq, t, v) {
+    const ctx = this.ctx;
+    // Bell = fundamental plus an inharmonic partial, long decay
+    [[1, 1], [2.76, 0.35]].forEach(([ratio, amp]) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq * ratio, t);
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.linearRampToValueAtTime(v.gain * amp, t + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + v.decay);
+      osc.connect(gain);
+      gain.connect(this.master);
+      osc.start(t);
+      osc.stop(t + v.decay + 0.02);
+    });
   }
 }
 
@@ -1133,7 +1502,7 @@ const MAZE_CONFIGS = [
     wallGlow: "rgba(99, 102, 241, 0.4)",
     menaceSpeedMultiplier: 1.0,
     ghostSpeedMultiplier: 1.0,
-    frightDuration: 6.0
+    valleyMenaceGain: 2.4   // px/s gained per second by the rolling Menace in Green Valley
   },
   {
     name: "Maze 2",
@@ -1142,7 +1511,7 @@ const MAZE_CONFIGS = [
     wallGlow: "rgba(217, 70, 239, 0.4)",
     menaceSpeedMultiplier: 1.07,
     ghostSpeedMultiplier: 1.02,
-    frightDuration: 5.0
+    valleyMenaceGain: 2.7
   },
   {
     name: "Maze 3",
@@ -1151,7 +1520,7 @@ const MAZE_CONFIGS = [
     wallGlow: "rgba(244, 63, 94, 0.45)",
     menaceSpeedMultiplier: 1.14,
     ghostSpeedMultiplier: 1.04,
-    frightDuration: 4.0
+    valleyMenaceGain: 3.0
   }
 ];
 
@@ -1161,6 +1530,10 @@ class Game {
     this.canvas = document.getElementById('gameCanvas');
     this.ctx = this.canvas.getContext('2d');
     this.sound = new SoundEngine();
+    this.music = new MusicEngine(this.sound);
+    this.sound.music = this.music;
+    // The soundtrack starts only after the first user gesture
+    this.sound.onGesture = () => this.syncMusic();
 
     // Dimensions
     this.cols = 19;
@@ -1176,7 +1549,8 @@ class Game {
     this.ctx.scale(this.dpr, this.dpr);
 
     // Game state
-    this.state = 'title'; // 'title', 'playing', 'paused', 'maze_clear', 'game_over', 'victory'
+    this.state = 'title'; // 'title', 'playing', 'flip', 'paused', 'maze_clear', 'game_over', 'victory'
+    this.pausedFrom = 'playing'; // State to resume into after a pause (playing or flip)
     this.mazeIndex = 0; // 0, 1, 2
     this.score = 0;
     this.totalPelletsSaved = 0;
@@ -1189,12 +1563,12 @@ class Game {
     this.pelletsRemaining = 0;
     this.pelletsEatenByMenace = 0;
 
-    // Fright mode
-    this.isFrightMode = false;
-    this.frightTimer = 0;
-    this.frightDuration = 6.0;
-    this.ghostsEatenInFright = 0;
-    this.heartbeatTimer = 0;
+    // The Green Valley Flip (replaces the in-maze fright mode)
+    this.isFrightMode = false;     // true while the hunt is flipped (kept for the HUD/test contract)
+    this.flip = null;              // ValleyRun instance while state === 'flip'
+    this.transition = null;        // Tear / gate effect drawn over whichever scene is active
+    this.ghostsEatenInFright = 0;  // Keepers benched by the Menace this maze
+    this.lastTaunt = '';
 
     // Fruit
     this.fruit = {
@@ -1330,6 +1704,11 @@ class Game {
         if (dirName === 'down') d = { x: 0, y: 1 };
         if (dirName === 'left') d = { x: -1, y: 0 };
         if (dirName === 'right') d = { x: 1, y: 0 };
+        if (this.state === 'flip') {
+          if (d.y < 0) this.flipJump();
+          else if (d.y > 0) this.flipFastFall();
+          return;
+        }
         this.steerPossessed(d);
       };
       btn.addEventListener('touchstart', handleDir, { passive: false });
@@ -1345,6 +1724,25 @@ class Game {
         const isMuted = this.sound.toggleMute();
         document.getElementById('btn-sound').textContent = isMuted ? '🔇' : '🔊';
         return;
+      }
+
+      // Green Valley controls: jump (Space / Up / W), fast-fall (Down / S). P still pauses.
+      if (this.state === 'flip') {
+        if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') {
+          e.preventDefault();
+          this.flipJump();
+          return;
+        }
+        if (e.code === 'ArrowDown' || e.code === 'KeyS') {
+          e.preventDefault();
+          this.flipFastFall();
+          return;
+        }
+        if (e.code === 'KeyP') {
+          this.togglePause();
+          return;
+        }
+        return; // Possession is locked to the flipped ghost
       }
 
       if (e.code === 'Space' || e.code === 'KeyP') {
@@ -1384,6 +1782,7 @@ class Game {
       if (e.touches.length === 1) {
         touchStartX = e.touches[0].clientX;
         touchStartY = e.touches[0].clientY;
+        if (this.state === 'flip') return;
 
         // Check if tapping directly on a ghost
         const rect = this.canvas.getBoundingClientRect();
@@ -1397,16 +1796,27 @@ class Game {
     }, { passive: true });
 
     this.canvas.addEventListener('touchend', (e) => {
-      if (e.changedTouches.length === 1 && this.state === 'playing') {
-        const dx = e.changedTouches[0].clientX - touchStartX;
-        const dy = e.changedTouches[0].clientY - touchStartY;
+      if (e.changedTouches.length !== 1) return;
+      const dx = e.changedTouches[0].clientX - touchStartX;
+      const dy = e.changedTouches[0].clientY - touchStartY;
+      if (this.state === 'flip') {
+        // Valley: swipe down = fast-fall, anything else (a tap) = jump
+        if (dy > 30 && Math.abs(dy) > Math.abs(dx)) this.flipFastFall();
+        else this.flipJump();
+        return;
+      }
+      if (this.state === 'playing') {
         this.touchSteer(dx, dy);
       }
     }, { passive: true });
 
-    // Mouse click on canvas to select ghost
+    // Mouse click on canvas to select ghost (or jump, in the valley)
     this.canvas.addEventListener('mousedown', (e) => {
       this.sound.init();
+      if (this.state === 'flip') {
+        this.flipJump();
+        return;
+      }
       const rect = this.canvas.getBoundingClientRect();
       const scaleX = this.width / rect.width;
       const scaleY = this.height / rect.height;
@@ -1457,13 +1867,36 @@ class Game {
   }
 
   showTitleScreen() {
+    this.abortFlip();
     this.state = 'title';
-    this.sound.stopFrightWarble();
-    this.sound.stopAmbient();
-    document.getElementById('fright-bar-container').classList.remove('active');
     document.getElementById('title-high-score').textContent = this.highScore;
     document.getElementById('title-best-pellets').textContent = this.bestPelletsSaved;
     this.showScreen('title-screen');
+    this.syncMusic();
+  }
+
+  // Map the game state onto the soundtrack state. Idempotent; safe to call after any transition.
+  syncMusic() {
+    let mode = 'off';
+    if (this.state === 'title') mode = 'title';
+    else if (this.state === 'playing') mode = 'maze';
+    else if (this.state === 'flip') mode = 'valley';
+    // paused / maze_clear / game_over / victory: silent (the jingles own those moments)
+    this.music.setMode(mode);
+  }
+
+  // Villain taunt: a short banner in the Menace's voice
+  taunt(text) {
+    this.lastTaunt = text;
+    const el = document.getElementById('taunt-banner');
+    if (!el) return;
+    el.textContent = text;
+    el.classList.remove('show');
+    // Restart the pop animation even if a taunt is already showing
+    void el.offsetWidth;
+    el.classList.add('show');
+    clearTimeout(this.tauntTimer);
+    this.tauntTimer = setTimeout(() => el.classList.remove('show'), 1500);
   }
 
   showNotification(text) {
@@ -1503,32 +1936,33 @@ class Game {
   }
 
   togglePause() {
-    if (this.state === 'playing') {
+    if (this.state === 'playing' || this.state === 'flip') {
+      this.pausedFrom = this.state;
       this.state = 'paused';
-      this.sound.stopFrightWarble();
       this.showScreen('pause-screen');
+      this.syncMusic();
     } else if (this.state === 'paused') {
-      this.state = 'playing';
-      if (this.isFrightMode) this.sound.startFrightWarble();
+      this.state = (this.pausedFrom === 'flip' && this.flip) ? 'flip' : 'playing';
       this.showScreen(null);
+      this.syncMusic();
     }
   }
 
   startNewGame() {
+    this.abortFlip();
     this.score = 0;
     this.totalPelletsSaved = 0;
     this.mazeIndex = 0;
     this.initMaze(0);
     this.state = 'playing';
     this.showScreen(null);
-    this.sound.startAmbient();
+    this.syncMusic();
     this.showNotification("Night Shift Begins!");
   }
 
   initMaze(index) {
     this.mazeIndex = index;
     const cfg = MAZE_CONFIGS[this.mazeIndex];
-    this.frightDuration = cfg.frightDuration;
 
     // Load grid template
     this.grid = [];
@@ -1547,12 +1981,9 @@ class Game {
     this.pelletsRemaining = this.totalPelletsInMaze;
     this.pelletsEatenByMenace = 0;
 
-    // Reset Fright
-    this.isFrightMode = false;
-    this.frightTimer = 0;
+    // Reset the flip
+    this.abortFlip();
     this.ghostsEatenInFright = 0;
-    this.sound.stopFrightWarble();
-    document.getElementById('fright-bar-container').classList.remove('active');
 
     // Reset Fruit
     this.fruit.active = false;
@@ -1605,6 +2036,10 @@ class Game {
 
   possess(index) {
     if (index < 0 || index >= this.ghosts.length) return;
+    if (this.state === 'flip') {
+      this.showNotification("No switching mid-flip!");
+      return;
+    }
     const g = this.ghosts[index];
     if (g.isBenched) {
       this.showNotification(`${g.name} is benched!`);
@@ -1635,37 +2070,129 @@ class Game {
     }
   }
 
-  triggerFrightMode(customDuration) {
+  // ===== THE GREEN VALLEY FLIP =====
+  // The Menace eats a power pellet: the maze tears open and the possessed ghost is thrown into
+  // Green Valley with the Menace rolling after it. Maze time pauses; the rest of the squad waits frozen.
+  startFlip() {
+    if (this.state !== 'playing' || this.flip) return;
+    let ghostIndex = this.possessedIndex;
+    if (!this.ghosts[ghostIndex] || this.ghosts[ghostIndex].isBenched) {
+      ghostIndex = this.ghosts.findIndex(g => !g.isBenched);
+      if (ghostIndex === -1) return; // Nobody left to throw into the valley
+      this.possessedIndex = ghostIndex;
+      this.updateSquadBarUI();
+    }
+
+    this.snapshotCanvas();
+    this.flip = new ValleyRun(this, ghostIndex);
     this.isFrightMode = true;
-    this.frightDuration = customDuration || MAZE_CONFIGS[this.mazeIndex].frightDuration;
-    this.frightTimer = this.frightDuration;
-    this.ghostsEatenInFright = 0;
-    this.heartbeatTimer = 0;
+    this.state = 'flip';
+    this.transition = { mode: 'in', t: 0, dur: 0.7 };
+    this.banner = { text: 'THE HUNT FLIPS — RUN!', t: 0, dur: 1.7, color: '#ff3344' };
+    this.shakeDuration = 0.3;
+    this.shakeIntensity = 10;
 
-    // Fright speeds
-    this.menace.speed = this.menace.baseSpeed * 1.10;
-    this.ghosts.forEach(g => {
-      if (!g.isBenched) {
-        g.speed = g.baseSpeed * 0.75;
-      }
-    });
+    this.sound.playFlipStinger();
+    this.taunt('MY TURN.');
 
-    this.sound.startFrightWarble();
-    document.getElementById('fright-bar-container').classList.add('active');
-    this.showNotification("⚠️ Power Pellet! Menace Hunting!");
+    const bar = document.getElementById('fright-bar-container');
+    bar.classList.add('active');
+    document.getElementById('fright-progress-fill').style.width = '0%';
+    document.getElementById('fright-timer-text').textContent = `${this.flip.duration.toFixed(1)}s`;
+    this.syncMusic();
   }
 
-  endFrightMode() {
-    this.isFrightMode = false;
-    this.frightTimer = 0;
-    this.sound.stopFrightWarble();
-    document.getElementById('fright-bar-container').classList.remove('active');
+  // outcome: 'survived' (gate reached, +200, ghost bursts back into the maze) or 'caught' (benched)
+  endFlip(outcome) {
+    if (!this.flip) return;
+    const run = this.flip;
+    const ghostIndex = run.ghostIndex;
 
-    // Restore speeds
-    this.menace.speed = this.menace.baseSpeed;
-    this.ghosts.forEach(g => {
-      g.speed = g.baseSpeed;
-    });
+    this.snapshotCanvas();
+    this.flip = null;
+    this.isFrightMode = false;
+    document.getElementById('fright-bar-container').classList.remove('active');
+    this.state = 'playing';
+    this.menace.immuneTimer = 1.0; // Flashing re-entry: the return is never an instant catch
+    this.transition = { mode: 'out', t: 0, dur: 0.6 };
+    this.banner = { text: 'BACK THROUGH THE GATE', t: 0, dur: 1.5, color: '#a3e635' };
+    this.sound.playGateBurst();
+
+    const g = this.ghosts[ghostIndex];
+    if (outcome === 'survived') {
+      this.score += 200;
+      this.updateHUD();
+      for (let i = 0; i < 22; i++) this.particles.push(new Particle(g.x, g.y, g.color));
+      this.showNotification("Gate reached! Survival +200");
+    } else {
+      // Caught: the existing bench flow (eyes float home, possession moves on, squad wipe = game over)
+      this.handleGhostEatenByMenace(ghostIndex);
+    }
+    this.syncMusic();
+  }
+
+  // Silent cleanup used by every screen change that leaves the flip behind
+  abortFlip() {
+    this.flip = null;
+    this.isFrightMode = false;
+    this.transition = null;
+    this.banner = null;
+    const bar = document.getElementById('fright-bar-container');
+    if (bar) bar.classList.remove('active');
+  }
+
+  flipJump() {
+    if (this.state !== 'flip' || !this.flip) return;
+    if (this.flip.jump()) this.sound.playJump();
+  }
+
+  flipFastFall() {
+    if (this.state !== 'flip' || !this.flip) return;
+    this.flip.fastFall();
+  }
+
+  updateFlip(dt) {
+    const run = this.flip;
+    if (!run) return;
+    const outcome = run.update(dt);
+    const g = run.ghost;
+    const pct = Math.max(0, Math.min(100, (g.x / run.gateX) * 100));
+    document.getElementById('fright-progress-fill').style.width = `${pct}%`;
+    const remaining = Math.max(0, (run.gateX - g.x) / run.runSpeed);
+    document.getElementById('fright-timer-text').textContent = `${remaining.toFixed(1)}s`;
+    if (outcome) this.endFlip(outcome);
+  }
+
+  getFlipInfo() {
+    const run = this.flip;
+    if (!run) return { active: false, ghostIndex: -1, phase: 'none', elapsed: 0, progress: 0, menaceProgress: 0, pellets: 0, surges: 0 };
+    return {
+      active: true,
+      ghostIndex: run.ghostIndex,
+      phase: run.phase,
+      elapsed: run.elapsed,
+      progress: run.ghost.x / run.gateX,
+      menaceProgress: run.menace.x / run.gateX,
+      pellets: run.collected,
+      surges: run.surges
+    };
+  }
+
+  // Copy the current frame so the tear can fling it apart / suck it back
+  snapshotCanvas() {
+    if (!this.sceneSnap) {
+      this.sceneSnap = document.createElement('canvas');
+      this.sceneSnap.width = this.canvas.width;
+      this.sceneSnap.height = this.canvas.height;
+    }
+    const c = this.sceneSnap.getContext('2d');
+    c.clearRect(0, 0, this.sceneSnap.width, this.sceneSnap.height);
+    c.drawImage(this.canvas, 0, 0);
+  }
+
+  // Villain pass: the grin widens with every pellet he eats in the current maze (0..1)
+  menaceGrin() {
+    return Math.min(1, this.pelletsEatenByMenace / 120);
   }
 
   handleCatch() {
@@ -1681,6 +2208,7 @@ class Game {
     }
 
     this.sound.playCatch();
+    this.taunt('LUCKY.');
     this.score += 300;
     this.menace.lives--;
     this.updateHUD();
@@ -1720,18 +2248,24 @@ class Game {
       this.possessedIndex = 0;
     }
 
-    this.endFrightMode();
     this.updateSquadBarUI();
   }
 
   handleGhostEatenByMenace(ghostIndex) {
     const g = this.ghosts[ghostIndex];
-    if (g.isBenched) return;
+    if (!g || g.isBenched) return;
+
+    // Eating the ghost who is out in the valley IS the flip's caught path
+    if (this.flip && this.flip.ghostIndex === ghostIndex) {
+      this.endFlip('caught');
+      return;
+    }
 
     g.isBenched = true;
     g.state = 'RETURNING';
     this.ghostsEatenInFright++;
     this.sound.playGhostEaten();
+    this.taunt('ONE DOWN.');
     this.showNotification(`${g.name} was eaten & benched!`);
 
     // Particles at ghost position
@@ -1756,9 +2290,9 @@ class Game {
   }
 
   handleMazeClear() {
+    this.abortFlip();
     this.state = 'maze_clear';
-    this.sound.stopFrightWarble();
-    this.sound.stopAmbient();
+    this.syncMusic();
     this.sound.playMazeClear();
 
     const saved = this.pelletsRemaining;
@@ -1793,7 +2327,7 @@ class Game {
       this.initMaze(this.mazeIndex + 1);
       this.state = 'playing';
       this.showScreen(null);
-      this.sound.startAmbient();
+      this.syncMusic();
       this.showNotification(`Entering Maze ${this.mazeIndex + 1}!`);
     } else {
       // Victory after Maze 3!
@@ -1802,9 +2336,9 @@ class Game {
   }
 
   handleGameOver(title, reason) {
+    this.abortFlip();
     this.state = 'game_over';
-    this.sound.stopFrightWarble();
-    this.sound.stopAmbient();
+    this.syncMusic();
     this.sound.playGameOver();
 
     // Check high score
@@ -1827,9 +2361,9 @@ class Game {
   }
 
   handleVictory() {
+    this.abortFlip();
     this.state = 'victory';
-    this.sound.stopFrightWarble();
-    this.sound.stopAmbient();
+    this.syncMusic();
     this.sound.playMazeClear();
 
     this.updateHighScores();
@@ -1859,12 +2393,26 @@ class Game {
 
     if (dt > 0.1) dt = 0.1; // Cap dt for tab-switching
 
+    // Transition and banner effects run on raw time, whatever the scene
+    if (this.transition) {
+      this.transition.t += dt;
+      if (this.transition.t >= this.transition.dur) this.transition = null;
+    }
+    if (this.banner) {
+      this.banner.t += dt;
+      if (this.banner.t >= this.banner.dur) this.banner = null;
+    }
+    if (this.shakeDuration > 0 && this.state !== 'playing') this.shakeDuration -= dt;
+
     if (this.state === 'playing') {
       if (this.slowMoTimer > 0) {
         this.slowMoTimer -= dt;
         dt *= this.slowMoFactor;
       }
       this.update(dt);
+    } else if (this.state === 'flip') {
+      // Maze time is paused; only the valley advances
+      this.updateFlip(dt);
     }
 
     this.render();
@@ -1879,27 +2427,6 @@ class Game {
 
     // Selection ring rotation
     this.selectionRingAngle += dt * 3.5;
-
-    // Fright Timer Update
-    if (this.isFrightMode) {
-      this.frightTimer -= dt;
-      const pct = Math.max(0, (this.frightTimer / this.frightDuration) * 100);
-      document.getElementById('fright-progress-fill').style.width = `${pct}%`;
-      document.getElementById('fright-timer-text').textContent = `${Math.max(0, this.frightTimer).toFixed(1)}s`;
-
-      // Heartbeat during last 2s of fright
-      if (this.frightTimer <= 2.0 && this.frightTimer > 0) {
-        this.heartbeatTimer += dt;
-        if (this.heartbeatTimer >= 0.5) {
-          this.heartbeatTimer = 0;
-          this.sound.playHeartbeat();
-        }
-      }
-
-      if (this.frightTimer <= 0) {
-        this.endFrightMode();
-      }
-    }
 
     // Wave cycling (Scatter / Chase)
     this.waveTimer += dt;
@@ -1973,10 +2500,11 @@ class Game {
       this.menace.immuneTimer -= dt;
     }
 
-    // Chomp animation
+    // Chomp animation — the mouth opens wider as the grin widens (villain pass)
     this.menace.mouthAngle += this.menace.mouthDir * dt * 8;
-    if (this.menace.mouthAngle > 0.55) {
-      this.menace.mouthAngle = 0.55;
+    const mouthMax = 0.55 + 0.3 * this.menaceGrin();
+    if (this.menace.mouthAngle > mouthMax) {
+      this.menace.mouthAngle = mouthMax;
       this.menace.mouthDir = -1;
     } else if (this.menace.mouthAngle < 0.05) {
       this.menace.mouthAngle = 0.05;
@@ -2063,7 +2591,8 @@ class Game {
 
       // Check if Menace ate all pellets -> Game Over!
       if (this.pelletsRemaining <= 0) {
-        this.handleGameOver("Maze Devoured", "The Round Menace consumed every single pellet.");
+        this.taunt('ALL MINE.');
+        this.handleGameOver("Maze Devoured", "“ALL MINE.” — The Round Menace consumed every single pellet.");
       }
     } else if (cell === 'o') {
       this.grid[r][c] = ' ';
@@ -2072,8 +2601,8 @@ class Game {
       this.sound.playChomp();
       this.updateHUD();
 
-      // Trigger Fright Mode
-      this.triggerFrightMode();
+      // The power pellet tears the maze open: Green Valley Flip
+      this.startFlip();
     }
   }
 
@@ -2094,33 +2623,7 @@ class Game {
     // Active (non-benched) ghosts
     const activeGhosts = this.ghosts.filter(g => !g.isBenched && g.state !== 'HOUSE');
 
-    // 1. Fright-Chase (if fright mode)
-    if (this.isFrightMode && activeGhosts.length > 0) {
-      let nearestGhost = null;
-      let minDist = Infinity;
-      activeGhosts.forEach(g => {
-        const d = Math.hypot(g.tileX - curX, g.tileY - curY);
-        if (d < minDist) {
-          minDist = d;
-          nearestGhost = g;
-        }
-      });
-
-      if (nearestGhost) {
-        let bestMove = legalMoves[0];
-        let bestDist = Infinity;
-        legalMoves.forEach(m => {
-          const nx = curX + m.x;
-          const ny = curY + m.y;
-          const d = Math.hypot(nx - nearestGhost.tileX, ny - nearestGhost.tileY);
-          if (d < bestDist) {
-            bestDist = d;
-            bestMove = m;
-          }
-        });
-        return bestMove;
-      }
-    }
+    // 1. (The in-maze fright chase is gone: the power pellet now triggers the Green Valley Flip.)
 
     // 2. Power-pellet grab: ghost <= 4 tiles AND power pellet <= 6 tiles
     let ghostNear = false;
@@ -2334,14 +2837,9 @@ class Game {
 
       const dist = Math.hypot(g.x - this.menace.x, g.y - this.menace.y);
       if (dist < this.tileSize * 0.75) {
-        if (this.isFrightMode) {
-          // Menace eats the ghost!
-          this.handleGhostEatenByMenace(i);
-        } else {
-          // Ghost catches the Menace!
-          this.handleCatch();
-          break;
-        }
+        // Ghost catches the Menace!
+        this.handleCatch();
+        break;
       }
     }
   }
@@ -2358,25 +2856,154 @@ class Game {
       this.ctx.translate(sx, sy);
     }
 
-    // 1. Draw Maze
-    this.drawMaze();
+    if (this.flip && (this.state === 'flip' || (this.state === 'paused' && this.pausedFrom === 'flip'))) {
+      // Green Valley scene
+      this.flip.draw(this.ctx, performance.now() / 1000);
+    } else {
+      // 1. Draw Maze
+      this.drawMaze();
 
-    // 2. Draw Fruit
-    this.drawFruit();
+      // 2. Draw Fruit
+      this.drawFruit();
 
-    // 3. Draw Pellets & Power Pellets
-    this.drawPellets();
+      // 3. Draw Pellets & Power Pellets
+      this.drawPellets();
 
-    // 4. Draw Menace
-    this.drawMenace();
+      // 4. Draw Menace
+      this.drawMenace();
 
-    // 5. Draw Ghosts & Selection Ring
-    this.drawGhosts();
+      // 5. Draw Ghosts & Selection Ring
+      this.drawGhosts();
 
-    // 6. Draw Particles
-    this.drawParticles();
+      // 6. Draw Particles
+      this.drawParticles();
+    }
+
+    // 7. Tear / gate transition and the flip banners
+    if (this.transition && this.sceneSnap) this.drawTransition();
+    if (this.banner) this.drawBanner();
 
     this.ctx.restore();
+  }
+
+  // Jagged vertical tear line through the middle of the screen (stable per transition)
+  tearPath() {
+    const tr = this.transition;
+    if (!tr.points) {
+      const pts = [];
+      const n = 14;
+      for (let i = 0; i <= n; i++) {
+        const y = -20 + (this.height + 40) * (i / n);
+        const x = this.width / 2 + (i === 0 || i === n ? 0 : (Math.random() - 0.5) * 70);
+        pts.push({ x, y });
+      }
+      tr.points = pts;
+    }
+    return tr.points;
+  }
+
+  drawTransition() {
+    const tr = this.transition;
+    const ctx = this.ctx;
+    const W = this.width, H = this.height;
+    const p = Math.min(1, tr.t / tr.dur);
+
+    if (tr.mode === 'in') {
+      // The maze tears open: two jagged halves fly apart and zoom, revealing the valley beneath
+      const ease = p * p;
+      const shift = ease * W * 0.8;
+      const scale = 1 + ease * 0.7;
+      const pts = this.tearPath();
+      const last = pts[pts.length - 1];
+      ['left', 'right'].forEach(side => {
+        ctx.save();
+        ctx.beginPath();
+        if (side === 'left') {
+          ctx.moveTo(-W, -H);
+          ctx.lineTo(pts[0].x, -H);
+          pts.forEach(pt => ctx.lineTo(pt.x, pt.y));
+          ctx.lineTo(last.x, 2 * H);
+          ctx.lineTo(-W, 2 * H);
+        } else {
+          ctx.moveTo(2 * W, -H);
+          ctx.lineTo(pts[0].x, -H);
+          pts.forEach(pt => ctx.lineTo(pt.x, pt.y));
+          ctx.lineTo(last.x, 2 * H);
+          ctx.lineTo(2 * W, 2 * H);
+        }
+        ctx.closePath();
+        ctx.clip();
+        ctx.globalAlpha = 1 - ease * 0.35;
+        ctx.translate(W / 2 + (side === 'left' ? -shift : shift), H / 2);
+        ctx.scale(scale, scale);
+        ctx.translate(-W / 2, -H / 2);
+        ctx.drawImage(this.sceneSnap, 0, 0, W, H);
+        ctx.restore();
+      });
+
+      // Hot white seam along the tear
+      ctx.save();
+      ctx.globalAlpha = (1 - p) * 0.9;
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 4 + 26 * p;
+      ctx.shadowColor = '#ff3344';
+      ctx.shadowBlur = 30;
+      ctx.beginPath();
+      pts.forEach((pt, i) => (i === 0 ? ctx.moveTo(pt.x, pt.y) : ctx.lineTo(pt.x, pt.y)));
+      ctx.stroke();
+      ctx.restore();
+    } else {
+      // Back through the gate: the valley shrinks into the centre and fades
+      const ease = p * p;
+      const scale = 1 - ease * 0.92;
+      ctx.save();
+      ctx.globalAlpha = 1 - ease;
+      ctx.translate(W / 2, H / 2);
+      ctx.scale(Math.max(0.02, scale), Math.max(0.02, scale));
+      ctx.translate(-W / 2, -H / 2);
+      ctx.drawImage(this.sceneSnap, 0, 0, W, H);
+      ctx.restore();
+
+      ctx.save();
+      ctx.globalAlpha = (1 - p) * 0.8;
+      ctx.strokeStyle = '#a3e635';
+      ctx.lineWidth = 6;
+      ctx.shadowColor = '#a3e635';
+      ctx.shadowBlur = 24;
+      ctx.beginPath();
+      ctx.arc(W / 2, H / 2, 20 + p * W * 0.9, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  drawBanner() {
+    const b = this.banner;
+    const ctx = this.ctx;
+    const p = b.t / b.dur;
+    const pop = Math.min(1, b.t / 0.18);
+    const scale = 0.6 + 0.4 * (1 - Math.pow(1 - pop, 3));
+    const alpha = p > 0.75 ? (1 - p) / 0.25 : 1;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(this.width / 2, this.height * 0.42);
+    ctx.scale(scale, scale);
+    ctx.font = '900 30px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineWidth = 8;
+    ctx.strokeStyle = 'rgba(8, 9, 20, 0.9)';
+    ctx.lineJoin = 'round';
+    ctx.strokeText(b.text, 0, 0);
+    ctx.shadowColor = b.color;
+    ctx.shadowBlur = 18;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(b.text, 0, 0);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = b.color;
+    ctx.fillRect(-110, 24, 220, 3);
+    ctx.restore();
   }
 
   drawMaze() {
@@ -2498,30 +3125,109 @@ class Game {
     const y = this.menace.y;
     const radius = 10.5;
     const mouth = this.menace.mouthAngle;
-
-    // Angle based on movement
-    let baseAngle = 0;
-    if (this.menace.facing.x === 1) baseAngle = 0;
-    else if (this.menace.facing.x === -1) baseAngle = Math.PI;
-    else if (this.menace.facing.y === 1) baseAngle = Math.PI / 2;
-    else if (this.menace.facing.y === -1) baseAngle = -Math.PI / 2;
+    const grin = this.menaceGrin();
 
     this.ctx.save();
     this.ctx.translate(x, y);
 
-    // Glow
-    this.ctx.shadowColor = 'rgba(251, 197, 49, 0.7)';
-    this.ctx.shadowBlur = 10;
+    // Orient so the face is drawn "facing right" in local space (mirror for left, rotate for up/down)
+    const f = this.menace.facing;
+    if (f.x === -1) this.ctx.scale(-1, 1);
+    else if (f.y === 1) this.ctx.rotate(Math.PI / 2);
+    else if (f.y === -1) this.ctx.rotate(-Math.PI / 2);
 
-    // Round Yellow Glutton
+    // Glow warms toward red as the grin widens
+    this.ctx.shadowColor = `rgba(${251}, ${Math.round(197 - 120 * grin)}, ${Math.round(49 - 30 * grin)}, 0.75)`;
+    this.ctx.shadowBlur = 10 + grin * 6;
+
+    // Round Yellow Glutton — the chomp doubles as the grin, and the grin widens with every pellet
     this.ctx.fillStyle = '#fbc531';
     this.ctx.beginPath();
-    this.ctx.arc(0, 0, radius, baseAngle + mouth, baseAngle + Math.PI * 2 - mouth);
+    this.ctx.arc(0, 0, radius, mouth, Math.PI * 2 - mouth);
     this.ctx.lineTo(0, 0);
     this.ctx.closePath();
     this.ctx.fill();
+    this.ctx.shadowBlur = 0;
+
+    // Villain eye + brow: the brow slants harder as he eats
+    this.ctx.fillStyle = '#ffffff';
+    this.ctx.beginPath();
+    this.ctx.arc(2.2, -5.2, 2.4, 0, Math.PI * 2);
+    this.ctx.fill();
+    this.ctx.fillStyle = '#0f172a';
+    this.ctx.beginPath();
+    this.ctx.arc(3.0, -5.2, 1.2, 0, Math.PI * 2);
+    this.ctx.fill();
+    this.ctx.strokeStyle = '#7c2d12';
+    this.ctx.lineWidth = 1.6;
+    this.ctx.beginPath();
+    this.ctx.moveTo(-1.5, -8.6 + grin * 1.2);
+    this.ctx.lineTo(5.5, -8.2 - grin * 2.2);
+    this.ctx.stroke();
 
     this.ctx.restore();
+  }
+
+  // The Menace in his rolling-ball form (Green Valley): round, grinning, red-glowing hunter
+  drawMenaceBall(ctx, x, y, r, rot, squash) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(1 + squash, 1 - squash);
+
+    ctx.shadowColor = 'rgba(255, 51, 68, 0.95)';
+    ctx.shadowBlur = 26;
+    ctx.fillStyle = '#fbc531';
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // Curl stripes that spin with the roll
+    ctx.save();
+    ctx.rotate(rot);
+    ctx.strokeStyle = 'rgba(180, 120, 0, 0.55)';
+    ctx.lineWidth = 3;
+    for (let i = 0; i < 3; i++) {
+      ctx.beginPath();
+      ctx.arc(0, 0, r * (0.82 - i * 0.22), i * 2.1, i * 2.1 + 1.6);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // Red rim
+    ctx.strokeStyle = 'rgba(255, 51, 68, 0.8)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, r - 1, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Face stays upright: two narrowed eyes and a huge grin
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.ellipse(2, -r * 0.35, 4, 3, 0, 0, Math.PI * 2);
+    ctx.ellipse(10, -r * 0.35, 3.2, 2.6, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#0f172a';
+    ctx.beginPath();
+    ctx.arc(3.5, -r * 0.35, 1.6, 0, Math.PI * 2);
+    ctx.arc(11.2, -r * 0.35, 1.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#7c2d12';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-3, -r * 0.62);
+    ctx.lineTo(13, -r * 0.7);
+    ctx.stroke();
+
+    ctx.fillStyle = '#3b0a0a';
+    ctx.beginPath();
+    ctx.arc(4, r * 0.1, r * 0.62, 0.05, Math.PI - 0.05);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(4 - r * 0.58, r * 0.12, r * 1.16, 3);
+
+    ctx.restore();
   }
 
   drawGhosts() {
@@ -2560,133 +3266,117 @@ class Game {
       return;
     }
 
-    // 3. Fright Mode Appearance
-    const inFright = this.isFrightMode;
-    const isFlashing = inFright && (this.frightTimer <= 1.5) && (Math.floor(this.frightTimer * 8) % 2 === 0);
+    // 3. Body, accessories and face (shared with the Green Valley renderer)
+    this.drawGhostBody(this.ctx, g, time, g.facing, false);
 
-    let bodyColor = g.color;
-    if (inFright) {
-      bodyColor = isFlashing ? '#e2e8f0' : '#1e3a8a';
-    }
+    this.ctx.restore();
+  }
+
+  // Draws a keeper centred on the current origin. `scared` is used in the valley when the Menace closes in.
+  drawGhostBody(ctx, g, time, facing, scared) {
+    const bodyColor = g.color;
 
     // Waddle hem wave
     const waddle = Math.sin(time * 10 + g.id) * 1.5;
 
     // Draw Vector Draped-Sheet Character
-    this.ctx.fillStyle = bodyColor;
-    this.ctx.shadowColor = bodyColor;
-    this.ctx.shadowBlur = 6;
+    ctx.fillStyle = bodyColor;
+    ctx.shadowColor = bodyColor;
+    ctx.shadowBlur = 6;
 
-    this.ctx.beginPath();
+    ctx.beginPath();
     // Head & Hood variations
-    if (g.id === 0 && !inFright) {
+    if (g.id === 0) {
       // Ember: Pointed Hood
-      this.ctx.moveTo(0, -14); // Pointed tip
-      this.ctx.quadraticCurveTo(10, -9, 10, 3);
+      ctx.moveTo(0, -14); // Pointed tip
+      ctx.quadraticCurveTo(10, -9, 10, 3);
     } else {
       // Curved hood
-      this.ctx.moveTo(-10, 3);
-      this.ctx.bezierCurveTo(-10, -11, 10, -11, 10, 3);
+      ctx.moveTo(-10, 3);
+      ctx.bezierCurveTo(-10, -11, 10, -11, 10, 3);
     }
 
     // Right side drape
-    this.ctx.lineTo(10, 10);
+    ctx.lineTo(10, 10);
 
     // Animated Wavy Hem
     // 3 scallops with waddle
-    this.ctx.quadraticCurveTo(6.6, 6 + waddle, 3.3, 10);
-    this.ctx.quadraticCurveTo(0, 6 - waddle, -3.3, 10);
-    this.ctx.quadraticCurveTo(-6.6, 6 + waddle, -10, 10);
+    ctx.quadraticCurveTo(6.6, 6 + waddle, 3.3, 10);
+    ctx.quadraticCurveTo(0, 6 - waddle, -3.3, 10);
+    ctx.quadraticCurveTo(-6.6, 6 + waddle, -10, 10);
 
     // Left side drape
-    this.ctx.lineTo(-10, 3);
-    this.ctx.closePath();
-    this.ctx.fill();
-    this.ctx.shadowBlur = 0;
+    ctx.lineTo(-10, 3);
+    ctx.closePath();
+    ctx.fill();
+    ctx.shadowBlur = 0;
 
     // Character Accessories (Mockup 4 Lineup details)
-    if (!inFright) {
-      if (g.id === 1) {
-        // Rosé: Cute Bow on side
-        this.ctx.fillStyle = '#ff79b0';
-        this.ctx.beginPath();
-        this.ctx.arc(-7, -8, 2.5, 0, Math.PI * 2);
-        this.ctx.fill();
-        this.ctx.fillStyle = '#ff2a85';
-        this.ctx.beginPath();
-        this.ctx.arc(-5.5, -8, 1.2, 0, Math.PI * 2);
-        this.ctx.arc(-8.5, -8, 1.2, 0, Math.PI * 2);
-        this.ctx.fill();
-      } else if (g.id === 3) {
-        // Goldie: Stitched Patches (+)
-        this.ctx.strokeStyle = 'rgba(74, 40, 10, 0.7)';
-        this.ctx.lineWidth = 1.3;
-        this.ctx.beginPath();
-        // Patch on chest
-        this.ctx.moveTo(3, 2); this.ctx.lineTo(7, 2);
-        this.ctx.moveTo(5, 0); this.ctx.lineTo(5, 4);
-        this.ctx.stroke();
-      }
+    if (g.id === 1) {
+      // Rosé: Cute Bow on side
+      ctx.fillStyle = '#ff79b0';
+      ctx.beginPath();
+      ctx.arc(-7, -8, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#ff2a85';
+      ctx.beginPath();
+      ctx.arc(-5.5, -8, 1.2, 0, Math.PI * 2);
+      ctx.arc(-8.5, -8, 1.2, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (g.id === 3) {
+      // Goldie: Stitched Patches (+)
+      ctx.strokeStyle = 'rgba(74, 40, 10, 0.7)';
+      ctx.lineWidth = 1.3;
+      ctx.beginPath();
+      // Patch on chest
+      ctx.moveTo(3, 2); ctx.lineTo(7, 2);
+      ctx.moveTo(5, 0); ctx.lineTo(5, 4);
+      ctx.stroke();
     }
 
-    // Eyes
-    if (inFright) {
-      // Pale frightened wiggly mouth & wide scared dot eyes
-      this.ctx.fillStyle = isFlashing ? '#1e293b' : '#f8fafc';
-      this.ctx.beginPath();
-      this.ctx.arc(-4, -2, 2, 0, Math.PI * 2);
-      this.ctx.arc(4, -2, 2, 0, Math.PI * 2);
-      this.ctx.fill();
+    // Expressive eyes looking towards heading / intent
+    const lookX = facing.x * 2;
+    const lookY = facing.y * 2;
 
-      // Wiggly squiggly scared mouth
-      this.ctx.strokeStyle = isFlashing ? '#1e293b' : '#f8fafc';
-      this.ctx.lineWidth = 1.4;
-      this.ctx.beginPath();
-      this.ctx.moveTo(-5, 4);
-      this.ctx.lineTo(-3, 2);
-      this.ctx.lineTo(-1, 4);
-      this.ctx.lineTo(1, 2);
-      this.ctx.lineTo(3, 4);
-      this.ctx.lineTo(5, 2);
-      this.ctx.stroke();
-    } else {
-      // Expressive eyes looking towards heading / intent
-      const lookX = g.facing.x * 2;
-      const lookY = g.facing.y * 2;
+    // Sclera
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(-4.5, -3, 3.2, 0, Math.PI * 2);
+    ctx.arc(4.5, -3, 3.2, 0, Math.PI * 2);
+    ctx.fill();
 
-      // Sclera
-      this.ctx.fillStyle = '#ffffff';
-      this.ctx.beginPath();
-      this.ctx.arc(-4.5, -3, 3.2, 0, Math.PI * 2);
-      this.ctx.arc(4.5, -3, 3.2, 0, Math.PI * 2);
-      this.ctx.fill();
+    // Pupils
+    ctx.fillStyle = '#0f172a';
+    ctx.beginPath();
+    ctx.arc(-4.5 + lookX, -3 + lookY, 1.5, 0, Math.PI * 2);
+    ctx.arc(4.5 + lookX, -3 + lookY, 1.5, 0, Math.PI * 2);
+    ctx.fill();
 
-      // Pupils
-      this.ctx.fillStyle = '#0f172a';
-      this.ctx.beginPath();
-      this.ctx.arc(-4.5 + lookX, -3 + lookY, 1.5, 0, Math.PI * 2);
-      this.ctx.arc(4.5 + lookX, -3 + lookY, 1.5, 0, Math.PI * 2);
-      this.ctx.fill();
-
-      // Smirk / Smile
-      if (g.id === 1) {
-        // Rosé clever smirk
-        this.ctx.strokeStyle = '#be185d';
-        this.ctx.lineWidth = 1.2;
-        this.ctx.beginPath();
-        this.ctx.arc(1, 2, 3, 0.2, Math.PI * 0.7);
-        this.ctx.stroke();
-      } else if (g.id === 3) {
-        // Goldie shy smile
-        this.ctx.strokeStyle = '#b45309';
-        this.ctx.lineWidth = 1.2;
-        this.ctx.beginPath();
-        this.ctx.arc(0, 2, 2.5, 0.1, Math.PI - 0.1);
-        this.ctx.stroke();
-      }
+    if (scared) {
+      // Wide-open worried mouth
+      ctx.fillStyle = '#0f172a';
+      ctx.beginPath();
+      ctx.ellipse(0, 3.5, 2.6, 2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      return;
     }
 
-    this.ctx.restore();
+    // Smirk / Smile
+    if (g.id === 1) {
+      // Rosé clever smirk
+      ctx.strokeStyle = '#be185d';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.arc(1, 2, 3, 0.2, Math.PI * 0.7);
+      ctx.stroke();
+    } else if (g.id === 3) {
+      // Goldie shy smile
+      ctx.strokeStyle = '#b45309';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.arc(0, 2, 2.5, 0.1, Math.PI - 0.1);
+      ctx.stroke();
+    }
   }
 
   drawBenchedEyes(dir) {
@@ -2710,6 +3400,714 @@ class Game {
 
   drawParticles() {
     this.particles.forEach(p => p.draw(this.ctx));
+  }
+}
+
+// 3b. GREEN VALLEY — the side-scrolling chase the flip throws the possessed ghost into.
+// Original canvas art only: layered parallax hills, grass, flowers, simple trees, rocks and logs.
+// The ghost auto-runs right; the Menace pursues from the left curled into a rolling ball.
+class ValleyRun {
+  constructor(game, ghostIndex) {
+    this.game = game;
+    this.ghostIndex = ghostIndex;
+    this.W = game.width;
+    this.H = game.height;
+    const cfg = MAZE_CONFIGS[game.mazeIndex];
+
+    this.runSpeed = 170;                    // Ghost auto-run (logical px / s)
+    this.duration = 22;                     // Seconds of clean running to the MAZE GATE
+    this.gateX = this.runSpeed * this.duration;
+    this.gravity = 1500;
+    this.jumpV = 640;                       // One jump height (~136 px) clears every obstacle (max 28 px)
+    this.tearInDuration = 0.7;
+
+    this.phase = 'tear_in';                 // tear_in -> run -> survived | caught
+    this.phaseT = 0;
+    this.elapsed = 0;
+    this.outcome = null;
+    this.camX = -200;
+
+    this.rng = ValleyRun.makeRng(7919 + game.mazeIndex * 131 + game.pelletsEatenByMenace * 7);
+
+    this.ghost = { x: 0, y: 0, vy: 0, grounded: true, w: 22, h: 28, stumbleTimer: 0, fastFall: false, dust: 0 };
+    this.menace = {
+      x: -190, y: 0, r: 17,
+      speed: this.runSpeed * 0.93,          // Starts just below the ghost's run speed...
+      gain: cfg.valleyMenaceGain,           // ...and gains steadily
+      slowTimer: 0, rot: 0, squash: 0
+    };
+
+    this.obstacles = [];
+    this.pellets = [];
+    this.collected = 0;
+    this.chain = 0;                          // Pellets toward the next surge (10)
+    this.surges = 0;
+    this.surgeFx = 0;
+    this.particles = [];
+
+    this.buildCourse();
+    this.buildScenery();
+    this.ghost.y = this.groundY(0);
+    this.menace.y = this.groundY(this.menace.x) - this.menace.r;
+  }
+
+  // Small deterministic PRNG so a course is reproducible for its seed
+  static makeRng(seed) {
+    let s = (seed >>> 0) || 1;
+    return () => {
+      s = (s + 0x6D2B79F5) | 0;
+      let t = Math.imul(s ^ (s >>> 15), 1 | s);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  // Gently rolling ground; no pits in this version
+  groundY(x) {
+    return this.H * 0.78 + Math.sin(x * 0.0042) * 20 + Math.sin(x * 0.0115 + 1.9) * 9;
+  }
+
+  buildCourse() {
+    let x = 520;
+    while (x < this.gateX - 420) {
+      const type = this.rng() < 0.5 ? 'rock' : 'log';
+      const w = type === 'rock' ? 30 : 46;
+      const h = type === 'rock' ? 26 : 20;
+      this.obstacles.push({ x, w, h, type, hit: false, smashed: false, seed: this.rng() });
+
+      // An arc of pellets over the obstacle: jump to collect
+      for (let k = 0; k < 5; k++) {
+        const px = x - 70 + k * 35;
+        const lift = 46 + Math.sin((k / 4) * Math.PI) * 50;
+        this.pellets.push({ x: px, lift, taken: false });
+      }
+
+      // Sometimes a low run of pellets between obstacles
+      if (this.rng() < 0.5) {
+        const start = x + 130;
+        const n = 4 + Math.floor(this.rng() * 3);
+        for (let k = 0; k < n; k++) this.pellets.push({ x: start + k * 30, lift: 30, taken: false });
+      }
+
+      x += 330 + this.rng() * 170;
+    }
+  }
+
+  buildScenery() {
+    this.clouds = [];
+    for (let i = 0; i < 7; i++) {
+      this.clouds.push({ x: i * 230 + this.rng() * 120, y: 40 + this.rng() * 70, s: 0.7 + this.rng() * 0.8 });
+    }
+    this.trees = [];
+    for (let x = -200; x < this.gateX * 0.45 + 600; x += 90 + this.rng() * 140) {
+      this.trees.push({ x, s: 0.8 + this.rng() * 0.7, shade: this.rng() });
+    }
+    this.farTrees = [];
+    for (let x = -200; x < this.gateX * 0.2 + 600; x += 60 + this.rng() * 90) {
+      this.farTrees.push({ x, s: 0.5 + this.rng() * 0.4 });
+    }
+    this.flowers = [];
+    const palette = ['#f472b6', '#fbbf24', '#f87171', '#c084fc', '#f8fafc', '#fb923c'];
+    for (let x = -100; x < this.gateX + 300; x += 28 + this.rng() * 70) {
+      this.flowers.push({ x, c: palette[Math.floor(this.rng() * palette.length)], s: 0.7 + this.rng() * 0.6 });
+    }
+    this.grassTufts = [];
+    for (let x = -100; x < this.gateX + 300; x += 14 + this.rng() * 30) {
+      this.grassTufts.push({ x, h: 5 + this.rng() * 7, lean: this.rng() - 0.5 });
+    }
+  }
+
+  puff(x, y, n, color) {
+    for (let i = 0; i < n; i++) this.particles.push(new Particle(x, y, color));
+  }
+
+  // Player input
+  jump() {
+    if (this.phase !== 'run' || !this.ghost.grounded) return false;
+    this.ghost.grounded = false;
+    this.ghost.vy = -this.jumpV;
+    this.ghost.fastFall = false;
+    this.puff(this.ghost.x, this.ghost.y, 5, '#d9f99d');
+    return true;
+  }
+
+  fastFall() {
+    if (this.phase !== 'run' || this.ghost.grounded) return false;
+    this.ghost.fastFall = true;
+    this.ghost.vy = Math.max(this.ghost.vy, 220);
+    return true;
+  }
+
+  surge() {
+    const m = this.menace;
+    this.surges++;
+    m.x -= 110;
+    m.slowTimer = Math.max(m.slowTimer, 0.8);
+    this.surgeFx = 0.7;
+    this.game.sound.playSurge();
+    this.game.showNotification('SURGE! The Menace is pushed back!');
+    this.game.shakeDuration = 0.12;
+    this.game.shakeIntensity = 5;
+  }
+
+  update(dt) {
+    if (this.outcome) return this.outcome;
+    this.phaseT += dt;
+
+    // Particles always animate
+    for (let i = this.particles.length - 1; i >= 0; i--) {
+      this.particles[i].update(dt);
+      if (this.particles[i].life <= 0) this.particles.splice(i, 1);
+    }
+    if (this.surgeFx > 0) this.surgeFx -= dt;
+
+    if (this.phase === 'tear_in') {
+      if (this.phaseT >= this.tearInDuration) {
+        this.phase = 'run';
+        this.phaseT = 0;
+      }
+      return null;
+    }
+
+    this.elapsed += dt;
+    const g = this.ghost;
+    const m = this.menace;
+
+    // --- Ghost: auto-run right; a stumble slows him 30% for 1 second ---
+    if (g.stumbleTimer > 0) g.stumbleTimer -= dt;
+    const speed = this.runSpeed * (g.stumbleTimer > 0 ? 0.7 : 1);
+    g.x += speed * dt;
+
+    const groundHere = this.groundY(g.x);
+    if (!g.grounded) {
+      g.vy += this.gravity * (g.fastFall ? 2.6 : 1) * dt;
+      g.y += g.vy * dt;
+      if (g.y >= groundHere) {
+        g.y = groundHere;
+        g.grounded = true;
+        g.vy = 0;
+        g.fastFall = false;
+        g.dust = 0.2;
+        this.puff(g.x, g.y, 6, '#d9f99d');
+      }
+    } else {
+      g.y = groundHere;
+    }
+    if (g.dust > 0) g.dust -= dt;
+
+    // --- Obstacles ---
+    for (const ob of this.obstacles) {
+      const top = this.groundY(ob.x) - ob.h;
+      // Ghost clips the obstacle: stumble
+      if (!ob.hit && Math.abs(g.x - ob.x) < (ob.w / 2 + g.w / 2 - 6) && g.y > top + 4) {
+        ob.hit = true;
+        g.stumbleTimer = 1.0;
+        this.game.sound.playStumble();
+        this.puff(g.x, g.y - 12, 10, '#94a3b8');
+        this.game.shakeDuration = 0.1;
+        this.game.shakeIntensity = 4;
+      }
+      // Menace smashes straight through at a small speed cost
+      if (!ob.smashed && m.x + m.r > ob.x - ob.w / 2) {
+        ob.smashed = true;
+        m.slowTimer = Math.max(m.slowTimer, 0.4);
+        m.squash = 0.18;
+        this.game.sound.playSmash();
+        this.puff(ob.x, top + ob.h / 2, 12, ob.type === 'rock' ? '#9ca3af' : '#a16207');
+      }
+    }
+
+    // --- Pellets: +25 each, every 10 grants a surge ---
+    const gcy = g.y - g.h / 2;
+    for (const p of this.pellets) {
+      if (p.taken) continue;
+      const py = this.groundY(p.x) - p.lift;
+      if (Math.abs(p.x - g.x) < 20 && Math.abs(py - gcy) < 26) {
+        p.taken = true;
+        this.collected++;
+        this.chain++;
+        this.game.score += 25;
+        this.game.updateHUD();
+        this.game.sound.playValleyPellet(this.chain);
+        this.puff(p.x, py, 4, '#fde047');
+        if (this.chain >= 10) {
+          this.chain = 0;
+          this.surge();
+        }
+      }
+    }
+
+    // --- The Menace: rolling, grinning, gaining ---
+    if (m.slowTimer > 0) m.slowTimer -= dt;
+    m.speed += m.gain * dt;
+    const ms = m.speed * (m.slowTimer > 0 ? 0.8 : 1);
+    m.x += ms * dt;
+    if (g.x - m.x > 320) m.x = g.x - 320; // Never so far back that he stops being a threat
+    m.y = this.groundY(m.x) - m.r;
+    m.rot += ms * dt / m.r;
+    if (m.squash > 0) m.squash = Math.max(0, m.squash - dt * 0.6);
+
+    // Caught: he touches the ghost
+    if (m.x + m.r >= g.x - g.w / 2 + 4) {
+      this.outcome = 'caught';
+      this.phase = 'caught';
+      return this.outcome;
+    }
+
+    // Gate reached
+    if (g.x >= this.gateX) {
+      this.outcome = 'survived';
+      this.phase = 'survived';
+      return this.outcome;
+    }
+
+    this.camX = g.x - 200;
+    return null;
+  }
+
+  // ===== Rendering =====
+  hillY(worldX, base, amp, freq) {
+    return base - Math.abs(Math.sin(worldX * freq)) * amp - Math.sin(worldX * freq * 2.7) * amp * 0.25;
+  }
+
+  drawHills(ctx, offset, base, amp, freq, color) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(0, this.H);
+    for (let sx = 0; sx <= this.W; sx += 6) {
+      ctx.lineTo(sx, this.hillY(sx + offset, base, amp, freq));
+    }
+    ctx.lineTo(this.W, this.H);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  drawTree(ctx, x, y, s, shade) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(s, s);
+    ctx.fillStyle = '#7c4a1e';
+    ctx.fillRect(-3, -22, 6, 22);
+    ctx.fillStyle = shade > 0.5 ? '#2f8f3f' : '#3da34f';
+    ctx.beginPath();
+    ctx.arc(0, -30, 13, 0, Math.PI * 2);
+    ctx.arc(-9, -22, 10, 0, Math.PI * 2);
+    ctx.arc(9, -22, 10, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.18)';
+    ctx.beginPath();
+    ctx.arc(-4, -34, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  drawFlower(ctx, x, y, c, s) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(s, s);
+    ctx.strokeStyle = '#15803d';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(0, -9);
+    ctx.stroke();
+    ctx.fillStyle = c;
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.arc(Math.cos(a) * 3, -9 + Math.sin(a) * 3, 2.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = '#fef08a';
+    ctx.beginPath();
+    ctx.arc(0, -9, 1.6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  drawObstacle(ctx, ob, sx) {
+    const gy = this.groundY(ob.x);
+    ctx.save();
+    ctx.translate(sx, gy);
+    if (ob.type === 'rock') {
+      if (ob.smashed) {
+        ctx.fillStyle = '#6b7280';
+        [[-12, -4, 6], [0, -3, 5], [11, -5, 6], [-4, -8, 3]].forEach(([x, y, r]) => {
+          ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+        });
+      } else {
+        ctx.fillStyle = '#6b7280';
+        ctx.strokeStyle = '#374151';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(-15, 0);
+        ctx.lineTo(-11, -18);
+        ctx.lineTo(-2, -26);
+        ctx.lineTo(9, -21);
+        ctx.lineTo(15, -8);
+        ctx.lineTo(14, 0);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = 'rgba(255,255,255,0.25)';
+        ctx.beginPath();
+        ctx.moveTo(-8, -16); ctx.lineTo(-3, -22); ctx.lineTo(2, -17);
+        ctx.closePath();
+        ctx.fill();
+      }
+    } else {
+      if (ob.smashed) {
+        ctx.fillStyle = '#92400e';
+        ctx.save(); ctx.rotate(-0.5); ctx.fillRect(-26, -12, 20, 10); ctx.restore();
+        ctx.save(); ctx.translate(8, 0); ctx.rotate(0.4); ctx.fillRect(0, -12, 20, 10); ctx.restore();
+      } else {
+        ctx.fillStyle = '#92400e';
+        ctx.strokeStyle = '#5a2a0a';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.roundRect ? ctx.roundRect(-23, -20, 46, 20, 9) : ctx.rect(-23, -20, 46, 20);
+        ctx.fill();
+        ctx.stroke();
+        // Bark lines
+        ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(-14, -15); ctx.lineTo(6, -15);
+        ctx.moveTo(-6, -7); ctx.lineTo(14, -7);
+        ctx.stroke();
+        // End grain
+        ctx.fillStyle = '#d6a15c';
+        ctx.beginPath();
+        ctx.ellipse(-19, -10, 4, 8, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#a16207';
+        ctx.beginPath();
+        ctx.ellipse(-19, -10, 2, 4, 0, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
+  drawGate(ctx, sx) {
+    const cfg = MAZE_CONFIGS[this.game.mazeIndex];
+    const gy = this.groundY(this.gateX);
+    ctx.save();
+    ctx.translate(sx, gy);
+
+    // Swirling maze portal between the pillars
+    const t = performance.now() / 1000;
+    const portal = ctx.createRadialGradient(0, -50, 4, 0, -50, 40);
+    portal.addColorStop(0, '#f1f5f9');
+    portal.addColorStop(0.35, cfg.wallStroke);
+    portal.addColorStop(1, 'rgba(8, 9, 20, 0.95)');
+    ctx.fillStyle = portal;
+    ctx.shadowColor = cfg.wallGlow;
+    ctx.shadowBlur = 24;
+    ctx.beginPath();
+    ctx.ellipse(0, -50, 30, 52, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 3; i++) {
+      ctx.beginPath();
+      ctx.arc(0, -50, 10 + i * 8, t * 2 + i, t * 2 + i + 2.2);
+      ctx.stroke();
+    }
+
+    // Pillars + lintel, in the maze's neon palette
+    ctx.fillStyle = cfg.wallFill;
+    ctx.strokeStyle = cfg.wallStroke;
+    ctx.lineWidth = 2.5;
+    ctx.shadowColor = cfg.wallGlow;
+    ctx.shadowBlur = 10;
+    [-38, 26].forEach(px => {
+      ctx.fillRect(px, -104, 12, 104);
+      ctx.strokeRect(px, -104, 12, 104);
+    });
+    ctx.fillRect(-46, -116, 92, 14);
+    ctx.strokeRect(-46, -116, 92, 14);
+    ctx.shadowBlur = 0;
+
+    // Sign
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(-42, -140, 84, 20);
+    ctx.strokeStyle = '#ffd32a';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(-42, -140, 84, 20);
+    ctx.fillStyle = '#ffd32a';
+    ctx.font = '900 11px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('MAZE GATE', 0, -130);
+    ctx.restore();
+  }
+
+  drawMeter(ctx) {
+    const W = this.W;
+    const x0 = 44, x1 = W - 90, y = 26;
+    const pg = Math.max(0, Math.min(1, this.ghost.x / this.gateX));
+    const pm = Math.max(0, Math.min(1, this.menace.x / this.gateX));
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(8, 9, 20, 0.55)';
+    ctx.beginPath();
+    ctx.roundRect ? ctx.roundRect(x0 - 30, y - 16, (x1 - x0) + 90, 32, 10) : ctx.rect(x0 - 30, y - 16, (x1 - x0) + 90, 32);
+    ctx.fill();
+
+    // Track
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    ctx.lineWidth = 4;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x0, y);
+    ctx.lineTo(x1, y);
+    ctx.stroke();
+    ctx.strokeStyle = '#a3e635';
+    ctx.beginPath();
+    ctx.moveTo(x0, y);
+    ctx.lineTo(x0 + (x1 - x0) * pg, y);
+    ctx.stroke();
+
+    // Gate marker + label
+    ctx.fillStyle = '#ffd32a';
+    ctx.fillRect(x1 - 2, y - 10, 4, 20);
+    ctx.font = '900 9px system-ui, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('MAZE GATE', x1 + 8, y);
+
+    // Menace icon
+    const mx = x0 + (x1 - x0) * pm;
+    ctx.save();
+    ctx.translate(mx, y);
+    ctx.shadowColor = 'rgba(255,51,68,0.9)';
+    ctx.shadowBlur = 8;
+    ctx.fillStyle = '#fbc531';
+    ctx.beginPath();
+    ctx.arc(0, 0, 7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#3b0a0a';
+    ctx.beginPath();
+    ctx.arc(1, 1, 4, 0.1, Math.PI - 0.1);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    // Ghost icon
+    const g = this.game.ghosts[this.ghostIndex];
+    const gx = x0 + (x1 - x0) * pg;
+    ctx.save();
+    ctx.translate(gx, y);
+    ctx.scale(0.55, 0.55);
+    this.game.drawGhostBody(ctx, g, 0, { x: 1, y: 0 }, false);
+    ctx.restore();
+    ctx.restore();
+  }
+
+  draw(ctx, time) {
+    const W = this.W, H = this.H;
+    const cam = this.camX;
+
+    // Sky
+    const sky = ctx.createLinearGradient(0, 0, 0, H);
+    sky.addColorStop(0, '#6cc5f5');
+    sky.addColorStop(0.5, '#cfe9fb');
+    sky.addColorStop(1, '#fef3c7');
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, W, H);
+
+    // Sun
+    ctx.save();
+    ctx.fillStyle = '#fff7b0';
+    ctx.shadowColor = 'rgba(255, 247, 176, 0.9)';
+    ctx.shadowBlur = 30;
+    ctx.beginPath();
+    ctx.arc(W - 80, 86, 26, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // Clouds (slowest layer)
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    this.clouds.forEach(c => {
+      let sx = ((c.x - cam * 0.08) % (W + 300));
+      if (sx < -150) sx += W + 300;
+      ctx.beginPath();
+      ctx.ellipse(sx, c.y, 34 * c.s, 12 * c.s, 0, 0, Math.PI * 2);
+      ctx.ellipse(sx + 22 * c.s, c.y - 8 * c.s, 22 * c.s, 14 * c.s, 0, 0, Math.PI * 2);
+      ctx.ellipse(sx - 20 * c.s, c.y - 4 * c.s, 20 * c.s, 11 * c.s, 0, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    // Far hills + far treeline
+    this.drawHills(ctx, cam * 0.2, H * 0.62, 34, 0.0032, '#9fd3a5');
+    this.farTrees.forEach(t => {
+      const sx = t.x - cam * 0.2;
+      if (sx < -30 || sx > W + 30) return;
+      this.drawTree(ctx, sx, this.hillY(t.x, H * 0.62, 34, 0.0032) + 2, t.s, 0.3);
+    });
+
+    // Mid hills + trees
+    this.drawHills(ctx, cam * 0.45, H * 0.705, 24, 0.0058, '#5fb86e');
+    this.trees.forEach(t => {
+      const sx = t.x - cam * 0.45;
+      if (sx < -40 || sx > W + 40) return;
+      this.drawTree(ctx, sx, this.hillY(t.x, H * 0.705, 24, 0.0058) + 3, t.s, t.shade);
+    });
+
+    // Near ground (world layer)
+    ctx.fillStyle = '#3f9f4b';
+    ctx.beginPath();
+    ctx.moveTo(0, H);
+    for (let sx = 0; sx <= W; sx += 4) ctx.lineTo(sx, this.groundY(sx + cam));
+    ctx.lineTo(W, H);
+    ctx.closePath();
+    ctx.fill();
+    // Dirt band
+    ctx.fillStyle = '#6b4423';
+    ctx.beginPath();
+    ctx.moveTo(0, H);
+    for (let sx = 0; sx <= W; sx += 4) ctx.lineTo(sx, this.groundY(sx + cam) + 46);
+    ctx.lineTo(W, H);
+    ctx.closePath();
+    ctx.fill();
+    // Grass edge
+    ctx.strokeStyle = '#86efac';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    for (let sx = 0; sx <= W; sx += 4) {
+      const y = this.groundY(sx + cam);
+      if (sx === 0) ctx.moveTo(sx, y); else ctx.lineTo(sx, y);
+    }
+    ctx.stroke();
+    // Tufts
+    ctx.strokeStyle = '#4ade80';
+    ctx.lineWidth = 1.5;
+    this.grassTufts.forEach(t => {
+      const sx = t.x - cam;
+      if (sx < -10 || sx > W + 10) return;
+      const gy = this.groundY(t.x);
+      ctx.beginPath();
+      ctx.moveTo(sx, gy + 1);
+      ctx.lineTo(sx + t.lean * 6, gy - t.h);
+      ctx.stroke();
+    });
+    // Flowers
+    this.flowers.forEach(f => {
+      const sx = f.x - cam;
+      if (sx < -10 || sx > W + 10) return;
+      this.drawFlower(ctx, sx, this.groundY(f.x) + 1, f.c, f.s);
+    });
+
+    // Gate
+    const gateSx = this.gateX - cam;
+    if (gateSx > -120 && gateSx < W + 120) this.drawGate(ctx, gateSx);
+
+    // Obstacles
+    this.obstacles.forEach(ob => {
+      const sx = ob.x - cam;
+      if (sx < -60 || sx > W + 60) return;
+      this.drawObstacle(ctx, ob, sx);
+    });
+
+    // Pellets
+    this.pellets.forEach(p => {
+      if (p.taken) return;
+      const sx = p.x - cam;
+      if (sx < -10 || sx > W + 10) return;
+      const py = this.groundY(p.x) - p.lift + Math.sin(time * 5 + p.x * 0.05) * 2;
+      ctx.fillStyle = '#ffd32a';
+      ctx.shadowColor = 'rgba(255, 211, 42, 0.7)';
+      ctx.shadowBlur = 8;
+      ctx.beginPath();
+      ctx.arc(sx, py, 4.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#fff7cc';
+      ctx.beginPath();
+      ctx.arc(sx - 1.2, py - 1.2, 1.6, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    // Surge shockwave
+    if (this.surgeFx > 0) {
+      const p = 1 - this.surgeFx / 0.7;
+      ctx.save();
+      ctx.globalAlpha = 1 - p;
+      ctx.strokeStyle = '#a3e635';
+      ctx.lineWidth = 5;
+      ctx.shadowColor = '#a3e635';
+      ctx.shadowBlur = 16;
+      ctx.beginPath();
+      ctx.arc(this.ghost.x - cam, this.ghost.y - 14, 10 + p * 160, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // The Menace (rolling ball form)
+    const m = this.menace;
+    const msx = m.x - cam;
+    if (msx > -60) {
+      // Dust trail
+      ctx.fillStyle = 'rgba(120, 90, 50, 0.25)';
+      for (let i = 0; i < 3; i++) {
+        ctx.beginPath();
+        ctx.arc(msx - 18 - i * 12, m.y + m.r - 4 - i * 2, 6 - i, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      this.game.drawMenaceBall(ctx, msx, m.y, m.r, m.rot, m.squash);
+    }
+
+    // The ghost
+    const g = this.ghost;
+    const gsx = g.x - cam;
+    const gap = g.x - m.x;
+    ctx.save();
+    ctx.translate(gsx, g.y - g.h / 2);
+    ctx.scale(1.3, 1.3);
+    if (g.stumbleTimer > 0) ctx.rotate(Math.sin(g.stumbleTimer * 28) * 0.28);
+    else if (!g.grounded) ctx.rotate(Math.max(-0.25, Math.min(0.25, g.vy / 2500)));
+    const ghostRef = this.game.ghosts[this.ghostIndex];
+    this.game.drawGhostBody(ctx, ghostRef, time, { x: 1, y: 0 }, gap < 150);
+    ctx.restore();
+    if (g.dust > 0) {
+      ctx.fillStyle = 'rgba(217, 249, 157, 0.6)';
+      ctx.beginPath();
+      ctx.arc(gsx - 14, g.y - 2, 5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Particles (world space)
+    ctx.save();
+    ctx.translate(-cam, 0);
+    this.particles.forEach(p => p.draw(ctx));
+    ctx.restore();
+
+    // Progress meter
+    this.drawMeter(ctx);
+
+    // Pellet chain readout
+    ctx.save();
+    ctx.font = '800 11px system-ui, sans-serif';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = 'rgba(8, 9, 20, 0.6)';
+    ctx.fillRect(W - 112, 50, 104, 18);
+    ctx.fillStyle = '#fde047';
+    ctx.fillText(`SURGE ${this.chain}/10  ·  ${this.collected}`, W - 14, 53);
+    ctx.restore();
+
+    // Red vignette when he is right behind you
+    if (gap < 120) {
+      const danger = Math.min(1, (120 - gap) / 120);
+      const vg = ctx.createRadialGradient(W / 2, H / 2, H * 0.35, W / 2, H / 2, H * 0.8);
+      vg.addColorStop(0, 'rgba(255, 51, 68, 0)');
+      vg.addColorStop(1, `rgba(255, 51, 68, ${0.45 * danger})`);
+      ctx.fillStyle = vg;
+      ctx.fillRect(0, 0, W, H);
+    }
   }
 }
 
@@ -2903,22 +4301,6 @@ class Ghost {
     // Determine target tile based on personality & wave mode
     let target = { x: this.scatterCorner.x, y: this.scatterCorner.y };
 
-    if (game.isFrightMode) {
-      // Scatter away from Menace
-      let bestMove = legalMoves[0];
-      let maxDist = -1;
-      legalMoves.forEach(m => {
-        const nx = curX + m.x;
-        const ny = curY + m.y;
-        const d = Math.hypot(nx - game.menace.tileX, ny - game.menace.tileY);
-        if (d > maxDist) {
-          maxDist = d;
-          bestMove = m;
-        }
-      });
-      return bestMove;
-    }
-
     if (!game.isScatterWave && game.menace) {
       const menace = game.menace;
 
@@ -3026,16 +4408,33 @@ window.addEventListener('DOMContentLoaded', () => {
       y: game.menace.y,
       lives: game.menace.lives,
       isFrightMode: game.isFrightMode,
-      speed: game.menace.speed
+      speed: game.menace.speed,
+      grin: game.menaceGrin()
     }),
     steer: (dir) => game.steerPossessed(dir),
     touchSteer: (dx, dy) => game.touchSteer(dx, dy),
-    setMenacePos: (tileX, tileY) => {
+    // Optional dirX/dirY steer him onto a neighbouring tile through the real movement + eat path
+    setMenacePos: (tileX, tileY, dirX, dirY) => {
       game.menace.tileX = tileX;
       game.menace.tileY = tileY;
       game.menace.x = tileX * 24 + 12;
       game.menace.y = tileY * 24 + 12;
+      if (typeof dirX === 'number' && typeof dirY === 'number') {
+        game.menace.dir = { x: dirX, y: dirY };
+        game.menace.nextDir = { x: dirX, y: dirY };
+        game.menace.facing = { x: dirX, y: dirY };
+      }
     },
+    // Green Valley Flip hooks
+    getFlip: () => game.getFlipInfo(),
+    triggerFlip: () => game.startFlip(),
+    forceFlipSurvive: () => game.endFlip('survived'),
+    forceFlipCatch: () => game.endFlip('caught'),
+    flipJump: () => game.flipJump(),
+    flipFastFall: () => game.flipFastFall(),
+    // Soundtrack + villain hooks
+    getMusicState: () => game.music.getState(),
+    getLastTaunt: () => game.lastTaunt,
     setGhostPos: (idx, tileX, tileY) => {
       const g = game.ghosts[idx];
       if (g) {
@@ -3048,7 +4447,7 @@ window.addEventListener('DOMContentLoaded', () => {
         g.state = 'CHASE';
       }
     },
-    triggerFright: (dur) => game.triggerFrightMode(dur),
+    triggerFright: (dur) => game.startFlip(), // Legacy name: the power pellet now triggers the flip
     simulateCatch: () => game.handleCatch(),
     forceEatGhost: (idx) => game.handleGhostEatenByMenace(idx),
     forceWin: () => game.handleMazeClear(),
