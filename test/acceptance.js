@@ -223,9 +223,18 @@ async function runAcceptanceTests() {
     let lastSquad = null;
     // Round 2: maze time pauses while a natural power-pellet pickup runs the Green Valley flip,
     // so this check samples 15s of *maze* time — samples taken during a flip are not counted.
+    // Nobody is at the jump key during this check, so an unattended run would end in a catch and
+    // bench the flipped ghost (which then legitimately waits in the house). The flip itself is
+    // covered by checks 11 and 12; here it is let in for a moment and then survived through the hook.
     let flipWaits = 0;
+    let naturalFlips = 0;
     const waitOutFlip = async () => {
       let st = await page.evaluate(() => window.__RM_GAME__.getState());
+      if (st !== 'flip') return;
+      naturalFlips++;
+      await page.waitForTimeout(800); // let the tear transition and the first strides play
+      flipWaits += 2;
+      await page.evaluate(() => window.__RM_GAME__.forceFlipSurvive());
       while (st === 'flip' && flipWaits < 150) {
         flipWaits++;
         await page.waitForTimeout(400);
@@ -264,7 +273,9 @@ async function runAcceptanceTests() {
       passedCount++;
     } else {
       // A ghost found inside at the end must simply exit again within its delay + exit travel.
-      for (let w = 0; w < 18 && lastSquad.slice(1).some(inInterior); w++) {
+      // (A benched ghost waits in the house by design until the next catch — that is not "stuck".)
+      const stuckInside = g => inInterior(g) && !g.isBenched;
+      for (let w = 0; w < 18 && lastSquad.slice(1).some(stuckInside); w++) {
         await page.waitForTimeout(400);
         await waitOutFlip();
         lastSquad = await page.evaluate(() => window.__RM_GAME__.getSquad());
@@ -272,11 +283,11 @@ async function runAcceptanceTests() {
       for (let gi = 1; gi < 4; gi++) {
         if (visited[gi].size < 6) throw new Error(`Ghost ${gi} (${ghostNames[gi]}) barely moved: ${visited[gi].size} distinct tiles in ${(samples * 0.4).toFixed(1)}s`);
         if (!ranged[gi]) throw new Error(`Ghost ${gi} (${ghostNames[gi]}) never left the house neighbourhood`);
-        if (inInterior(lastSquad[gi])) throw new Error(`Ghost ${gi} (${ghostNames[gi]}) is stuck inside the house interior at ${lastSquad[gi].tileX},${lastSquad[gi].tileY}`);
+        if (stuckInside(lastSquad[gi])) throw new Error(`Ghost ${gi} (${ghostNames[gi]}) is stuck inside the house interior at ${lastSquad[gi].tileX},${lastSquad[gi].tileY}`);
       }
       const notes = [];
       if (catchResets) notes.push(`${catchResets} catch reset${catchResets > 1 ? 's' : ''}, window extended to ${(samples * 0.4).toFixed(1)}s`);
-      if (flipWaits) notes.push(`maze time paused for a natural flip, ${(flipWaits * 0.4).toFixed(1)}s not counted`);
+      if (naturalFlips) notes.push(`${naturalFlips} natural flip${naturalFlips > 1 ? 's' : ''} survived through the hook, ${(flipWaits * 0.4).toFixed(1)}s of flip time not counted`);
       console.log(`  ✓ PASS: All AI ghosts left the house and hunted (distinct tiles: Rosé ${visited[1].size}, Tide ${visited[2].size}, Goldie ${visited[3].size}${notes.length ? '; ' + notes.join('; ') : ''}).`);
       passedCount++;
     }
