@@ -1,0 +1,3067 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>The Round Menace — He is eating your maze.</title>
+  <style>
+    :root {
+      --bg-color: #080914;
+      --card-bg: rgba(18, 20, 39, 0.95);
+      --card-border: rgba(99, 102, 241, 0.3);
+      --accent-ember: #ff3344;
+      --accent-rose: #ff55a3;
+      --accent-tide: #00d2d3;
+      --accent-goldie: #ffa502;
+      --menace-yellow: #fbc531;
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      --fright-blue: #1e3a8a;
+      --font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: manipulation;
+    }
+
+    body {
+      background-color: var(--bg-color);
+      color: var(--text-main);
+      font-family: var(--font-family);
+      min-height: 100vh;
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      position: relative;
+    }
+
+    #game-container {
+      width: 100%;
+      max-width: 480px;
+      height: 100vh;
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      background: radial-gradient(circle at 50% 30%, #111328 0%, #080914 100%);
+      overflow: hidden;
+      box-shadow: 0 0 50px rgba(0, 0, 0, 0.9);
+    }
+
+    /* Top HUD */
+    #hud {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 12px;
+      background: rgba(12, 14, 28, 0.85);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      z-index: 20;
+    }
+
+    .hud-group {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .hud-label {
+      font-size: 9px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .hud-value {
+      font-variant-numeric: tabular-nums;
+      color: #fff;
+    }
+
+    .hud-value.highlight {
+      color: #ffd32a;
+    }
+
+    #menace-lives-icons {
+      display: flex;
+      gap: 4px;
+      align-items: center;
+    }
+
+    .life-icon {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: var(--menace-yellow);
+      box-shadow: 0 0 6px rgba(251, 197, 49, 0.6);
+      clip-path: polygon(100% 0%, 50% 50%, 100% 100%, 0% 100%, 0% 0%);
+      transform: rotate(180deg);
+      transition: opacity 0.3s, transform 0.3s;
+    }
+
+    .life-icon.lost {
+      opacity: 0.2;
+      background: #475569;
+      box-shadow: none;
+      transform: rotate(180deg) scale(0.8);
+    }
+
+    .hud-btn {
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: var(--text-main);
+      padding: 5px 8px;
+      border-radius: 6px;
+      font-size: 12px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s ease;
+    }
+
+    .hud-btn:active {
+      transform: scale(0.92);
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    /* Fright Mode Timer Bar */
+    #fright-bar-container {
+      display: none;
+      background: #1e1b4b;
+      padding: 4px 12px;
+      border-bottom: 2px solid #ef4444;
+      animation: frightGlow 1s infinite alternate;
+      z-index: 20;
+    }
+
+    #fright-bar-container.active {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    @keyframes frightGlow {
+      from { box-shadow: 0 0 10px rgba(239, 68, 68, 0.3); }
+      to { box-shadow: 0 0 20px rgba(239, 68, 68, 0.8); }
+    }
+
+    .fright-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      font-weight: 800;
+      color: #fca5a5;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .fright-progress-track {
+      width: 100%;
+      height: 6px;
+      background: rgba(0, 0, 0, 0.5);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    #fright-progress-fill {
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(90deg, #ef4444, #f59e0b);
+      transition: width 0.1s linear;
+    }
+
+    /* Canvas Viewport */
+    #canvas-wrap {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      overflow: hidden;
+      width: 100%;
+    }
+
+    #gameCanvas {
+      display: block;
+      touch-action: none;
+      image-rendering: auto;
+    }
+
+    /* Bottom Squad Bar */
+    #squad-bar {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+      padding: 6px 10px 8px;
+      background: rgba(12, 14, 28, 0.95);
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      z-index: 20;
+    }
+
+    .squad-btn {
+      background: rgba(255, 255, 255, 0.04);
+      border: 2px solid transparent;
+      border-radius: 10px;
+      padding: 6px 2px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      cursor: pointer;
+      position: relative;
+      transition: all 0.2s ease;
+    }
+
+    .squad-btn.possessed {
+      border-color: #ffffff;
+      background: rgba(255, 255, 255, 0.15);
+      box-shadow: 0 0 14px rgba(255, 255, 255, 0.35);
+      transform: translateY(-2px);
+    }
+
+    .squad-btn.benched {
+      opacity: 0.35;
+      filter: grayscale(1);
+    }
+
+    .squad-icon-wrap {
+      width: 28px;
+      height: 28px;
+      position: relative;
+      margin-bottom: 2px;
+    }
+
+    .squad-name {
+      font-size: 11px;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .squad-key {
+      position: absolute;
+      top: 2px;
+      right: 4px;
+      font-size: 9px;
+      font-weight: 800;
+      color: rgba(255, 255, 255, 0.4);
+    }
+
+    .squad-benched-label {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%) rotate(-10deg);
+      background: #ef4444;
+      color: #fff;
+      font-size: 8px;
+      font-weight: 900;
+      padding: 2px 4px;
+      border-radius: 3px;
+      letter-spacing: 0.5px;
+      display: none;
+    }
+
+    .squad-btn.benched .squad-benched-label {
+      display: block;
+    }
+
+    /* Modal / Overlay Screens */
+    .screen-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(8, 9, 20, 0.94);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      z-index: 50;
+      text-align: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s ease;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+
+    .screen-overlay.visible {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    /* Title Screen specifics */
+    #title-screen {
+      padding: 16px;
+      overflow-y: auto;
+      justify-content: flex-start;
+    }
+
+    .title-banner {
+      width: 100%;
+      max-width: 380px;
+      border-radius: 14px;
+      overflow: hidden;
+      margin-bottom: 12px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8), 0 0 20px rgba(99, 102, 241, 0.3);
+      border: 1px solid rgba(99, 102, 241, 0.4);
+    }
+
+    .title-banner img {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+
+    .game-title {
+      font-size: 26px;
+      font-weight: 900;
+      letter-spacing: 1.5px;
+      color: #fff;
+      text-transform: uppercase;
+      text-shadow: 0 0 15px rgba(251, 197, 49, 0.6), 0 2px 4px rgba(0,0,0,0.8);
+      margin-bottom: 4px;
+    }
+
+    .game-tagline {
+      font-size: 14px;
+      font-weight: 500;
+      color: #ffd32a;
+      margin-bottom: 16px;
+      letter-spacing: 0.5px;
+    }
+
+    .menu-btn {
+      width: 100%;
+      max-width: 280px;
+      padding: 13px 20px;
+      margin: 6px 0;
+      border-radius: 12px;
+      font-size: 15px;
+      font-weight: 800;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      cursor: pointer;
+      border: none;
+      transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .menu-btn.primary {
+      background: linear-gradient(135deg, #ef4444 0%, #f59e0b 100%);
+      color: #fff;
+      box-shadow: 0 4px 18px rgba(239, 68, 68, 0.4);
+    }
+
+    .menu-btn.primary:active {
+      transform: scale(0.96);
+      box-shadow: 0 2px 10px rgba(239, 68, 68, 0.3);
+    }
+
+    .menu-btn.secondary {
+      background: rgba(255, 255, 255, 0.08);
+      color: #f1f5f9;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+    }
+
+    .menu-btn.secondary:active {
+      transform: scale(0.96);
+      background: rgba(255, 255, 255, 0.14);
+    }
+
+    .best-score-badge {
+      margin-top: 14px;
+      font-size: 12px;
+      color: var(--text-muted);
+      font-weight: 600;
+      background: rgba(255, 255, 255, 0.05);
+      padding: 6px 14px;
+      border-radius: 20px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    /* How to play card */
+    .info-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 16px;
+      max-width: 380px;
+      width: 100%;
+      text-align: left;
+      margin-bottom: 16px;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+    }
+
+    .info-rule {
+      margin-bottom: 10px;
+      font-size: 13px;
+      line-height: 1.45;
+      color: #e2e8f0;
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+    }
+
+    .info-rule-bullet {
+      color: #ffd32a;
+      font-weight: 900;
+    }
+
+    .squad-info-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 12px;
+      padding-top: 10px;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .squad-info-item {
+      font-size: 11px;
+      line-height: 1.35;
+      color: #cbd5e1;
+    }
+
+    .squad-info-item strong {
+      display: block;
+      font-size: 12px;
+      margin-bottom: 1px;
+    }
+
+    /* Screen headers & score tallies */
+    .screen-heading {
+      font-size: 26px;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 8px;
+    }
+
+    .screen-sub {
+      font-size: 14px;
+      color: var(--text-muted);
+      margin-bottom: 20px;
+      max-width: 320px;
+      line-height: 1.4;
+    }
+
+    .tally-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 16px 20px;
+      width: 100%;
+      max-width: 320px;
+      margin-bottom: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .tally-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .tally-row.grand {
+      font-size: 16px;
+      font-weight: 800;
+      color: #ffd32a;
+      padding-top: 6px;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .tally-row.penalty {
+      color: #f87171;
+    }
+
+    /* Touch D-Pad overlay for mobile */
+    #touch-controls {
+      display: none;
+      position: absolute;
+      bottom: 80px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 160px;
+      height: 160px;
+      z-index: 15;
+      pointer-events: auto;
+      opacity: 0.45;
+      transition: opacity 0.2s;
+    }
+
+    @media (pointer: coarse) {
+      #touch-controls {
+        display: block;
+      }
+    }
+
+    .dpad-btn {
+      position: absolute;
+      width: 48px;
+      height: 48px;
+      background: rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      color: #fff;
+    }
+
+    .dpad-up { top: 4px; left: 56px; }
+    .dpad-down { bottom: 4px; left: 56px; }
+    .dpad-left { top: 56px; left: 4px; }
+    .dpad-right { top: 56px; right: 4px; }
+    .dpad-center {
+      position: absolute;
+      top: 56px;
+      left: 56px;
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px dashed rgba(255, 255, 255, 0.2);
+    }
+
+    /* Notification Banner */
+    #notification-toast {
+      position: absolute;
+      top: 52px;
+      left: 50%;
+      transform: translateX(-50%) translateY(-20px);
+      background: rgba(15, 23, 42, 0.95);
+      border: 1px solid #ffd32a;
+      color: #ffd32a;
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.6);
+      opacity: 0;
+      pointer-events: none;
+      transition: all 0.25s ease;
+      z-index: 30;
+      text-transform: uppercase;
+    }
+
+    #notification-toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+  </style>
+</head>
+<body>
+
+<div id="game-container">
+  <!-- Top HUD -->
+  <div id="hud">
+    <div class="hud-group">
+      <span class="hud-label">Score</span>
+      <span id="hud-score" class="hud-value highlight">0</span>
+    </div>
+
+    <div class="hud-group">
+      <span class="hud-label">Pellets Saved</span>
+      <span id="hud-pellets" class="hud-value">0 / 0</span>
+    </div>
+
+    <div class="hud-group" style="align-items: center;">
+      <span class="hud-label">Menace</span>
+      <div id="menace-lives-icons">
+        <div class="life-icon" id="life-0"></div>
+        <div class="life-icon" id="life-1"></div>
+        <div class="life-icon" id="life-2"></div>
+      </div>
+    </div>
+
+    <div style="display: flex; gap: 6px;">
+      <button id="btn-sound" class="hud-btn" title="Mute/Unmute (M)">🔊</button>
+      <button id="btn-pause" class="hud-btn" title="Pause (Space)">⏸️</button>
+    </div>
+  </div>
+
+  <!-- Fright Mode Banner / Timer -->
+  <div id="fright-bar-container">
+    <div class="fright-header">
+      <span>⚠️ Hunt Flip! Scatter! ⚠️</span>
+      <span id="fright-timer-text">6.0s</span>
+    </div>
+    <div class="fright-progress-track">
+      <div id="fright-progress-fill"></div>
+    </div>
+  </div>
+
+  <!-- Canvas Viewport -->
+  <div id="canvas-wrap">
+    <canvas id="gameCanvas"></canvas>
+    <div id="notification-toast"></div>
+
+    <!-- On-screen D-pad for mobile -->
+    <div id="touch-controls">
+      <div class="dpad-center"></div>
+      <div class="dpad-btn dpad-up" data-dir="up">▲</div>
+      <div class="dpad-btn dpad-down" data-dir="down">▼</div>
+      <div class="dpad-btn dpad-left" data-dir="left">◀</div>
+      <div class="dpad-btn dpad-right" data-dir="right">▶</div>
+    </div>
+  </div>
+
+  <!-- Bottom Squad Bar -->
+  <div id="squad-bar">
+    <button class="squad-btn possessed" id="squad-ember" data-ghost="0">
+      <span class="squad-key">1</span>
+      <div class="squad-icon-wrap" id="squad-icon-0"></div>
+      <span class="squad-name" style="color: var(--accent-ember);">Ember</span>
+      <span class="squad-benched-label">BENCHED</span>
+    </button>
+    <button class="squad-btn" id="squad-rose" data-ghost="1">
+      <span class="squad-key">2</span>
+      <div class="squad-icon-wrap" id="squad-icon-1"></div>
+      <span class="squad-name" style="color: var(--accent-rose);">Rosé</span>
+      <span class="squad-benched-label">BENCHED</span>
+    </button>
+    <button class="squad-btn" id="squad-tide" data-ghost="2">
+      <span class="squad-key">3</span>
+      <div class="squad-icon-wrap" id="squad-icon-2"></div>
+      <span class="squad-name" style="color: var(--accent-tide);">Tide</span>
+      <span class="squad-benched-label">BENCHED</span>
+    </button>
+    <button class="squad-btn" id="squad-goldie" data-ghost="3">
+      <span class="squad-key">4</span>
+      <div class="squad-icon-wrap" id="squad-icon-3"></div>
+      <span class="squad-name" style="color: var(--accent-goldie);">Goldie</span>
+      <span class="squad-benched-label">BENCHED</span>
+    </button>
+  </div>
+
+  <!-- Title Screen Overlay -->
+  <div id="title-screen" class="screen-overlay visible">
+    <div class="title-banner">
+      <picture>
+        <source srcset="art/title-key-art.webp" type="image/webp">
+        <img src="art/title-key-art.png" alt="The Round Menace Key Art" onerror="this.style.display='none'">
+      </picture>
+    </div>
+    <h1 class="game-title">The Round Menace</h1>
+    <p class="game-tagline">He is eating your maze.</p>
+
+    <button id="btn-play" class="menu-btn primary">Defend the Maze</button>
+    <button id="btn-how-to-play" class="menu-btn secondary">How to Play</button>
+
+    <div class="best-score-badge">
+      Best Pellets Saved: <strong id="title-best-pellets" style="color:#ffd32a;">0</strong>
+      &nbsp;|&nbsp;
+      High Score: <strong id="title-high-score" style="color:#fff;">0</strong>
+    </div>
+  </div>
+
+  <!-- How to Play Overlay -->
+  <div id="how-screen" class="screen-overlay">
+    <h2 class="screen-heading" style="color: #ffd32a;">Night Shift Orders</h2>
+    <div class="info-card">
+      <div class="info-rule">
+        <span class="info-rule-bullet">1.</span>
+        <span><strong>You're the ghosts.</strong> Steer with arrows, WASD, or swipe.</span>
+      </div>
+      <div class="info-rule">
+        <span class="info-rule-bullet">2.</span>
+        <span><strong>Coordinate the squad.</strong> Tap 1–4 or tap a ghost to possess any of the four keepers.</span>
+      </div>
+      <div class="info-rule">
+        <span class="info-rule-bullet">3.</span>
+        <span><strong>Catch him 3 times</strong> before he eats all the pellets. And when he grabs a power pellet, <strong>RUN!</strong></span>
+      </div>
+
+      <div class="squad-info-grid">
+        <div class="squad-info-item">
+          <strong style="color: var(--accent-ember);">Ember (Chaser)</strong>
+          Pursues the Menace's current tile directly.
+        </div>
+        <div class="squad-info-item">
+          <strong style="color: var(--accent-rose);">Rosé (Ambusher)</strong>
+          Lays traps 4 tiles ahead of his path.
+        </div>
+        <div class="squad-info-item">
+          <strong style="color: var(--accent-tide);">Tide (Flanker)</strong>
+          Pincers between Ember and the Menace.
+        </div>
+        <div class="squad-info-item">
+          <strong style="color: var(--accent-goldie);">Goldie (Shy One)</strong>
+          Hunts until close, then holds quadrant block.
+        </div>
+      </div>
+    </div>
+    <button id="btn-back-how" class="menu-btn secondary">Back to Menu</button>
+  </div>
+
+  <!-- Pause Screen Overlay -->
+  <div id="pause-screen" class="screen-overlay">
+    <h2 class="screen-heading">Shift Paused</h2>
+    <p class="screen-sub">Take a breath. The maze is waiting.</p>
+    <button id="btn-resume" class="menu-btn primary">Resume Hunt</button>
+    <button id="btn-pause-quit" class="menu-btn secondary">Quit to Title</button>
+  </div>
+
+  <!-- Maze Clear Interstitial -->
+  <div id="clear-screen" class="screen-overlay">
+    <h2 class="screen-heading" style="color: #34d399;">Maze Cleared!</h2>
+    <p class="screen-sub" id="clear-subtitle">You cornered the Round Menace.</p>
+
+    <div class="tally-card">
+      <div class="tally-row">
+        <span>Pellets Saved</span>
+        <span id="clear-pellets-saved" style="color:#ffd32a;">0 / 0</span>
+      </div>
+      <div class="tally-row">
+        <span>Pellets Bonus</span>
+        <span id="clear-pellets-bonus">+0</span>
+      </div>
+      <div class="tally-row" id="clear-fruit-row">
+        <span>Fruit Status</span>
+        <span id="clear-fruit-status">+500 (Saved)</span>
+      </div>
+      <div class="tally-row grand">
+        <span>Total Score</span>
+        <span id="clear-total-score">0</span>
+      </div>
+    </div>
+
+    <button id="btn-next-maze" class="menu-btn primary">Next Maze →</button>
+  </div>
+
+  <!-- Game Over Screen -->
+  <div id="gameover-screen" class="screen-overlay">
+    <h2 class="screen-heading" style="color: #f87171;" id="gameover-title">Maze Consumed</h2>
+    <p class="screen-sub" id="gameover-reason">The Round Menace devoured your maze.</p>
+
+    <div class="tally-card">
+      <div class="tally-row">
+        <span>Pellets Saved</span>
+        <span id="gameover-pellets" style="color:#ffd32a;">0</span>
+      </div>
+      <div class="tally-row" id="gameover-chain-row" style="display: none;">
+        <span>Fright Casualties</span>
+        <span id="gameover-chain-text" style="color:#f87171;">He ate 0 of your squad</span>
+      </div>
+      <div class="tally-row grand">
+        <span>Final Score</span>
+        <span id="gameover-score">0</span>
+      </div>
+    </div>
+
+    <button id="btn-restart" class="menu-btn primary">Defend Again</button>
+    <button id="btn-gameover-title" class="menu-btn secondary">Title Screen</button>
+  </div>
+
+  <!-- Victory Screen (After Maze 3) -->
+  <div id="victory-screen" class="screen-overlay">
+    <h2 class="screen-heading" style="color: #fbbf24;">Sanctuary Defended!</h2>
+    <p class="screen-sub">All three mazes preserved. The night shift triumphs.</p>
+
+    <div class="tally-card">
+      <div class="tally-row">
+        <span>Total Pellets Saved</span>
+        <span id="victory-pellets" style="color:#ffd32a;">0</span>
+      </div>
+      <div class="tally-row">
+        <span>Squad Survival</span>
+        <span style="color:#34d399;">All Keepers Standing</span>
+      </div>
+      <div class="tally-row grand">
+        <span>Grand Total Score</span>
+        <span id="victory-score">0</span>
+      </div>
+    </div>
+
+    <button id="btn-victory-restart" class="menu-btn primary">Play Again</button>
+  </div>
+</div>
+
+<script>
+/**
+ * THE ROUND MENACE — Complete Game Engine
+ * Yard #7 Remix Web Game
+ * 
+ * SQUAD:
+ * 0: Ember  (Red, Chaser) — Targets Menace tile
+ * 1: Rosé   (Pink, Ambusher) — Targets 4 tiles ahead of Menace
+ * 2: Tide   (Teal, Flanker) — Pincers between Ember and Menace
+ * 3: Goldie (Amber, Shy One) — Targets Menace if > 8 tiles, else scatter corner
+ */
+
+// 1. Procedural WebAudio Synth Engine
+class SoundEngine {
+  constructor() {
+    this.ctx = null;
+    this.muted = localStorage.getItem('rm_muted') === 'true';
+    this.frightOsc1 = null;
+    this.frightOsc2 = null;
+    this.frightGain = null;
+    this.heartbeatTimer = null;
+    this.ambientHum = null;
+    this.pelletToggle = false;
+  }
+
+  init() {
+    if (!this.ctx) {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (AudioCtx) {
+        this.ctx = new AudioCtx();
+      }
+    }
+    if (this.ctx && this.ctx.state === 'suspended') {
+      this.ctx.resume().catch(() => {});
+    }
+  }
+
+  toggleMute() {
+    this.muted = !this.muted;
+    localStorage.setItem('rm_muted', this.muted);
+    if (this.muted) {
+      this.stopFrightWarble();
+      this.stopAmbient();
+    }
+    return this.muted;
+  }
+
+  playChomp() {
+    if (this.muted || !this.ctx) return;
+    this.init();
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    
+    // Two-tone alternating square blip
+    this.pelletToggle = !this.pelletToggle;
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(this.pelletToggle ? 140 : 190, now);
+    osc.frequency.exponentialRampToValueAtTime(this.pelletToggle ? 110 : 150, now + 0.035);
+
+    gain.gain.setValueAtTime(0.04, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.035);
+
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.04);
+  }
+
+  playCatch() {
+    if (this.muted || !this.ctx) return;
+    this.init();
+    const now = this.ctx.currentTime;
+    // Rising triad fanfare (C5, E5, G5, C6)
+    const notes = [523.25, 659.25, 783.99, 1046.50];
+    notes.forEach((freq, idx) => {
+      const t = now + idx * 0.045;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(freq, t);
+      gain.gain.setValueAtTime(0.12, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(t);
+      osc.stop(t + 0.13);
+    });
+  }
+
+  startFrightWarble() {
+    if (this.muted || !this.ctx || this.frightGain) return;
+    this.init();
+    const now = this.ctx.currentTime;
+    this.frightGain = this.ctx.createGain();
+    this.frightGain.gain.setValueAtTime(0.06, now);
+
+    this.frightOsc1 = this.ctx.createOscillator();
+    this.frightOsc2 = this.ctx.createOscillator();
+    this.frightOsc1.type = 'sawtooth';
+    this.frightOsc2.type = 'sawtooth';
+
+    this.frightOsc1.frequency.setValueAtTime(110, now);
+    this.frightOsc2.frequency.setValueAtTime(114, now); // Detuned beating
+
+    // Lowpass filter
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(320, now);
+
+    this.frightOsc1.connect(filter);
+    this.frightOsc2.connect(filter);
+    filter.connect(this.frightGain);
+    this.frightGain.connect(this.ctx.destination);
+
+    this.frightOsc1.start(now);
+    this.frightOsc2.start(now);
+  }
+
+  stopFrightWarble() {
+    if (this.frightOsc1) {
+      try { this.frightOsc1.stop(); } catch(e) {}
+      this.frightOsc1 = null;
+    }
+    if (this.frightOsc2) {
+      try { this.frightOsc2.stop(); } catch(e) {}
+      this.frightOsc2 = null;
+    }
+    this.frightGain = null;
+  }
+
+  playHeartbeat() {
+    if (this.muted || !this.ctx) return;
+    this.init();
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(75, now);
+    osc.frequency.exponentialRampToValueAtTime(35, now + 0.12);
+    gain.gain.setValueAtTime(0.18, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.13);
+  }
+
+  playGhostEaten() {
+    if (this.muted || !this.ctx) return;
+    this.init();
+    const now = this.ctx.currentTime;
+    // Downward slide whistle
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(580, now);
+    osc.frequency.exponentialRampToValueAtTime(120, now + 0.35);
+
+    gain.gain.setValueAtTime(0.14, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.36);
+  }
+
+  playFruitSpawn() {
+    if (this.muted || !this.ctx) return;
+    this.init();
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(659.25, now);
+    osc.frequency.exponentialRampToValueAtTime(880, now + 0.18);
+    gain.gain.setValueAtTime(0.09, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.19);
+  }
+
+  playFruitDenied() {
+    if (this.muted || !this.ctx) return;
+    this.init();
+    const now = this.ctx.currentTime;
+    // Cheerful upward arpeggio
+    const notes = [440, 554.37, 659.25, 880];
+    notes.forEach((freq, idx) => {
+      const t = now + idx * 0.05;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, t);
+      gain.gain.setValueAtTime(0.08, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(t);
+      osc.stop(t + 0.13);
+    });
+  }
+
+  playFruitEaten() {
+    if (this.muted || !this.ctx) return;
+    this.init();
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(140, now);
+    osc.frequency.linearRampToValueAtTime(70, now + 0.22);
+    gain.gain.setValueAtTime(0.09, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.23);
+  }
+
+  playMazeClear() {
+    if (this.muted || !this.ctx) return;
+    this.init();
+    const now = this.ctx.currentTime;
+    // Warm 4-note major jingle
+    const notes = [392.00, 523.25, 659.25, 783.99]; // G4, C5, E5, G5
+    notes.forEach((freq, idx) => {
+      const t = now + idx * 0.1;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(freq, t);
+      gain.gain.setValueAtTime(0.12, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(t);
+      osc.stop(t + 0.26);
+    });
+  }
+
+  playGameOver() {
+    if (this.muted || !this.ctx) return;
+    this.init();
+    const now = this.ctx.currentTime;
+    // Descending minor line
+    const notes = [440, 415.30, 392.00, 349.23];
+    notes.forEach((freq, idx) => {
+      const t = now + idx * 0.12;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(freq, t);
+      gain.gain.setValueAtTime(0.08, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(t);
+      osc.stop(t + 0.23);
+    });
+  }
+
+  playTap() {
+    if (this.muted || !this.ctx) return;
+    this.init();
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(800, now);
+    gain.gain.setValueAtTime(0.04, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.02);
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.025);
+  }
+
+  startAmbient() {
+    // Ambient quiet hum
+    if (this.muted || !this.ctx || this.ambientHum) return;
+    this.init();
+    const now = this.ctx.currentTime;
+    this.ambientHum = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(0.015, now);
+    this.ambientHum.type = 'sine';
+    this.ambientHum.frequency.setValueAtTime(55, now); // A1 hum
+    this.ambientHum.connect(gain);
+    gain.connect(this.ctx.destination);
+    this.ambientHum.start(now);
+  }
+
+  stopAmbient() {
+    if (this.ambientHum) {
+      try { this.ambientHum.stop(); } catch(e) {}
+      this.ambientHum = null;
+    }
+  }
+}
+
+// 2. Original 19x21 Maze Specification
+const MAZE_GRID_TEMPLATE = [
+  "###################", // 0
+  "#o.......#.......o#", // 1: Power pellets in top corners
+  "#.##.###.#.###.##.#", // 2
+  "#.....#.....#.....#", // 3
+  "#.###.#.###.#.###.#", // 4
+  "#.................#", // 5: Cross corridor above house
+  "#.###.##=#=##.###.#", // 6: Door at (9, 6)
+  "#...#.# HHH #.#...#", // 7: House interior
+  "###.#.# HHH #.#.###", // 8
+  "  ....# HHH #....  ", // 9: Tunnel wrap (cols 2-5 and 13-16 dots)
+  "###.#.#######.#.###", // 10
+  "#.................#", // 11: Cross corridor below house
+  "#.###.##.#.##.###.#", // 12
+  "#........#........#", // 13: Fruit spawns at (9, 13)
+  "###.#.#######.#.###", // 14
+  "#.................#", // 15: Menace spawn corridor
+  "#.##.###.#.###.##.#", // 16
+  "#....#...#...#....#", // 17
+  "#.##.#.#####.#.##.#", // 18
+  "#o...............o#", // 19: Power pellets in bottom corners
+  "###################"  // 20
+];
+
+const MAZE_CONFIGS = [
+  {
+    name: "Maze 1",
+    wallFill: "#141738",
+    wallStroke: "#6366f1",
+    wallGlow: "rgba(99, 102, 241, 0.4)",
+    menaceSpeedMultiplier: 1.0,
+    ghostSpeedMultiplier: 1.0,
+    frightDuration: 6.0
+  },
+  {
+    name: "Maze 2",
+    wallFill: "#241335",
+    wallStroke: "#d946ef",
+    wallGlow: "rgba(217, 70, 239, 0.4)",
+    menaceSpeedMultiplier: 1.07,
+    ghostSpeedMultiplier: 1.02,
+    frightDuration: 5.0
+  },
+  {
+    name: "Maze 3",
+    wallFill: "#2d0f1f",
+    wallStroke: "#f43f5e",
+    wallGlow: "rgba(244, 63, 94, 0.45)",
+    menaceSpeedMultiplier: 1.14,
+    ghostSpeedMultiplier: 1.04,
+    frightDuration: 4.0
+  }
+];
+
+// 3. Main Game Engine
+class Game {
+  constructor() {
+    this.canvas = document.getElementById('gameCanvas');
+    this.ctx = this.canvas.getContext('2d');
+    this.sound = new SoundEngine();
+
+    // Dimensions
+    this.cols = 19;
+    this.rows = 21;
+    this.tileSize = 24;
+    this.width = this.cols * this.tileSize;
+    this.height = this.rows * this.tileSize;
+
+    // Scaling
+    this.dpr = window.devicePixelRatio || 1;
+    this.canvas.width = this.width * this.dpr;
+    this.canvas.height = this.height * this.dpr;
+    this.ctx.scale(this.dpr, this.dpr);
+
+    // Game state
+    this.state = 'title'; // 'title', 'playing', 'paused', 'maze_clear', 'game_over', 'victory'
+    this.mazeIndex = 0; // 0, 1, 2
+    this.score = 0;
+    this.totalPelletsSaved = 0;
+    this.highScore = parseInt(localStorage.getItem('rm_high_score') || '0', 10);
+    this.bestPelletsSaved = parseInt(localStorage.getItem('rm_best_pellets') || '0', 10);
+
+    // Maze grid runtime
+    this.grid = [];
+    this.totalPelletsInMaze = 0;
+    this.pelletsRemaining = 0;
+    this.pelletsEatenByMenace = 0;
+
+    // Fright mode
+    this.isFrightMode = false;
+    this.frightTimer = 0;
+    this.frightDuration = 6.0;
+    this.ghostsEatenInFright = 0;
+    this.heartbeatTimer = 0;
+
+    // Fruit
+    this.fruit = {
+      active: false,
+      tileX: 9,
+      tileY: 13,
+      timer: 0,
+      spawnedAt70: false,
+      spawnedAt140: false,
+      deductionsTotal: 0
+    };
+
+    // Juice & Effects
+    this.shakeDuration = 0;
+    this.shakeIntensity = 0;
+    this.slowMoTimer = 0;
+    this.slowMoFactor = 1.0;
+    this.particles = [];
+    this.selectionRingAngle = 0;
+
+    // Wave timer (Scatter vs Chase)
+    this.waveTimer = 0;
+    this.waveIndex = 0;
+    this.isScatterWave = false; // Protagonists default to chase
+
+    // Entities
+    this.possessedIndex = 0; // Ember default
+    this.menace = null;
+    this.ghosts = [];
+
+    // Notification toast
+    this.toastTimer = 0;
+
+    // Timing
+    this.lastTime = 0;
+
+    this.setupDOM();
+    this.setupInput();
+    this.resizeCanvas();
+    window.addEventListener('resize', () => this.resizeCanvas());
+
+    // Update title screen high scores
+    document.getElementById('title-high-score').textContent = this.highScore;
+    document.getElementById('title-best-pellets').textContent = this.bestPelletsSaved;
+
+    // Initialize maze grid and entities for background/title rendering
+    this.initMaze(0);
+
+    // Initial render of squad icons in bottom bar
+    this.renderSquadBarIcons();
+
+    // Start requestAnimationFrame loop
+    requestAnimationFrame((t) => this.loop(t));
+  }
+
+  setupDOM() {
+    document.getElementById('btn-sound').addEventListener('click', () => {
+      const isMuted = this.sound.toggleMute();
+      document.getElementById('btn-sound').textContent = isMuted ? '🔇' : '🔊';
+    });
+    if (this.sound.muted) {
+      document.getElementById('btn-sound').textContent = '🔇';
+    }
+
+    document.getElementById('btn-pause').addEventListener('click', () => {
+      this.togglePause();
+    });
+
+    document.getElementById('btn-play').addEventListener('click', () => {
+      this.sound.init();
+      this.sound.playTap();
+      this.startNewGame();
+    });
+
+    document.getElementById('btn-how-to-play').addEventListener('click', () => {
+      this.sound.init();
+      this.sound.playTap();
+      this.showScreen('how-screen');
+    });
+
+    document.getElementById('btn-back-how').addEventListener('click', () => {
+      this.sound.playTap();
+      this.showScreen('title-screen');
+    });
+
+    document.getElementById('btn-resume').addEventListener('click', () => {
+      this.sound.playTap();
+      this.togglePause();
+    });
+
+    document.getElementById('btn-pause-quit').addEventListener('click', () => {
+      this.sound.playTap();
+      this.showTitleScreen();
+    });
+
+    document.getElementById('btn-next-maze').addEventListener('click', () => {
+      this.sound.playTap();
+      this.advanceToNextMaze();
+    });
+
+    document.getElementById('btn-restart').addEventListener('click', () => {
+      this.sound.playTap();
+      this.startNewGame();
+    });
+
+    document.getElementById('btn-gameover-title').addEventListener('click', () => {
+      this.sound.playTap();
+      this.showTitleScreen();
+    });
+
+    document.getElementById('btn-victory-restart').addEventListener('click', () => {
+      this.sound.playTap();
+      this.startNewGame();
+    });
+
+    // Squad bar click listeners
+    const squadBtns = document.querySelectorAll('.squad-btn');
+    squadBtns.forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const idx = parseInt(btn.dataset.ghost, 10);
+        this.possess(idx);
+      });
+    });
+
+    // Mobile D-pad listeners
+    const dpadBtns = document.querySelectorAll('.dpad-btn');
+    dpadBtns.forEach(btn => {
+      const handleDir = (e) => {
+        e.preventDefault();
+        const dirName = btn.dataset.dir;
+        let d = { x: 0, y: 0 };
+        if (dirName === 'up') d = { x: 0, y: -1 };
+        if (dirName === 'down') d = { x: 0, y: 1 };
+        if (dirName === 'left') d = { x: -1, y: 0 };
+        if (dirName === 'right') d = { x: 1, y: 0 };
+        this.steerPossessed(d);
+      };
+      btn.addEventListener('touchstart', handleDir, { passive: false });
+      btn.addEventListener('mousedown', handleDir);
+    });
+  }
+
+  setupInput() {
+    window.addEventListener('keydown', (e) => {
+      this.sound.init();
+
+      if (e.code === 'KeyM') {
+        const isMuted = this.sound.toggleMute();
+        document.getElementById('btn-sound').textContent = isMuted ? '🔇' : '🔊';
+        return;
+      }
+
+      if (e.code === 'Space' || e.code === 'KeyP') {
+        if (this.state === 'playing' || this.state === 'paused') {
+          this.togglePause();
+        }
+        return;
+      }
+
+      // 1-4 Possession keys
+      if (['Digit1', 'Digit2', 'Digit3', 'Digit4'].includes(e.code)) {
+        const idx = parseInt(e.code.replace('Digit', ''), 10) - 1;
+        this.possess(idx);
+        return;
+      }
+
+      if (this.state !== 'playing') return;
+
+      // Steering
+      let d = null;
+      if (e.code === 'ArrowUp' || e.code === 'KeyW') d = { x: 0, y: -1 };
+      else if (e.code === 'ArrowDown' || e.code === 'KeyS') d = { x: 0, y: 1 };
+      else if (e.code === 'ArrowLeft' || e.code === 'KeyA') d = { x: -1, y: 0 };
+      else if (e.code === 'ArrowRight' || e.code === 'KeyD') d = { x: 1, y: 0 };
+
+      if (d) {
+        e.preventDefault();
+        this.steerPossessed(d);
+      }
+    });
+
+    // Touch swipe steering on canvas
+    let touchStartX = 0;
+    let touchStartY = 0;
+    this.canvas.addEventListener('touchstart', (e) => {
+      this.sound.init();
+      if (e.touches.length === 1) {
+        touchStartX = e.touches[0].clientX;
+        touchStartY = e.touches[0].clientY;
+
+        // Check if tapping directly on a ghost
+        const rect = this.canvas.getBoundingClientRect();
+        const scaleX = this.width / rect.width;
+        const scaleY = this.height / rect.height;
+        const clickX = (touchStartX - rect.left) * scaleX;
+        const clickY = (touchStartY - rect.top) * scaleY;
+
+        this.checkGhostClick(clickX, clickY);
+      }
+    }, { passive: true });
+
+    this.canvas.addEventListener('touchend', (e) => {
+      if (e.changedTouches.length === 1 && this.state === 'playing') {
+        const dx = e.changedTouches[0].clientX - touchStartX;
+        const dy = e.changedTouches[0].clientY - touchStartY;
+        this.touchSteer(dx, dy);
+      }
+    }, { passive: true });
+
+    // Mouse click on canvas to select ghost
+    this.canvas.addEventListener('mousedown', (e) => {
+      this.sound.init();
+      const rect = this.canvas.getBoundingClientRect();
+      const scaleX = this.width / rect.width;
+      const scaleY = this.height / rect.height;
+      const clickX = (e.clientX - rect.left) * scaleX;
+      const clickY = (e.clientY - rect.top) * scaleY;
+      this.checkGhostClick(clickX, clickY);
+    });
+  }
+
+  touchSteer(dx, dy) {
+    if (Math.abs(dx) < 15 && Math.abs(dy) < 15) return;
+    if (Math.abs(dx) > Math.abs(dy)) {
+      this.steerPossessed({ x: dx > 0 ? 1 : -1, y: 0 });
+    } else {
+      this.steerPossessed({ x: 0, y: dy > 0 ? 1 : -1 });
+    }
+  }
+
+  checkGhostClick(x, y) {
+    for (let i = 0; i < this.ghosts.length; i++) {
+      const g = this.ghosts[i];
+      if (g.isBenched) continue;
+      const dist = Math.hypot(g.x - x, g.y - y);
+      if (dist <= this.tileSize * 1.2) {
+        this.possess(i);
+        break;
+      }
+    }
+  }
+
+  resizeCanvas() {
+    const wrap = document.getElementById('canvas-wrap');
+    if (!wrap) return;
+    const availW = wrap.clientWidth;
+    const availH = wrap.clientHeight;
+    const scale = Math.min(availW / this.width, availH / this.height, 1.3);
+
+    this.canvas.style.width = `${Math.floor(this.width * scale)}px`;
+    this.canvas.style.height = `${Math.floor(this.height * scale)}px`;
+  }
+
+  showScreen(id) {
+    document.querySelectorAll('.screen-overlay').forEach(el => el.classList.remove('visible'));
+    if (id) {
+      const s = document.getElementById(id);
+      if (s) s.classList.add('visible');
+    }
+  }
+
+  showTitleScreen() {
+    this.state = 'title';
+    this.sound.stopFrightWarble();
+    this.sound.stopAmbient();
+    document.getElementById('fright-bar-container').classList.remove('active');
+    document.getElementById('title-high-score').textContent = this.highScore;
+    document.getElementById('title-best-pellets').textContent = this.bestPelletsSaved;
+    this.showScreen('title-screen');
+  }
+
+  showNotification(text) {
+    const toast = document.getElementById('notification-toast');
+    toast.textContent = text;
+    toast.classList.add('show');
+    clearTimeout(this.toastTimer);
+    this.toastTimer = setTimeout(() => {
+      toast.classList.remove('show');
+    }, 1800);
+  }
+
+  renderSquadBarIcons() {
+    const colors = ['#ff3344', '#ff55a3', '#00d2d3', '#ffa502'];
+    for (let i = 0; i < 4; i++) {
+      const container = document.getElementById(`squad-icon-${i}`);
+      if (!container) continue;
+      container.innerHTML = `
+        <svg viewBox="0 0 28 28" width="28" height="28">
+          <path d="M 6,18 C 6,7 22,7 22,18 C 22,23 19,20 17,23 C 15,20 13,20 11,23 C 9,20 6,23 6,18 Z" fill="${colors[i]}" />
+          <circle cx="11" cy="13" r="2.5" fill="#fff"/>
+          <circle cx="17" cy="13" r="2.5" fill="#fff"/>
+          <circle cx="12" cy="13" r="1.2" fill="#0b0f19"/>
+          <circle cx="18" cy="13" r="1.2" fill="#0b0f19"/>
+        </svg>
+      `;
+    }
+  }
+
+  updateSquadBarUI() {
+    for (let i = 0; i < 4; i++) {
+      const btn = document.querySelectorAll('.squad-btn')[i];
+      if (!btn) continue;
+      btn.classList.toggle('possessed', i === this.possessedIndex);
+      btn.classList.toggle('benched', this.ghosts[i] ? this.ghosts[i].isBenched : false);
+    }
+  }
+
+  togglePause() {
+    if (this.state === 'playing') {
+      this.state = 'paused';
+      this.sound.stopFrightWarble();
+      this.showScreen('pause-screen');
+    } else if (this.state === 'paused') {
+      this.state = 'playing';
+      if (this.isFrightMode) this.sound.startFrightWarble();
+      this.showScreen(null);
+    }
+  }
+
+  startNewGame() {
+    this.score = 0;
+    this.totalPelletsSaved = 0;
+    this.mazeIndex = 0;
+    this.initMaze(0);
+    this.state = 'playing';
+    this.showScreen(null);
+    this.sound.startAmbient();
+    this.showNotification("Night Shift Begins!");
+  }
+
+  initMaze(index) {
+    this.mazeIndex = index;
+    const cfg = MAZE_CONFIGS[this.mazeIndex];
+    this.frightDuration = cfg.frightDuration;
+
+    // Load grid template
+    this.grid = [];
+    this.totalPelletsInMaze = 0;
+    for (let r = 0; r < this.rows; r++) {
+      const row = [];
+      for (let c = 0; c < this.cols; c++) {
+        const ch = MAZE_GRID_TEMPLATE[r][c];
+        row.push(ch);
+        if (ch === '.' || ch === 'o') {
+          this.totalPelletsInMaze++;
+        }
+      }
+      this.grid.push(row);
+    }
+    this.pelletsRemaining = this.totalPelletsInMaze;
+    this.pelletsEatenByMenace = 0;
+
+    // Reset Fright
+    this.isFrightMode = false;
+    this.frightTimer = 0;
+    this.ghostsEatenInFright = 0;
+    this.sound.stopFrightWarble();
+    document.getElementById('fright-bar-container').classList.remove('active');
+
+    // Reset Fruit
+    this.fruit.active = false;
+    this.fruit.timer = 0;
+    this.fruit.spawnedAt70 = false;
+    this.fruit.spawnedAt140 = false;
+    this.fruit.deductionsTotal = 0;
+
+    // Wave timings
+    this.waveTimer = 0;
+    this.waveIndex = 0;
+    this.isScatterWave = false;
+
+    // Menace Setup
+    const baseSpeed = 74; // Logical pixels per second
+    this.menace = {
+      tileX: 9,
+      tileY: 15,
+      x: 9 * this.tileSize + this.tileSize / 2,
+      y: 15 * this.tileSize + this.tileSize / 2,
+      dir: { x: -1, y: 0 },
+      nextDir: { x: -1, y: 0 },
+      speed: baseSpeed * cfg.menaceSpeedMultiplier,
+      baseSpeed: baseSpeed * cfg.menaceSpeedMultiplier,
+      lives: 3,
+      respawnTimer: 0,
+      immuneTimer: 0,
+      mouthAngle: 0.2,
+      mouthDir: 1,
+      facing: { x: -1, y: 0 }
+    };
+
+    // Ghosts Setup
+    // 0: Ember (Red) starts outside door at (9, 6)
+    // 1: Rosé (Pink) starts in house at (9, 8), leaves +1.0s
+    // 2: Tide (Teal) starts in house at (8, 8), leaves +2.5s
+    // 3: Goldie (Amber) starts in house at (10, 8), leaves +4.0s
+    const gBaseSpeed = 74 * cfg.ghostSpeedMultiplier;
+    this.ghosts = [
+      new Ghost(0, "Ember", "#ff3344", 9, 6, 0, gBaseSpeed, { x: 17, y: 1 }),
+      new Ghost(1, "Rosé", "#ff55a3", 9, 8, 1.0, gBaseSpeed, { x: 1, y: 1 }),
+      new Ghost(2, "Tide", "#00d2d3", 8, 8, 2.5, gBaseSpeed, { x: 17, y: 19 }),
+      new Ghost(3, "Goldie", "#ffa502", 10, 8, 4.0, gBaseSpeed, { x: 1, y: 19 })
+    ];
+
+    this.possessedIndex = 0;
+    this.updateHUD();
+    this.updateSquadBarUI();
+  }
+
+  possess(index) {
+    if (index < 0 || index >= this.ghosts.length) return;
+    const g = this.ghosts[index];
+    if (g.isBenched) {
+      this.showNotification(`${g.name} is benched!`);
+      return;
+    }
+    this.possessedIndex = index;
+    this.sound.playTap();
+    this.updateSquadBarUI();
+    this.showNotification(`Controlling ${g.name}`);
+  }
+
+  steerPossessed(dir) {
+    const g = this.ghosts[this.possessedIndex];
+    if (g && !g.isBenched && g.state !== 'HOUSE') {
+      g.setNextDirection(dir, this.grid);
+    }
+  }
+
+  updateHUD() {
+    document.getElementById('hud-score').textContent = this.score;
+    document.getElementById('hud-pellets').textContent = `${this.pelletsRemaining} / ${this.totalPelletsInMaze}`;
+
+    for (let i = 0; i < 3; i++) {
+      const el = document.getElementById(`life-${i}`);
+      if (el) {
+        el.classList.toggle('lost', i >= (this.menace ? this.menace.lives : 3));
+      }
+    }
+  }
+
+  triggerFrightMode(customDuration) {
+    this.isFrightMode = true;
+    this.frightDuration = customDuration || MAZE_CONFIGS[this.mazeIndex].frightDuration;
+    this.frightTimer = this.frightDuration;
+    this.ghostsEatenInFright = 0;
+    this.heartbeatTimer = 0;
+
+    // Fright speeds
+    this.menace.speed = this.menace.baseSpeed * 1.10;
+    this.ghosts.forEach(g => {
+      if (!g.isBenched) {
+        g.speed = g.baseSpeed * 0.75;
+      }
+    });
+
+    this.sound.startFrightWarble();
+    document.getElementById('fright-bar-container').classList.add('active');
+    this.showNotification("⚠️ Power Pellet! Menace Hunting!");
+  }
+
+  endFrightMode() {
+    this.isFrightMode = false;
+    this.frightTimer = 0;
+    this.sound.stopFrightWarble();
+    document.getElementById('fright-bar-container').classList.remove('active');
+
+    // Restore speeds
+    this.menace.speed = this.menace.baseSpeed;
+    this.ghosts.forEach(g => {
+      g.speed = g.baseSpeed;
+    });
+  }
+
+  handleCatch() {
+    // Screen shake & particles
+    this.shakeDuration = 0.14;
+    this.shakeIntensity = 8;
+    this.slowMoTimer = 0.15;
+    this.slowMoFactor = 0.3;
+
+    // Particles at catch location
+    for (let i = 0; i < 24; i++) {
+      this.particles.push(new Particle(this.menace.x, this.menace.y, '#ffd32a'));
+    }
+
+    this.sound.playCatch();
+    this.score += 300;
+    this.menace.lives--;
+    this.updateHUD();
+
+    if (this.menace.lives <= 0) {
+      // Maze Won!
+      this.handleMazeClear();
+    } else {
+      // Menace respawn & reset positions
+      this.showNotification(`Catch! ${this.menace.lives} Menace lives left!`);
+      this.resetRoundPositions();
+    }
+  }
+
+  resetRoundPositions() {
+    const cfg = MAZE_CONFIGS[this.mazeIndex];
+    this.menace.tileX = 9;
+    this.menace.tileY = 15;
+    this.menace.x = 9 * this.tileSize + this.tileSize / 2;
+    this.menace.y = 15 * this.tileSize + this.tileSize / 2;
+    this.menace.dir = { x: -1, y: 0 };
+    this.menace.nextDir = { x: -1, y: 0 };
+    this.menace.facing = { x: -1, y: 0 };
+    this.menace.immuneTimer = 1.0; // 1s immunity
+
+    // Reset ghosts
+    const gBaseSpeed = 74 * cfg.ghostSpeedMultiplier;
+    this.ghosts = [
+      new Ghost(0, "Ember", "#ff3344", 9, 6, 0, gBaseSpeed, { x: 17, y: 1 }),
+      new Ghost(1, "Rosé", "#ff55a3", 9, 8, 1.0, gBaseSpeed, { x: 1, y: 1 }),
+      new Ghost(2, "Tide", "#00d2d3", 8, 8, 2.5, gBaseSpeed, { x: 17, y: 19 }),
+      new Ghost(3, "Goldie", "#ffa502", 10, 8, 4.0, gBaseSpeed, { x: 1, y: 19 })
+    ];
+
+    // If currently possessed ghost was benched, switch to Ember
+    if (this.ghosts[this.possessedIndex].isBenched) {
+      this.possessedIndex = 0;
+    }
+
+    this.endFrightMode();
+    this.updateSquadBarUI();
+  }
+
+  handleGhostEatenByMenace(ghostIndex) {
+    const g = this.ghosts[ghostIndex];
+    if (g.isBenched) return;
+
+    g.isBenched = true;
+    g.state = 'RETURNING';
+    this.ghostsEatenInFright++;
+    this.sound.playGhostEaten();
+    this.showNotification(`${g.name} was eaten & benched!`);
+
+    // Particles at ghost position
+    for (let i = 0; i < 18; i++) {
+      this.particles.push(new Particle(g.x, g.y, g.color));
+    }
+
+    // If player possessed this ghost, switch to an active ghost
+    if (this.possessedIndex === ghostIndex) {
+      const nextActive = this.ghosts.findIndex(gh => !gh.isBenched);
+      if (nextActive !== -1) {
+        this.possessedIndex = nextActive;
+      }
+    }
+    this.updateSquadBarUI();
+
+    // Check if ALL 4 ghosts are benched in this fright run
+    const allBenched = this.ghosts.every(gh => gh.isBenched);
+    if (allBenched) {
+      this.handleGameOver("Squad Annihilated", "The Round Menace devoured all 4 keepers!");
+    }
+  }
+
+  handleMazeClear() {
+    this.state = 'maze_clear';
+    this.sound.stopFrightWarble();
+    this.sound.stopAmbient();
+    this.sound.playMazeClear();
+
+    const saved = this.pelletsRemaining;
+    const bonus = saved * 10;
+    this.totalPelletsSaved += saved;
+    this.score += bonus;
+
+    // Fruit bonus
+    let fruitBonus = 0;
+    let fruitText = "No fruit";
+    if (this.fruit.spawnedAt70 || this.fruit.spawnedAt140) {
+      if (this.fruit.deductionsTotal === 0) {
+        fruitBonus = 500;
+        this.score += fruitBonus;
+        fruitText = "+500 (Saved!)";
+      } else {
+        fruitText = `-${this.fruit.deductionsTotal} (Eaten by Menace)`;
+      }
+    }
+
+    document.getElementById('clear-subtitle').textContent = `Maze ${this.mazeIndex + 1} Cleared!`;
+    document.getElementById('clear-pellets-saved').textContent = `${saved} / ${this.totalPelletsInMaze}`;
+    document.getElementById('clear-pellets-bonus').textContent = `+${bonus}`;
+    document.getElementById('clear-fruit-status').textContent = fruitText;
+    document.getElementById('clear-total-score').textContent = this.score;
+
+    this.showScreen('clear-screen');
+  }
+
+  advanceToNextMaze() {
+    if (this.mazeIndex < 2) {
+      this.initMaze(this.mazeIndex + 1);
+      this.state = 'playing';
+      this.showScreen(null);
+      this.sound.startAmbient();
+      this.showNotification(`Entering Maze ${this.mazeIndex + 1}!`);
+    } else {
+      // Victory after Maze 3!
+      this.handleVictory();
+    }
+  }
+
+  handleGameOver(title, reason) {
+    this.state = 'game_over';
+    this.sound.stopFrightWarble();
+    this.sound.stopAmbient();
+    this.sound.playGameOver();
+
+    // Check high score
+    this.updateHighScores();
+
+    document.getElementById('gameover-title').textContent = title || "Maze Consumed";
+    document.getElementById('gameover-reason').textContent = reason || "The Round Menace devoured your maze.";
+    document.getElementById('gameover-pellets').textContent = `${this.pelletsRemaining} saved`;
+    document.getElementById('gameover-score').textContent = this.score;
+
+    const chainRow = document.getElementById('gameover-chain-row');
+    if (this.ghostsEatenInFright >= 2) {
+      chainRow.style.display = 'flex';
+      document.getElementById('gameover-chain-text').textContent = `He ate ${this.ghostsEatenInFright} of your squad!`;
+    } else {
+      chainRow.style.display = 'none';
+    }
+
+    this.showScreen('gameover-screen');
+  }
+
+  handleVictory() {
+    this.state = 'victory';
+    this.sound.stopFrightWarble();
+    this.sound.stopAmbient();
+    this.sound.playMazeClear();
+
+    this.updateHighScores();
+
+    document.getElementById('victory-pellets').textContent = `${this.totalPelletsSaved} pellets preserved`;
+    document.getElementById('victory-score').textContent = this.score;
+
+    this.showScreen('victory-screen');
+  }
+
+  updateHighScores() {
+    if (this.score > this.highScore) {
+      this.highScore = this.score;
+      localStorage.setItem('rm_high_score', this.highScore);
+    }
+    if (this.totalPelletsSaved > this.bestPelletsSaved) {
+      this.bestPelletsSaved = this.totalPelletsSaved;
+      localStorage.setItem('rm_best_pellets', this.bestPelletsSaved);
+    }
+  }
+
+  // Main Loop
+  loop(timestamp) {
+    if (!this.lastTime) this.lastTime = timestamp;
+    let dt = (timestamp - this.lastTime) / 1000;
+    this.lastTime = timestamp;
+
+    if (dt > 0.1) dt = 0.1; // Cap dt for tab-switching
+
+    if (this.state === 'playing') {
+      if (this.slowMoTimer > 0) {
+        this.slowMoTimer -= dt;
+        dt *= this.slowMoFactor;
+      }
+      this.update(dt);
+    }
+
+    this.render();
+    requestAnimationFrame((t) => this.loop(t));
+  }
+
+  update(dt) {
+    // Screen shake decay
+    if (this.shakeDuration > 0) {
+      this.shakeDuration -= dt;
+    }
+
+    // Selection ring rotation
+    this.selectionRingAngle += dt * 3.5;
+
+    // Fright Timer Update
+    if (this.isFrightMode) {
+      this.frightTimer -= dt;
+      const pct = Math.max(0, (this.frightTimer / this.frightDuration) * 100);
+      document.getElementById('fright-progress-fill').style.width = `${pct}%`;
+      document.getElementById('fright-timer-text').textContent = `${Math.max(0, this.frightTimer).toFixed(1)}s`;
+
+      // Heartbeat during last 2s of fright
+      if (this.frightTimer <= 2.0 && this.frightTimer > 0) {
+        this.heartbeatTimer += dt;
+        if (this.heartbeatTimer >= 0.5) {
+          this.heartbeatTimer = 0;
+          this.sound.playHeartbeat();
+        }
+      }
+
+      if (this.frightTimer <= 0) {
+        this.endFrightMode();
+      }
+    }
+
+    // Wave cycling (Scatter / Chase)
+    this.waveTimer += dt;
+    if (!this.isScatterWave && this.waveTimer >= 20.0 && this.waveIndex < 4) {
+      this.isScatterWave = true;
+      this.waveTimer = 0;
+    } else if (this.isScatterWave && this.waveTimer >= 5.0) {
+      this.isScatterWave = false;
+      this.waveTimer = 0;
+      this.waveIndex++;
+    }
+
+    // Fruit logic
+    this.updateFruit(dt);
+
+    // Update Menace
+    this.updateMenace(dt);
+
+    // Update Ghosts
+    for (let i = 0; i < this.ghosts.length; i++) {
+      const g = this.ghosts[i];
+      const isPossessed = (i === this.possessedIndex);
+      g.update(dt, this, isPossessed);
+    }
+
+    // Check Catch / Collision
+    this.checkCollisions();
+
+    // Update Particles
+    for (let i = this.particles.length - 1; i >= 0; i--) {
+      this.particles[i].update(dt);
+      if (this.particles[i].life <= 0) {
+        this.particles.splice(i, 1);
+      }
+    }
+  }
+
+  updateFruit(dt) {
+    // Fruit appears at 70 and 140 pellets eaten
+    if (!this.fruit.spawnedAt70 && this.pelletsEatenByMenace >= 70) {
+      this.fruit.spawnedAt70 = true;
+      this.fruit.active = true;
+      this.fruit.timer = 9.0;
+      this.sound.playFruitSpawn();
+      this.showNotification("✨ Glowing Lantern Fruit Appeared!");
+    } else if (!this.fruit.spawnedAt140 && this.pelletsEatenByMenace >= 140) {
+      this.fruit.spawnedAt140 = true;
+      this.fruit.active = true;
+      this.fruit.timer = 9.0;
+      this.sound.playFruitSpawn();
+      this.showNotification("✨ Glowing Lantern Fruit Appeared!");
+    }
+
+    if (this.fruit.active) {
+      this.fruit.timer -= dt;
+      if (this.fruit.timer <= 0) {
+        // Expired uneaten: bonus for ghosts!
+        this.fruit.active = false;
+        this.score += 500;
+        this.sound.playFruitDenied();
+        this.showNotification("Fruit Preserved! +500 PTS");
+        this.updateHUD();
+      }
+    }
+  }
+
+  updateMenace(dt) {
+    if (!this.menace) return;
+
+    if (this.menace.immuneTimer > 0) {
+      this.menace.immuneTimer -= dt;
+    }
+
+    // Chomp animation
+    this.menace.mouthAngle += this.menace.mouthDir * dt * 8;
+    if (this.menace.mouthAngle > 0.55) {
+      this.menace.mouthAngle = 0.55;
+      this.menace.mouthDir = -1;
+    } else if (this.menace.mouthAngle < 0.05) {
+      this.menace.mouthAngle = 0.05;
+      this.menace.mouthDir = 1;
+    }
+
+    if (this.menace.dir.x === 0 && this.menace.dir.y === 0) {
+      this.menace.dir = this.decideMenaceDirection();
+      if (this.menace.dir.x === 0 && this.menace.dir.y === 0) return;
+    }
+
+    const half = this.tileSize / 2;
+    let nextTileX = this.menace.tileX + this.menace.dir.x;
+    let nextTileY = this.menace.tileY + this.menace.dir.y;
+
+    // Row 9 tunnel wrap
+    if (this.menace.tileY === 9) {
+      if (nextTileX < 0) nextTileX = this.cols - 1;
+      if (nextTileX >= this.cols) nextTileX = 0;
+    }
+
+    const targetX = nextTileX * this.tileSize + half;
+    const targetY = nextTileY * this.tileSize + half;
+    const moveDist = this.menace.speed * dt;
+
+    this.menace.x += this.menace.dir.x * moveDist;
+    this.menace.y += this.menace.dir.y * moveDist;
+
+    let reached = false;
+    if (this.menace.dir.x > 0 && this.menace.x >= targetX) reached = true;
+    if (this.menace.dir.x < 0 && this.menace.x <= targetX) reached = true;
+    if (this.menace.dir.y > 0 && this.menace.y >= targetY) reached = true;
+    if (this.menace.dir.y < 0 && this.menace.y <= targetY) reached = true;
+
+    // Handle tunnel coordinate wrap in pixel space
+    if (this.menace.tileY === 9) {
+      if (this.menace.x < -half) {
+        this.menace.x = (this.cols - 1) * this.tileSize + half;
+        this.menace.tileX = this.cols - 1;
+      } else if (this.menace.x > this.width + half) {
+        this.menace.x = half;
+        this.menace.tileX = 0;
+      }
+    }
+
+    if (reached) {
+      this.menace.x = targetX;
+      this.menace.y = targetY;
+      this.menace.tileX = nextTileX;
+      this.menace.tileY = nextTileY;
+
+      // Eat pellet at current tile
+      this.menaceEatAt(this.menace.tileX, this.menace.tileY);
+
+      // Eat fruit if at fruit tile
+      if (this.fruit.active && this.menace.tileX === this.fruit.tileX && this.menace.tileY === this.fruit.tileY) {
+        this.fruit.active = false;
+        const penalty = (this.mazeIndex + 1) * 100;
+        this.fruit.deductionsTotal += penalty;
+        this.score = Math.max(0, this.score - penalty);
+        this.sound.playFruitEaten();
+        this.showNotification(`Menace ate the Fruit! -${penalty} PTS`);
+        this.updateHUD();
+      }
+
+      // Decide next move via State Machine
+      const nextDir = this.decideMenaceDirection();
+      this.menace.dir = nextDir;
+      if (nextDir.x !== 0 || nextDir.y !== 0) {
+        this.menace.facing = nextDir;
+      }
+    }
+  }
+
+  menaceEatAt(c, r) {
+    if (r < 0 || r >= this.rows || c < 0 || c >= this.cols) return;
+    const cell = this.grid[r][c];
+    if (cell === '.') {
+      this.grid[r][c] = ' ';
+      this.pelletsRemaining--;
+      this.pelletsEatenByMenace++;
+      this.sound.playChomp();
+      this.updateHUD();
+
+      // Check if Menace ate all pellets -> Game Over!
+      if (this.pelletsRemaining <= 0) {
+        this.handleGameOver("Maze Devoured", "The Round Menace consumed every single pellet.");
+      }
+    } else if (cell === 'o') {
+      this.grid[r][c] = ' ';
+      this.pelletsRemaining--;
+      this.pelletsEatenByMenace++;
+      this.sound.playChomp();
+      this.updateHUD();
+
+      // Trigger Fright Mode
+      this.triggerFrightMode();
+    }
+  }
+
+  decideMenaceDirection() {
+    const curX = this.menace.tileX;
+    const curY = this.menace.tileY;
+    const curDir = this.menace.dir;
+
+    const legalMoves = this.getLegalMoves(curX, curY, curDir, false);
+    if (legalMoves.length === 0) {
+      // Reverse if dead end
+      return { x: -curDir.x, y: -curDir.y };
+    }
+    if (legalMoves.length === 1) {
+      return legalMoves[0];
+    }
+
+    // Active (non-benched) ghosts
+    const activeGhosts = this.ghosts.filter(g => !g.isBenched && g.state !== 'HOUSE');
+
+    // 1. Fright-Chase (if fright mode)
+    if (this.isFrightMode && activeGhosts.length > 0) {
+      let nearestGhost = null;
+      let minDist = Infinity;
+      activeGhosts.forEach(g => {
+        const d = Math.hypot(g.tileX - curX, g.tileY - curY);
+        if (d < minDist) {
+          minDist = d;
+          nearestGhost = g;
+        }
+      });
+
+      if (nearestGhost) {
+        let bestMove = legalMoves[0];
+        let bestDist = Infinity;
+        legalMoves.forEach(m => {
+          const nx = curX + m.x;
+          const ny = curY + m.y;
+          const d = Math.hypot(nx - nearestGhost.tileX, ny - nearestGhost.tileY);
+          if (d < bestDist) {
+            bestDist = d;
+            bestMove = m;
+          }
+        });
+        return bestMove;
+      }
+    }
+
+    // 2. Power-pellet grab: ghost <= 4 tiles AND power pellet <= 6 tiles
+    let ghostNear = false;
+    activeGhosts.forEach(g => {
+      if (Math.hypot(g.tileX - curX, g.tileY - curY) <= 4.0) {
+        ghostNear = true;
+      }
+    });
+
+    if (ghostNear) {
+      // Check for power pellets within 6 tiles
+      const powerPellets = [];
+      for (let r = 0; r < this.rows; r++) {
+        for (let c = 0; c < this.cols; c++) {
+          if (this.grid[r][c] === 'o') {
+            const d = Math.hypot(c - curX, r - curY);
+            if (d <= 6.0) {
+              powerPellets.push({ x: c, y: r, dist: d });
+            }
+          }
+        }
+      }
+
+      if (powerPellets.length > 0) {
+        powerPellets.sort((a, b) => a.dist - b.dist);
+        const target = powerPellets[0];
+        let bestMove = legalMoves[0];
+        let bestDist = Infinity;
+        legalMoves.forEach(m => {
+          const nx = curX + m.x;
+          const ny = curY + m.y;
+          const d = Math.hypot(nx - target.x, ny - target.y);
+          if (d < bestDist) {
+            bestDist = d;
+            bestMove = m;
+          }
+        });
+        return bestMove;
+      }
+    }
+
+    // 3. Flee: if nearest active ghost <= 3 tiles
+    let closestGhostDist = Infinity;
+    activeGhosts.forEach(g => {
+      const d = Math.hypot(g.tileX - curX, g.tileY - curY);
+      if (d < closestGhostDist) closestGhostDist = d;
+    });
+
+    if (closestGhostDist <= 3.0) {
+      let bestMove = legalMoves[0];
+      let maxDistToGhost = -1;
+      legalMoves.forEach(m => {
+        const nx = curX + m.x;
+        const ny = curY + m.y;
+        let minGhostD = Infinity;
+        activeGhosts.forEach(g => {
+          const d = Math.hypot(nx - g.tileX, ny - g.tileY);
+          if (d < minGhostD) minGhostD = d;
+        });
+
+        // Tie-breaker: prefers pellet tile
+        const hasPellet = (this.grid[ny] && (this.grid[ny][nx] === '.' || this.grid[ny][nx] === 'o')) ? 0.2 : 0;
+        const score = minGhostD + hasPellet;
+
+        if (score > maxDistToGhost) {
+          maxDistToGhost = score;
+          bestMove = m;
+        }
+      });
+      return bestMove;
+    }
+
+    // 4. Eat (default): BFS to nearest pellet with threat weighting
+    // Detour to fruit if active and no ghost within 5 tiles of fruit
+    let targetX = -1, targetY = -1;
+    if (this.fruit.active) {
+      let ghostNearFruit = false;
+      activeGhosts.forEach(g => {
+        if (Math.hypot(g.tileX - this.fruit.tileX, g.tileY - this.fruit.tileY) <= 5.0) {
+          ghostNearFruit = true;
+        }
+      });
+      if (!ghostNearFruit) {
+        targetX = this.fruit.tileX;
+        targetY = this.fruit.tileY;
+      }
+    }
+
+    if (targetX !== -1 && targetY !== -1) {
+      let bestMove = legalMoves[0];
+      let bestDist = Infinity;
+      legalMoves.forEach(m => {
+        const nx = curX + m.x;
+        const ny = curY + m.y;
+        const d = Math.hypot(nx - targetX, ny - targetY);
+        if (d < bestDist) {
+          bestDist = d;
+          bestMove = m;
+        }
+      });
+      return bestMove;
+    }
+
+    // BFS for nearest pellet with threat weighting
+    const bestMoveFromBFS = this.bfsFindPelletMove(curX, curY, legalMoves, activeGhosts);
+    return bestMoveFromBFS || legalMoves[0];
+  }
+
+  bfsFindPelletMove(startX, startY, legalMoves, activeGhosts) {
+    const queue = [];
+    const visited = Array.from({ length: this.rows }, () => Array(this.cols).fill(false));
+    visited[startY][startX] = true;
+
+    legalMoves.forEach(m => {
+      let nx = startX + m.x;
+      let ny = startY + m.y;
+      if (ny === 9) {
+        if (nx < 0) nx = this.cols - 1;
+        if (nx >= this.cols) nx = 0;
+      }
+      if (ny >= 0 && ny < this.rows && nx >= 0 && nx < this.cols && !visited[ny][nx]) {
+        visited[ny][nx] = true;
+        queue.push({ x: nx, y: ny, firstMove: m, cost: 1 });
+      }
+    });
+
+    while (queue.length > 0) {
+      const cur = queue.shift();
+      const cell = this.grid[cur.y][cur.x];
+
+      if (cell === '.' || cell === 'o') {
+        return cur.firstMove;
+      }
+
+      // Add neighbors
+      const dirs = [{ x: 0, y: -1 }, { x: 0, y: 1 }, { x: -1, y: 0 }, { x: 1, y: 0 }];
+      for (const d of dirs) {
+        let nx = cur.x + d.x;
+        let ny = cur.y + d.y;
+        if (ny === 9) {
+          if (nx < 0) nx = this.cols - 1;
+          if (nx >= this.cols) nx = 0;
+        }
+        if (ny >= 0 && ny < this.rows && nx >= 0 && nx < this.cols) {
+          const nextCell = this.grid[ny][nx];
+          if (nextCell !== '#' && nextCell !== '=' && !visited[ny][nx]) {
+            visited[ny][nx] = true;
+            // Threat weighting: higher cost if within 2 tiles of an active ghost
+            let threatCost = 0;
+            activeGhosts.forEach(g => {
+              if (Math.hypot(nx - g.tileX, ny - g.tileY) <= 2.2) {
+                threatCost += 20;
+              }
+            });
+            queue.push({
+              x: nx,
+              y: ny,
+              firstMove: cur.firstMove,
+              cost: cur.cost + 1 + threatCost
+            });
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  getLegalMoves(tileX, tileY, curDir, isGhost, canPassDoor) {
+    const dirs = [
+      { x: 0, y: -1 }, // Up
+      { x: -1, y: 0 }, // Left
+      { x: 0, y: 1 },  // Down
+      { x: 1, y: 0 }   // Right
+    ];
+    const moves = [];
+
+    dirs.forEach(d => {
+      // Prevent immediate 180 reverse unless trapped
+      if (curDir && (d.x === -curDir.x && d.y === -curDir.y)) {
+        return;
+      }
+
+      let nx = tileX + d.x;
+      let ny = tileY + d.y;
+
+      // Wrap tunnel at row 9
+      if (ny === 9) {
+        if (nx < 0) nx = this.cols - 1;
+        if (nx >= this.cols) nx = 0;
+      }
+
+      if (ny >= 0 && ny < this.rows && nx >= 0 && nx < this.cols) {
+        const cell = this.grid[ny][nx];
+        if (cell === '#') return;
+        if (cell === '=' && !canPassDoor) return;
+        moves.push(d);
+      }
+    });
+
+    return moves;
+  }
+
+  checkCollisions() {
+    if (!this.menace) return;
+    if (this.menace.immuneTimer > 0) return;
+
+    for (let i = 0; i < this.ghosts.length; i++) {
+      const g = this.ghosts[i];
+      if (g.isBenched || g.state === 'HOUSE' || g.state === 'RETURNING') continue;
+
+      const dist = Math.hypot(g.x - this.menace.x, g.y - this.menace.y);
+      if (dist < this.tileSize * 0.75) {
+        if (this.isFrightMode) {
+          // Menace eats the ghost!
+          this.handleGhostEatenByMenace(i);
+        } else {
+          // Ghost catches the Menace!
+          this.handleCatch();
+          break;
+        }
+      }
+    }
+  }
+
+  // 4. Rendering (HTML5 Canvas 2D Vector Graphics)
+  render() {
+    this.ctx.save();
+    this.ctx.clearRect(0, 0, this.width, this.height);
+
+    // Screen Shake effect
+    if (this.shakeDuration > 0) {
+      const sx = (Math.random() - 0.5) * this.shakeIntensity;
+      const sy = (Math.random() - 0.5) * this.shakeIntensity;
+      this.ctx.translate(sx, sy);
+    }
+
+    // 1. Draw Maze
+    this.drawMaze();
+
+    // 2. Draw Fruit
+    this.drawFruit();
+
+    // 3. Draw Pellets & Power Pellets
+    this.drawPellets();
+
+    // 4. Draw Menace
+    this.drawMenace();
+
+    // 5. Draw Ghosts & Selection Ring
+    this.drawGhosts();
+
+    // 6. Draw Particles
+    this.drawParticles();
+
+    this.ctx.restore();
+  }
+
+  drawMaze() {
+    const cfg = MAZE_CONFIGS[this.mazeIndex];
+
+    for (let r = 0; r < this.rows; r++) {
+      for (let c = 0; c < this.cols; c++) {
+        const cell = this.grid[r][c];
+        const x = c * this.tileSize;
+        const y = r * this.tileSize;
+
+        if (cell === '#') {
+          // Neon-styled rounded wall blocks
+          this.ctx.fillStyle = cfg.wallFill;
+          this.ctx.strokeStyle = cfg.wallStroke;
+          this.ctx.lineWidth = 1.8;
+          this.ctx.shadowColor = cfg.wallGlow;
+          this.ctx.shadowBlur = 6;
+
+          this.ctx.fillRect(x + 1, y + 1, this.tileSize - 2, this.tileSize - 2);
+          this.ctx.strokeRect(x + 1.5, y + 1.5, this.tileSize - 3, this.tileSize - 3);
+
+          this.ctx.shadowBlur = 0; // Reset glow
+        } else if (cell === '=') {
+          // Ghost House Door
+          this.ctx.fillStyle = '#f472b6';
+          this.ctx.fillRect(x + 2, y + this.tileSize / 2 - 2, this.tileSize - 4, 4);
+        }
+      }
+    }
+  }
+
+  drawPellets() {
+    const time = performance.now() / 1000;
+
+    for (let r = 0; r < this.rows; r++) {
+      for (let c = 0; c < this.cols; c++) {
+        const cell = this.grid[r][c];
+        const x = c * this.tileSize + this.tileSize / 2;
+        const y = r * this.tileSize + this.tileSize / 2;
+
+        if (cell === '.') {
+          // Standard warm golden pellet
+          this.ctx.fillStyle = '#ffd32a';
+          this.ctx.shadowColor = 'rgba(255, 211, 42, 0.4)';
+          this.ctx.shadowBlur = 4;
+          this.ctx.beginPath();
+          this.ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+          this.ctx.fill();
+          this.ctx.shadowBlur = 0;
+        } else if (cell === 'o') {
+          // Power Pellet: pulsing in-corridor pickup
+          const pulse = Math.sin(time * 6) * 1.5;
+          const radius = 6.5 + pulse;
+
+          this.ctx.fillStyle = '#fff275';
+          this.ctx.shadowColor = 'rgba(255, 242, 117, 0.9)';
+          this.ctx.shadowBlur = 12;
+
+          this.ctx.beginPath();
+          this.ctx.arc(x, y, radius, 0, Math.PI * 2);
+          this.ctx.fill();
+
+          // Inner bright core
+          this.ctx.fillStyle = '#ffffff';
+          this.ctx.beginPath();
+          this.ctx.arc(x, y, radius * 0.45, 0, Math.PI * 2);
+          this.ctx.fill();
+
+          this.ctx.shadowBlur = 0;
+        }
+      }
+    }
+  }
+
+  drawFruit() {
+    if (!this.fruit.active) return;
+    const x = this.fruit.tileX * this.tileSize + this.tileSize / 2;
+    const y = this.fruit.tileY * this.tileSize + this.tileSize / 2;
+    const time = performance.now() / 1000;
+    const bob = Math.sin(time * 5) * 2;
+
+    this.ctx.save();
+    this.ctx.translate(x, y + bob);
+
+    // Glowing Lantern-Orb Fruit (Original design)
+    this.ctx.shadowColor = '#fbbf24';
+    this.ctx.shadowBlur = 14;
+
+    // Outer lantern shell
+    this.ctx.fillStyle = '#d97706';
+    this.ctx.beginPath();
+    this.ctx.arc(0, 0, 8, 0, Math.PI * 2);
+    this.ctx.fill();
+
+    // Glowing core
+    this.ctx.fillStyle = '#fef08a';
+    this.ctx.beginPath();
+    this.ctx.arc(0, 0, 5, 0, Math.PI * 2);
+    this.ctx.fill();
+
+    // Lantern top hook
+    this.ctx.strokeStyle = '#78350f';
+    this.ctx.lineWidth = 1.5;
+    this.ctx.beginPath();
+    this.ctx.arc(0, -9, 2.5, Math.PI, Math.PI * 2);
+    this.ctx.stroke();
+
+    this.ctx.restore();
+  }
+
+  drawMenace() {
+    if (!this.menace) return;
+    if (this.menace.immuneTimer > 0 && Math.floor(this.menace.immuneTimer * 10) % 2 === 0) {
+      return; // Flash during immunity
+    }
+
+    const x = this.menace.x;
+    const y = this.menace.y;
+    const radius = 10.5;
+    const mouth = this.menace.mouthAngle;
+
+    // Angle based on movement
+    let baseAngle = 0;
+    if (this.menace.facing.x === 1) baseAngle = 0;
+    else if (this.menace.facing.x === -1) baseAngle = Math.PI;
+    else if (this.menace.facing.y === 1) baseAngle = Math.PI / 2;
+    else if (this.menace.facing.y === -1) baseAngle = -Math.PI / 2;
+
+    this.ctx.save();
+    this.ctx.translate(x, y);
+
+    // Glow
+    this.ctx.shadowColor = 'rgba(251, 197, 49, 0.7)';
+    this.ctx.shadowBlur = 10;
+
+    // Round Yellow Glutton
+    this.ctx.fillStyle = '#fbc531';
+    this.ctx.beginPath();
+    this.ctx.arc(0, 0, radius, baseAngle + mouth, baseAngle + Math.PI * 2 - mouth);
+    this.ctx.lineTo(0, 0);
+    this.ctx.closePath();
+    this.ctx.fill();
+
+    this.ctx.restore();
+  }
+
+  drawGhosts() {
+    const time = performance.now() / 1000;
+
+    for (let i = 0; i < this.ghosts.length; i++) {
+      const g = this.ghosts[i];
+      const isPossessed = (i === this.possessedIndex);
+      this.drawSingleGhost(g, isPossessed, time);
+    }
+  }
+
+  drawSingleGhost(g, isPossessed, time) {
+    this.ctx.save();
+    this.ctx.translate(g.x, g.y);
+
+    // 1. Draw Selection Ring around possessed ghost
+    if (isPossessed && !g.isBenched) {
+      this.ctx.save();
+      this.ctx.rotate(this.selectionRingAngle);
+      this.ctx.strokeStyle = '#ffffff';
+      this.ctx.lineWidth = 2.2;
+      this.ctx.setLineDash([4, 4]);
+      this.ctx.shadowColor = '#ffffff';
+      this.ctx.shadowBlur = 8;
+      this.ctx.beginPath();
+      this.ctx.arc(0, 0, 16.5, 0, Math.PI * 2);
+      this.ctx.stroke();
+      this.ctx.restore();
+    }
+
+    // 2. If benched: draw only floating eyes heading to house
+    if (g.isBenched || g.state === 'RETURNING') {
+      this.drawBenchedEyes(g.dir);
+      this.ctx.restore();
+      return;
+    }
+
+    // 3. Fright Mode Appearance
+    const inFright = this.isFrightMode;
+    const isFlashing = inFright && (this.frightTimer <= 1.5) && (Math.floor(this.frightTimer * 8) % 2 === 0);
+
+    let bodyColor = g.color;
+    if (inFright) {
+      bodyColor = isFlashing ? '#e2e8f0' : '#1e3a8a';
+    }
+
+    // Waddle hem wave
+    const waddle = Math.sin(time * 10 + g.id) * 1.5;
+
+    // Draw Vector Draped-Sheet Character
+    this.ctx.fillStyle = bodyColor;
+    this.ctx.shadowColor = bodyColor;
+    this.ctx.shadowBlur = 6;
+
+    this.ctx.beginPath();
+    // Head & Hood variations
+    if (g.id === 0 && !inFright) {
+      // Ember: Pointed Hood
+      this.ctx.moveTo(0, -14); // Pointed tip
+      this.ctx.quadraticCurveTo(10, -9, 10, 3);
+    } else {
+      // Curved hood
+      this.ctx.moveTo(-10, 3);
+      this.ctx.bezierCurveTo(-10, -11, 10, -11, 10, 3);
+    }
+
+    // Right side drape
+    this.ctx.lineTo(10, 10);
+
+    // Animated Wavy Hem
+    // 3 scallops with waddle
+    this.ctx.quadraticCurveTo(6.6, 6 + waddle, 3.3, 10);
+    this.ctx.quadraticCurveTo(0, 6 - waddle, -3.3, 10);
+    this.ctx.quadraticCurveTo(-6.6, 6 + waddle, -10, 10);
+
+    // Left side drape
+    this.ctx.lineTo(-10, 3);
+    this.ctx.closePath();
+    this.ctx.fill();
+    this.ctx.shadowBlur = 0;
+
+    // Character Accessories (Mockup 4 Lineup details)
+    if (!inFright) {
+      if (g.id === 1) {
+        // Rosé: Cute Bow on side
+        this.ctx.fillStyle = '#ff79b0';
+        this.ctx.beginPath();
+        this.ctx.arc(-7, -8, 2.5, 0, Math.PI * 2);
+        this.ctx.fill();
+        this.ctx.fillStyle = '#ff2a85';
+        this.ctx.beginPath();
+        this.ctx.arc(-5.5, -8, 1.2, 0, Math.PI * 2);
+        this.ctx.arc(-8.5, -8, 1.2, 0, Math.PI * 2);
+        this.ctx.fill();
+      } else if (g.id === 3) {
+        // Goldie: Stitched Patches (+)
+        this.ctx.strokeStyle = 'rgba(74, 40, 10, 0.7)';
+        this.ctx.lineWidth = 1.3;
+        this.ctx.beginPath();
+        // Patch on chest
+        this.ctx.moveTo(3, 2); this.ctx.lineTo(7, 2);
+        this.ctx.moveTo(5, 0); this.ctx.lineTo(5, 4);
+        this.ctx.stroke();
+      }
+    }
+
+    // Eyes
+    if (inFright) {
+      // Pale frightened wiggly mouth & wide scared dot eyes
+      this.ctx.fillStyle = isFlashing ? '#1e293b' : '#f8fafc';
+      this.ctx.beginPath();
+      this.ctx.arc(-4, -2, 2, 0, Math.PI * 2);
+      this.ctx.arc(4, -2, 2, 0, Math.PI * 2);
+      this.ctx.fill();
+
+      // Wiggly squiggly scared mouth
+      this.ctx.strokeStyle = isFlashing ? '#1e293b' : '#f8fafc';
+      this.ctx.lineWidth = 1.4;
+      this.ctx.beginPath();
+      this.ctx.moveTo(-5, 4);
+      this.ctx.lineTo(-3, 2);
+      this.ctx.lineTo(-1, 4);
+      this.ctx.lineTo(1, 2);
+      this.ctx.lineTo(3, 4);
+      this.ctx.lineTo(5, 2);
+      this.ctx.stroke();
+    } else {
+      // Expressive eyes looking towards heading / intent
+      const lookX = g.facing.x * 2;
+      const lookY = g.facing.y * 2;
+
+      // Sclera
+      this.ctx.fillStyle = '#ffffff';
+      this.ctx.beginPath();
+      this.ctx.arc(-4.5, -3, 3.2, 0, Math.PI * 2);
+      this.ctx.arc(4.5, -3, 3.2, 0, Math.PI * 2);
+      this.ctx.fill();
+
+      // Pupils
+      this.ctx.fillStyle = '#0f172a';
+      this.ctx.beginPath();
+      this.ctx.arc(-4.5 + lookX, -3 + lookY, 1.5, 0, Math.PI * 2);
+      this.ctx.arc(4.5 + lookX, -3 + lookY, 1.5, 0, Math.PI * 2);
+      this.ctx.fill();
+
+      // Smirk / Smile
+      if (g.id === 1) {
+        // Rosé clever smirk
+        this.ctx.strokeStyle = '#be185d';
+        this.ctx.lineWidth = 1.2;
+        this.ctx.beginPath();
+        this.ctx.arc(1, 2, 3, 0.2, Math.PI * 0.7);
+        this.ctx.stroke();
+      } else if (g.id === 3) {
+        // Goldie shy smile
+        this.ctx.strokeStyle = '#b45309';
+        this.ctx.lineWidth = 1.2;
+        this.ctx.beginPath();
+        this.ctx.arc(0, 2, 2.5, 0.1, Math.PI - 0.1);
+        this.ctx.stroke();
+      }
+    }
+
+    this.ctx.restore();
+  }
+
+  drawBenchedEyes(dir) {
+    const lookX = dir ? dir.x * 2 : 0;
+    const lookY = dir ? dir.y * 2 : 0;
+
+    // Two floating white scleras
+    this.ctx.fillStyle = '#ffffff';
+    this.ctx.beginPath();
+    this.ctx.ellipse(-4.5, 0, 3.5, 4.5, 0, 0, Math.PI * 2);
+    this.ctx.ellipse(4.5, 0, 3.5, 4.5, 0, 0, Math.PI * 2);
+    this.ctx.fill();
+
+    // Blue pupils
+    this.ctx.fillStyle = '#1e40af';
+    this.ctx.beginPath();
+    this.ctx.arc(-4.5 + lookX, 0 + lookY, 1.8, 0, Math.PI * 2);
+    this.ctx.arc(4.5 + lookX, 0 + lookY, 1.8, 0, Math.PI * 2);
+    this.ctx.fill();
+  }
+
+  drawParticles() {
+    this.particles.forEach(p => p.draw(this.ctx));
+  }
+}
+
+// 4. Ghost Class with Personality AI
+class Ghost {
+  constructor(id, name, color, tileX, tileY, houseDelay, baseSpeed, scatterCorner) {
+    this.id = id;
+    this.name = name;
+    this.color = color;
+    this.tileX = tileX;
+    this.tileY = tileY;
+    this.x = tileX * 24 + 12;
+    this.y = tileY * 24 + 12;
+    this.dir = { x: 0, y: 0 };
+    this.nextDir = { x: 0, y: 0 };
+    this.facing = { x: 0, y: -1 };
+    this.baseSpeed = baseSpeed;
+    this.speed = baseSpeed;
+    this.scatterCorner = scatterCorner;
+
+    this.houseDelay = houseDelay; // Delay in seconds before exiting house
+    this.houseTimer = 0;
+    this.state = (houseDelay > 0) ? 'HOUSE' : 'CHASE';
+    this.isBenched = false;
+  }
+
+  setNextDirection(d, grid) {
+    this.nextDir = d;
+    // Allow immediate 180 reverse or start moving if stopped
+    if ((this.dir.x === -d.x && this.dir.y === -d.y) || (this.dir.x === 0 && this.dir.y === 0)) {
+      const nx = this.tileX + d.x;
+      const ny = this.tileY + d.y;
+      if (grid && grid[ny] && grid[ny][nx] !== '#') {
+        this.dir = d;
+        this.facing = d;
+      }
+    }
+  }
+
+  update(dt, game, isPossessed) {
+    if (this.state === 'HOUSE') {
+      this.houseTimer += dt;
+      // Gentle bobbing inside house
+      this.y += Math.sin(this.houseTimer * 6) * 0.4;
+      if (this.houseTimer >= this.houseDelay) {
+        this.state = 'EXITING';
+      }
+      return;
+    }
+
+    if (this.state === 'EXITING') {
+      // Move to house center (col 9, row 8) then up through door (col 9, row 6)
+      const targetX = 9 * 24 + 12;
+      const targetY = 6 * 24 + 12;
+
+      if (Math.abs(this.x - targetX) > 1) {
+        this.x += Math.sign(targetX - this.x) * this.speed * dt;
+      } else {
+        this.x = targetX;
+        this.y -= this.speed * dt;
+        if (this.y <= targetY) {
+          this.y = targetY;
+          this.tileX = 9;
+          this.tileY = 6;
+          this.dir = { x: -1, y: 0 };
+          this.facing = { x: -1, y: 0 };
+          this.state = 'CHASE';
+        }
+      }
+      return;
+    }
+
+    if (this.state === 'RETURNING') {
+      // Benched eyes float back to house door (9, 6)
+      const doorX = 9 * 24 + 12;
+      const doorY = 6 * 24 + 12;
+      const dist = Math.hypot(doorX - this.x, doorY - this.y);
+
+      if (dist < 4) {
+        this.x = doorX;
+        this.y = 8 * 24 + 12; // Back in house
+        this.tileX = 9;
+        this.tileY = 8;
+        this.dir = { x: 0, y: 0 };
+        this.state = 'HOUSE';
+        this.houseDelay = Infinity; // Stays benched until catch or next maze
+      } else {
+        const angle = Math.atan2(doorY - this.y, doorX - this.x);
+        const returnSpeed = this.baseSpeed * 1.5;
+        this.x += Math.cos(angle) * returnSpeed * dt;
+        this.y += Math.sin(angle) * returnSpeed * dt;
+        this.dir = { x: Math.sign(Math.cos(angle)), y: Math.sign(Math.sin(angle)) };
+      }
+      return;
+    }
+
+    // Normal Maze Traversal
+    const tileSize = 24;
+    const half = tileSize / 2;
+
+    if (this.dir.x === 0 && this.dir.y === 0) {
+      if (isPossessed) {
+        const legal = game.getLegalMoves(this.tileX, this.tileY, null, true, false);
+        const canExecuteNext = legal.some(m => m.x === this.nextDir.x && m.y === this.nextDir.y);
+        if (canExecuteNext) {
+          this.dir = this.nextDir;
+          this.facing = this.nextDir;
+        }
+      } else {
+        this.dir = this.decideAIMove(game);
+        if (this.dir.x !== 0 || this.dir.y !== 0) this.facing = this.dir;
+      }
+      if (this.dir.x === 0 && this.dir.y === 0) return;
+    }
+
+    let nextTileX = this.tileX + this.dir.x;
+    let nextTileY = this.tileY + this.dir.y;
+
+    if (this.tileY === 9) {
+      if (nextTileX < 0) nextTileX = game.cols - 1;
+      if (nextTileX >= game.cols) nextTileX = 0;
+    }
+
+    const targetX = nextTileX * tileSize + half;
+    const targetY = nextTileY * tileSize + half;
+    const moveDist = this.speed * dt;
+
+    this.x += this.dir.x * moveDist;
+    this.y += this.dir.y * moveDist;
+
+    let reached = false;
+    if (this.dir.x > 0 && this.x >= targetX) reached = true;
+    if (this.dir.x < 0 && this.x <= targetX) reached = true;
+    if (this.dir.y > 0 && this.y >= targetY) reached = true;
+    if (this.dir.y < 0 && this.y <= targetY) reached = true;
+
+    // Tunnel coordinate wrap in pixel space
+    if (this.tileY === 9) {
+      if (this.x < -half) {
+        this.x = (game.cols - 1) * tileSize + half;
+        this.tileX = game.cols - 1;
+      } else if (this.x > game.width + half) {
+        this.x = half;
+        this.tileX = 0;
+      }
+    }
+
+    if (reached) {
+      this.x = targetX;
+      this.y = targetY;
+      this.tileX = nextTileX;
+      this.tileY = nextTileY;
+
+      if (isPossessed) {
+        // Player steered
+        const legal = game.getLegalMoves(this.tileX, this.tileY, null, true, false);
+        const canExecuteNext = legal.some(m => m.x === this.nextDir.x && m.y === this.nextDir.y);
+        if (canExecuteNext) {
+          this.dir = this.nextDir;
+          this.facing = this.nextDir;
+        } else {
+          // Check if current direction is still legal
+          const canContinue = legal.some(m => m.x === this.dir.x && m.y === this.dir.y);
+          if (!canContinue) {
+            this.dir = { x: 0, y: 0 };
+          }
+        }
+      } else {
+        // Autonomous AI Personality
+        const nextDir = this.decideAIMove(game);
+        this.dir = nextDir;
+        if (nextDir.x !== 0 || nextDir.y !== 0) {
+          this.facing = nextDir;
+        }
+      }
+    }
+  }
+
+  decideAIMove(game) {
+    const curX = this.tileX;
+    const curY = this.tileY;
+    const legalMoves = game.getLegalMoves(curX, curY, this.dir, true, false);
+
+    if (legalMoves.length === 0) {
+      return { x: -this.dir.x, y: -this.dir.y };
+    }
+    if (legalMoves.length === 1) {
+      return legalMoves[0];
+    }
+
+    // Determine target tile based on personality & wave mode
+    let target = { x: this.scatterCorner.x, y: this.scatterCorner.y };
+
+    if (game.isFrightMode) {
+      // Scatter away from Menace
+      let bestMove = legalMoves[0];
+      let maxDist = -1;
+      legalMoves.forEach(m => {
+        const nx = curX + m.x;
+        const ny = curY + m.y;
+        const d = Math.hypot(nx - game.menace.tileX, ny - game.menace.tileY);
+        if (d > maxDist) {
+          maxDist = d;
+          bestMove = m;
+        }
+      });
+      return bestMove;
+    }
+
+    if (!game.isScatterWave && game.menace) {
+      const menace = game.menace;
+
+      if (this.id === 0) {
+        // 0: Ember (Chaser) -> Directly targets Menace's current tile
+        target = { x: menace.tileX, y: menace.tileY };
+      } else if (this.id === 1) {
+        // 1: Rosé (Ambusher) -> Targets 4 tiles ahead of Menace's facing
+        target = {
+          x: menace.tileX + 4 * menace.facing.x,
+          y: menace.tileY + 4 * menace.facing.y
+        };
+      } else if (this.id === 2) {
+        // 2: Tide (Flanker) -> 2 ahead of Menace, vector from Ember doubled
+        const ember = game.ghosts[0];
+        const t2X = menace.tileX + 2 * menace.facing.x;
+        const t2Y = menace.tileY + 2 * menace.facing.y;
+        const vecX = t2X - (ember ? ember.tileX : curX);
+        const vecY = t2Y - (ember ? ember.tileY : curY);
+        target = { x: t2X + vecX, y: t2Y + vecY };
+      } else if (this.id === 3) {
+        // 3: Goldie (Shy One) -> Targets Menace if > 8 tiles, else bottom-left corner
+        const dist = Math.hypot(curX - menace.tileX, curY - menace.tileY);
+        if (dist > 8.0) {
+          target = { x: menace.tileX, y: menace.tileY };
+        } else {
+          target = { x: 1, y: 19 }; // Her scatter corner
+        }
+      }
+    }
+
+    // Pick legal move that minimizes Euclidean distance to target
+    let bestMove = legalMoves[0];
+    let minDist = Infinity;
+    legalMoves.forEach(m => {
+      const nx = curX + m.x;
+      const ny = curY + m.y;
+      const d = (nx - target.x) ** 2 + (ny - target.y) ** 2;
+      if (d < minDist) {
+        minDist = d;
+        bestMove = m;
+      }
+    });
+
+    return bestMove;
+  }
+}
+
+// 5. Particle System for Juice & Impact
+class Particle {
+  constructor(x, y, color) {
+    this.x = x;
+    this.y = y;
+    this.color = color;
+    const angle = Math.random() * Math.PI * 2;
+    const speed = Math.random() * 80 + 20;
+    this.vx = Math.cos(angle) * speed;
+    this.vy = Math.sin(angle) * speed;
+    this.life = 1.0;
+    this.decay = Math.random() * 2.5 + 2.0;
+    this.radius = Math.random() * 2.5 + 1.5;
+  }
+
+  update(dt) {
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
+    this.life -= this.decay * dt;
+  }
+
+  draw(ctx) {
+    if (this.life <= 0) return;
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, this.life);
+    ctx.fillStyle = this.color;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+// 6. Global Instance & Playwright Automated Acceptance Testing Hooks
+window.addEventListener('DOMContentLoaded', () => {
+  const game = new Game();
+  window.__game = game;
+
+  // Acceptance testing API (section 10 compliance)
+  window.__RM_GAME__ = {
+    getState: () => game.state,
+    start: () => game.startNewGame(),
+    possess: (idx) => game.possess(idx),
+    getSquad: () => game.ghosts.map(g => ({
+      name: g.name,
+      tileX: g.tileX,
+      tileY: g.tileY,
+      x: g.x,
+      y: g.y,
+      isBenched: g.isBenched,
+      isPossessed: (g.id === game.possessedIndex)
+    })),
+    getMenace: () => ({
+      tileX: game.menace.tileX,
+      tileY: game.menace.tileY,
+      x: game.menace.x,
+      y: game.menace.y,
+      lives: game.menace.lives,
+      isFrightMode: game.isFrightMode,
+      speed: game.menace.speed
+    }),
+    steer: (dir) => game.steerPossessed(dir),
+    touchSteer: (dx, dy) => game.touchSteer(dx, dy),
+    setMenacePos: (tileX, tileY) => {
+      game.menace.tileX = tileX;
+      game.menace.tileY = tileY;
+      game.menace.x = tileX * 24 + 12;
+      game.menace.y = tileY * 24 + 12;
+    },
+    setGhostPos: (idx, tileX, tileY) => {
+      const g = game.ghosts[idx];
+      if (g) {
+        g.tileX = tileX;
+        g.tileY = tileY;
+        g.x = tileX * 24 + 12;
+        g.y = tileY * 24 + 12;
+        g.dir = { x: 0, y: 0 };
+        g.nextDir = { x: 0, y: 0 };
+        g.state = 'CHASE';
+      }
+    },
+    triggerFright: (dur) => game.triggerFrightMode(dur),
+    simulateCatch: () => game.handleCatch(),
+    forceEatGhost: (idx) => game.handleGhostEatenByMenace(idx),
+    forceWin: () => game.handleMazeClear(),
+    forceLose: () => game.handleGameOver("Test Loss", "Simulated loss for testing."),
+    getPellets: () => ({
+      remaining: game.pelletsRemaining,
+      total: game.totalPelletsInMaze,
+      eaten: game.pelletsEatenByMenace
+    }),
+    getScore: () => game.score,
+    isMuted: () => game.sound.muted,
+    toggleMute: () => game.sound.toggleMute()
+  };
+});
+</script>
+</body>
+</html>
