@@ -56,12 +56,47 @@ The flip set is **four** mini-games, one per power pellet, each an instantly rec
 
 | Pellet | Flip | Genre | Status |
 | --- | --- | --- | --- |
-| top-left (1,1) | **Green Valley** | rolling-hills chase | built (Round 2) |
-| top-right (17,1) | **Block Kingdom** | bright platformer | built (Round 3) |
-| bottom-left (1,19) | **GLOOM** | first-person corridor | next round — falls back to Green Valley |
-| bottom-right (17,19) | **Phantom Grand Prix** | kart racer | next round — falls back to Green Valley |
+| top-left (1,1) | **Green Valley** | rolling-hills chase | built (Round 2, Gauntlet fixes Round 4) |
+| top-right (17,1) | **Block Kingdom** | bright platformer | built (Round 3, Gauntlet fixes Round 4) |
+| bottom-left (1,19) | **GLOOM** | first-person corridor | built (Round 4) |
+| bottom-right (17,19) | **Phantom Grand Prix** | kart racer | built (Round 4) |
 
 Every flip is a named module behind one contract (enter with the possessed ghost; exit `survived` → back unbenched with +200, or `caught` → the normal bench flow). Maze time freezes during any flip.
+
+## Round 4 — GLOOM, Phantom Grand Prix, and Gauntlet Fixes
+
+### WORK ITEM 1 — GLOOM (Bottom-Left Pellet)
+A first-person corridor shooter parody down a dark tech-base corridor in original dress:
+- **Pseudo-3D Corridor.** Scaled-corridor renderer with perspective textured metal panel walls, warning hazard baseboards, flickering wall light panels (reacting dynamically as the Menace approaches), ceiling conduits and rhythmic structural pillars.
+- **Blaster & Status Bar.** Ghost pellet blaster visible at bottom-center with bobbing, recoil, and brilliant muzzle flash illuminating corridor walls. Chunky DOOM-inspired status bar along the bottom featuring `NERVE %` (health), `PELLETS` (ammo), digital counters, exit progress meter, and an animated Ghost face portrait (reacts to strafing, firing, damage, and critical nerve).
+- **Controls & Mechanics.** Strafe between 3 corridor lanes (`Left`/`Right`, `A`/`D`, swipe); fire pellet bursts (`Space` or tap) to knock the Menace back (+50 PTS); run over floor pellet trails to reload (+5 ammo, +25 PTS).
+- **Survival.** Survive ~20 seconds to reach the sliding blast EXIT door. 3 grabs or camera overrun benches the ghost.
+- **Soundtrack.** `gloom` state: 126 BPM dark industrial Phrygian pulse in E minor with grinding bass, synth lead, kick, and snare.
+
+### WORK ITEM 2 — Phantom Grand Prix (Bottom-Right Pellet)
+A behind-the-kart pseudo-3D racer on a curving, banked track:
+- **Curved Banked Track.** Segmented road with curves and hills, alternating asphalt stripes, red/white rumble rumbles, roadside grass, checkered start/finish arch with cheering confetti, overhead banners, and grandstands with bobbing pixel spectators.
+- **Karts & Dual Racing.** Ghost's kart in the foreground with visible steering lean, electric drift sparks, and twin exhaust puffs. The Menace drives his yellow monster roadster, throwing pellet bombs onto the racing line and ramming when close.
+- **Controls & Boost.** Auto-acceleration, steer with `Left`/`Right`, `A`/`D`, or tilt-free touch halves. Boost pads trigger high-speed surges with speed lines and FOV kick. Grass excursions or bomb hits cost speed. 3 rams = caught.
+- **Survival.** 1 lap (~25 seconds). 1st/2nd position indicator badge. Cross finish ahead of him to survive (+200 PTS).
+- **Soundtrack.** `grandprix` state: 168 BPM upbeat driving fanfare lead over bouncy skipping bass.
+
+### Bounded Gauntlet Fixes (Green Valley & Block Kingdom)
+- **Green Valley:** Two-tone geometric diamond-patterned earth faces under grass line, palm-style curved trees with segmented trunks and spiky fronds, loop-de-loop silhouette in distant background ocean layer, steep slope section in terrain, bold hollow golden ring pellets with spinning shine, 4 parallax layers with soft contact shadows, landing dust and pace dust, surge speed lines, jump/landing squash-and-stretch, sparkle pickup trails, and Menace kept visible in-frame gaining on a larger ghost with panicked backward glance and near-catch screen shake.
+- **Block Kingdom:** Distant pale spotted hills echoing genre backdrop, mid-ground hill band, foreground bushes, grass tufts, flowers, shaded dirt stratum under ground line, soft drop shadows under blocks, chimneys, minions, Menace, and ghost, running dust puffs, landing squash-and-stretch, sparkle pellet trails, block passing/strike bounce animation, speed lines and subtle shake as Menace closes, taller chimneys, larger block clusters at varied heights, and an in-art gag: Menace waving a tiny captured squad flag as he runs.
+
+## The Soundtrack (Rounds 2–4)
+
+All music is composed in code — the same WebAudio synth that makes the effects, driven by a small lookahead scheduler (sixteenth-note steps, 160 ms of lookahead). Six states:
+
+- **Title:** sparse and moody — a low pulse on A1 and occasional bell-like notes from A minor pentatonic.
+- **Maze:** a looping night-shift groove at **104 BPM** in A minor (Am · F · Dm · Em).
+- **Valley:** **140 BPM** brighter voicing (C · G · Am · F) with driving sixteenth-note arpeggio and hi-hat ticks.
+- **Kingdom:** **152 BPM** in C major (C · F · G · C) bouncy square-wave lead over skipping bass.
+- **GLOOM:** **126 BPM** in E minor (Em · Em · F · Em) grinding Phrygian sawtooth industrial groove.
+- **Grand Prix:** **168 BPM** upbeat driving racing fanfare with rapid skipping bass and bright lead.
+
+The state (`off` / `title` / `maze` / `valley` / `kingdom` / `gloom` / `grandprix`) is exposed through `getMusicState()`.
 
 **Block Kingdom** is a side-scrolling platform level: blue sky, white clouds, green hills, rows of floating cube blocks with a star emblem, striped chimneys and a tall banner pole at the finish.
 
@@ -101,7 +136,7 @@ Music starts only after the first user gesture, ducks under the catch and flip s
 
 ## Running Automated Acceptance Checks
 
-The project includes headless Playwright test coverage: the 10 Round 1 checks, the 3 Round 2 checks and the 2 Round 3 checks.
+The project includes headless Playwright test coverage: the 10 Round 1 checks, the 3 Round 2 checks, the 2 Round 3 checks, and the 4 Round 4 checks (19 total checks).
 
 ```bash
 npm test
@@ -122,9 +157,13 @@ The test suite automatically validates:
 12. The flip caught path benches that ghost through the bench flow and returns to playing.
 13. The soundtrack reads `maze` after PLAY and `valley` during the flip, obeys mute, stops on game over.
 14. Flip routing and kingdom survival: the Menace steered onto the top-right pellet enters a flip whose kind reads `kingdom` within a second; the music reads `kingdom` during the segment; forced survival returns to playing, unbenched, +200.
-15. Kingdom caught path: a fresh kingdom flip, forced catch, benches that ghost and returns to playing; zero console errors across the whole battery.
+15. Kingdom caught path: a fresh kingdom flip, forced catch, benches that ghost and returns to playing.
+16. GLOOM routing and survival: bottom-left pellet routes to GLOOM within a second; music reads `gloom`; forced survival returns to playing, unbenched, with +200 bonus.
+17. GLOOM caught path: forced catch in fresh GLOOM flip benches that ghost and returns to playing.
+18. Phantom Grand Prix routing and survival: bottom-right pellet routes to Phantom Grand Prix; music reads `grandprix`; forced survival returns unbenched with +200 bonus.
+19. Phantom Grand Prix caught path: forced catch in fresh Grand Prix flip benches that ghost and returns to playing; zero console errors across all 19 checks.
 
-Screenshots of title, gameplay, the flip transition, the Green Valley segment, the Block Kingdom banner moment and a mid-level kingdom frame, maze clear, and game over screens are saved into `screenshots/`.
+Screenshots of title, gameplay, the flip transition, Green Valley, Block Kingdom (banner and mid-level), GLOOM mid-corridor, Phantom Grand Prix mid-race, maze clear, and game over screens are saved into `screenshots/`.
 
 ---
 

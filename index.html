@@ -721,7 +721,7 @@
       </div>
       <div class="info-rule">
         <span class="info-rule-bullet">4.</span>
-        <span><strong>The Flips.</strong> When he grabs a power pellet the maze tears open and your ghost is thrown into that corner's mini-game with the Menace right behind you. Top-left: <strong>Green Valley</strong> (rocks and logs, he rolls). Top-right: <strong>Block Kingdom</strong> (gaps, star blocks and chimneys; he runs — <strong>hold</strong> to jump higher, land on a sprout to bounce for +50, two falls and he has you). <strong>Jump</strong> (Space / ↑ / W / tap) and <strong>fast-fall</strong> (↓ / S / swipe down). Reach the gate or the banner pole (+200) or get benched.</span>
+        <span><strong>The Flips.</strong> When he grabs a power pellet the maze tears open and your ghost is thrown into that corner's mini-game with the Menace right behind you. Top-left: <strong>Green Valley</strong> (jump rocks and logs as he rolls). Top-right: <strong>Block Kingdom</strong> (hold to jump higher, land on sprouts for +50). Bottom-left: <strong>GLOOM</strong> (strafe 3 lanes with Left/Right or A/D, blast pellets with Space/tap to knock him back, reach EXIT). Bottom-right: <strong>Phantom Grand Prix</strong> (steer kart with Left/Right or touch halves, hit boost pads, finish 1 lap ahead of him). Survive (+200) or get benched!</span>
       </div>
 
       <div class="squad-info-grid">
@@ -1268,6 +1268,140 @@ class SoundEngine {
     osc.stop(now + 0.025);
   }
 
+  // GLOOM: plasma blaster shot — punchy square attack + noise crack
+  playBlaster() {
+    if (this.muted || !this.ctx) return;
+    this.init();
+    const now = this.ctx.currentTime;
+    this.noiseBurst(now, 0.08, 0.13, 'highpass', 1800);
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(520, now);
+    osc.frequency.exponentialRampToValueAtTime(110, now + 0.09);
+    gain.gain.setValueAtTime(0.08, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.11);
+  }
+
+  // GLOOM: hit on Menace — metallic impact + thud
+  playGloomHit() {
+    if (this.muted || !this.ctx) return;
+    this.init();
+    const now = this.ctx.currentTime;
+    this.noiseBurst(now, 0.1, 0.15, 'lowpass', 1100);
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(240, now);
+    osc.frequency.exponentialRampToValueAtTime(65, now + 0.11);
+    gain.gain.setValueAtTime(0.12, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.13);
+  }
+
+  // GLOOM: pellet reload chime
+  playGloomReload() {
+    if (this.muted || !this.ctx) return;
+    this.init();
+    const now = this.ctx.currentTime;
+    [660, 990].forEach((freq, idx) => {
+      const t = now + idx * 0.04;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, t);
+      gain.gain.setValueAtTime(0.06, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(t);
+      osc.stop(t + 0.09);
+    });
+  }
+
+  // GLOOM: Menace grab stinger — heavy descending buzz + duck
+  playGrabStinger() {
+    if (this.muted || !this.ctx) return;
+    this.init();
+    this.duck(0.4, 0.7);
+    const now = this.ctx.currentTime;
+    this.noiseBurst(now, 0.25, 0.18, 'bandpass', 600);
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(170, now);
+    osc.frequency.exponentialRampToValueAtTime(45, now + 0.3);
+    gain.gain.setValueAtTime(0.14, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.32);
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.33);
+  }
+
+  // Grand Prix: boost pad whoosh + rising tone
+  playKartBoost() {
+    if (this.muted || !this.ctx) return;
+    this.init();
+    const now = this.ctx.currentTime;
+    this.noiseBurst(now, 0.28, 0.08, 'highpass', 2400);
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(300, now);
+    osc.frequency.exponentialRampToValueAtTime(820, now + 0.24);
+    gain.gain.setValueAtTime(0.09, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.26);
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.27);
+  }
+
+  // Grand Prix: pellet bomb explosion / barrier hit
+  playKartHit() {
+    if (this.muted || !this.ctx) return;
+    this.init();
+    const now = this.ctx.currentTime;
+    this.noiseBurst(now, 0.2, 0.14, 'lowpass', 850);
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(200, now);
+    osc.frequency.exponentialRampToValueAtTime(50, now + 0.18);
+    gain.gain.setValueAtTime(0.11, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.22);
+  }
+
+  // Grand Prix: drift sparks / tire squeal
+  playKartDrift() {
+    if (this.muted || !this.ctx) return;
+    this.init();
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(650, now);
+    osc.frequency.linearRampToValueAtTime(720, now + 0.07);
+    gain.gain.setValueAtTime(0.025, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.09);
+  }
+
 }
 
 // 1b. Original Soundtrack — a small lookahead-scheduled music engine on the same AudioContext.
@@ -1287,6 +1421,31 @@ const KINGDOM_LEAD = [
   14, null, 10, null, 5, null, 14, null, 10, null, null, null, 5, null, 2, null,
   // Bar 4 (C): land on the tonic, breathe
   15, null, 7, null, 10, null, 3, null, 7, null, 10, null, 15, null, null, null
+];
+
+// GLOOM riff: a 4-bar low sawtooth line in E minor with the Phrygian F, one entry per sixteenth
+// (semitones from A4, null = rest; the voice drops it an octave). Original composition.
+const GLOOM_RIFF = [
+  // Bar 1 (Em): the march
+  -5, -5, null, -5, -6, null, -5, null, -2, null, -5, -5, null, -7, null, -6,
+  // Bar 2 (Em): reach up to the fifth
+  -5, -5, null, -5, -6, null, -5, null, 2, null, -5, -5, null, 1, null, -2,
+  // Bar 3 (F): the half-step above
+  -4, -4, null, -4, -2, null, -4, null, 0, null, -4, -4, null, -5, null, -4,
+  // Bar 4 (Em): the fall back down
+  -5, -5, null, -5, -6, null, -5, null, 2, null, 1, null, 0, null, -2, -6
+];
+
+// Phantom Grand Prix lead: a 4-bar square-wave fanfare in C major over C · Am · F · G, per sixteenth. Original.
+const PRIX_LEAD = [
+  // Bar 1 (C): the green-light call
+  7, 10, null, 15, null, 10, 7, null, 10, null, 12, null, 10, 7, null, 3,
+  // Bar 2 (Am): climb and hang
+  12, null, 15, 19, null, 15, 12, null, 7, null, 10, null, 12, null, null, null,
+  // Bar 3 (F): the wide bend
+  8, 12, null, 15, null, 12, 8, null, 12, null, 15, null, 17, 15, null, 12,
+  // Bar 4 (G): into the straight
+  10, 14, null, 17, null, 14, 10, null, 17, null, 19, null, 17, 14, 10, null
 ];
 
 const MUSIC_MODES = {
@@ -1340,6 +1499,39 @@ const MUSIC_MODES = {
     arp: null,
     pad: null,
     hat: { steps: [4, 12], gain: 0.028, dur: 0.035 },
+    bells: null
+  },
+  gloom: {
+    bpm: 126,
+    bars: 4,
+    // Em · Em · F · Em — the Phrygian half-step, the corridor's dread
+    chords: [[-5, -2, 2], [-5, -2, 2], [-4, 0, 3], [-5, -2, 2]],
+    // Grinding low octave bass, sawtooth through a closed filter
+    bass: { steps: 'eighths', octaveLow: -36, octaveHigh: -24, type: 'sawtooth', gain: 0.11, decay: 0.14, lp: 190 },
+    lead: { notes: GLOOM_RIFF, octave: -12, type: 'sawtooth', gain: 0.034, decay: 0.11, lp: 820 },
+    arp: null,
+    pad: { octave: -24, type: 'sawtooth', gain: 0.013, lp: 320, detune: 9 },
+    kick: { steps: [0, 4, 8, 12, 14], gain: 0.22, decay: 0.26, freq: 140 },
+    snare: { steps: [4, 12], gain: 0.05, dur: 0.1, filter: 'bandpass', freq: 1700 },
+    hat: { steps: [2, 6, 10, 14], gain: 0.016, dur: 0.03 },
+    bells: null
+  },
+  grandprix: {
+    bpm: 168,
+    bars: 4,
+    // C · Am · F · G — the bright, open starting-grid progression
+    chords: [[3, 7, 10], [0, 3, 7], [-4, 0, 3], [-2, 2, 5]],
+    bass: { steps: 'skip', pattern: [0, 3, 6, 8, 11, 14], fifthOn: [3, 11], octaveLow: -24, octaveHigh: -12, type: 'square', gain: 0.08, decay: 0.1, lp: 600 },
+    lead: { notes: PRIX_LEAD, octave: 0, type: 'square', gain: 0.027, decay: 0.12, lp: 4200 },
+    arp: {
+      mask:  [0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1],
+      order: [0, 2, 1, 2, 0, 2, 1, 2, 0, 2, 1, 2, 0, 2, 1, 2],
+      octave: 12, type: 'triangle', gain: 0.02, decay: 0.09, lp: 3000
+    },
+    pad: null,
+    kick: { steps: [0, 6, 8], gain: 0.16, decay: 0.2, freq: 170 },
+    snare: { steps: [4, 12], gain: 0.04, dur: 0.08, filter: 'bandpass', freq: 2200 },
+    hat: { steps: [0, 2, 4, 6, 8, 10, 12, 14], gain: 0.02, dur: 0.028 },
     bells: null
   }
 };
@@ -1484,6 +1676,14 @@ class MusicEngine {
       this.hat(t, s.hat);
     }
 
+    if (s.kick && s.kick.steps.includes(i)) {
+      this.kick(t, s.kick);
+    }
+
+    if (s.snare && s.snare.steps.includes(i)) {
+      this.hat(t, s.snare);
+    }
+
     if (s.bells && i === 0 && Math.random() < s.bells.chance) {
       const bellStep = [2, 5, 9, 12][Math.floor(Math.random() * 4)];
       const semi = s.bells.pool[Math.floor(Math.random() * s.bells.pool.length)];
@@ -1548,8 +1748,8 @@ class MusicEngine {
     const src = ctx.createBufferSource();
     src.buffer = buf;
     const filter = ctx.createBiquadFilter();
-    filter.type = 'highpass';
-    filter.frequency.setValueAtTime(6000, t);
+    filter.type = v.filter || 'highpass';   // Hats are high-passed noise; a bandpass makes the snare
+    filter.frequency.setValueAtTime(v.freq || 6000, t);
     const gain = ctx.createGain();
     gain.gain.setValueAtTime(v.gain, t);
     gain.gain.exponentialRampToValueAtTime(0.0001, t + v.dur);
@@ -1558,6 +1758,22 @@ class MusicEngine {
     gain.connect(this.master);
     src.start(t);
     src.stop(t + v.dur + 0.01);
+  }
+
+  // Kick drum: a sine that drops in pitch over ~0.1 s (the industrial pulse under GLOOM, the kart-race drive)
+  kick(t, v) {
+    const ctx = this.ctx;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(v.freq || 150, t);
+    osc.frequency.exponentialRampToValueAtTime(42, t + 0.11);
+    gain.gain.setValueAtTime(v.gain, t);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + v.decay);
+    osc.connect(gain);
+    gain.connect(this.master);
+    osc.start(t);
+    osc.stop(t + v.decay + 0.02);
   }
 
   bell(freq, t, v) {
@@ -1681,7 +1897,9 @@ class Game {
 
     // The Flip (replaces the in-maze fright mode). Each power pellet routes to its own flip module.
     this.isFrightMode = false;     // true while the hunt is flipped (kept for the HUD/test contract)
-    this.flip = null;              // Active flip module (ValleyRun / KingdomRun) while state === 'flip'
+    this.flip = null;              // Active flip module (ValleyRun / KingdomRun / GloomRun / GrandPrixRun) while state === 'flip'
+    this.touchSteerDir = 0;        // Held touch-half steering (Grand Prix); 0 when no half is held
+    this.mouseSteerDir = 0;
     this.flipRequestedKind = null; // Kind the pellet asked for (may differ from flip.kind when it fell back)
     this.transition = null;        // Tear / gate effect drawn over whichever scene is active
     this.ghostsEatenInFright = 0;  // Keepers benched by the Menace this maze
@@ -1824,12 +2042,15 @@ class Game {
         if (this.state === 'flip') {
           if (d.y < 0) this.flipJump();
           else if (d.y > 0) this.flipFastFall();
+          else if (d.x !== 0) this.flipSteer(d.x);
           return;
         }
         this.steerPossessed(d);
       };
       const handleRelease = () => {
         if (btn.dataset.dir === 'up') this.flipJumpRelease();
+        if (btn.dataset.dir === 'left') this.flipSteerRelease(-1);
+        if (btn.dataset.dir === 'right') this.flipSteerRelease(1);
       };
       btn.addEventListener('touchstart', handleDir, { passive: false });
       btn.addEventListener('mousedown', handleDir);
@@ -1859,6 +2080,17 @@ class Game {
         if (e.code === 'ArrowDown' || e.code === 'KeyS') {
           e.preventDefault();
           this.flipFastFall();
+          return;
+        }
+        // Strafe / steer (GLOOM lanes, Grand Prix wheel). Held keys keep steering where the module supports it.
+        if (e.code === 'ArrowLeft' || e.code === 'KeyA') {
+          e.preventDefault();
+          if (!e.repeat) this.flipSteer(-1);
+          return;
+        }
+        if (e.code === 'ArrowRight' || e.code === 'KeyD') {
+          e.preventDefault();
+          if (!e.repeat) this.flipSteer(1);
           return;
         }
         if (e.code === 'KeyP') {
@@ -1900,6 +2132,8 @@ class Game {
     // Releasing the jump key ends a held jump (variable height in Block Kingdom; a no-op in the valley)
     window.addEventListener('keyup', (e) => {
       if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') this.flipJumpRelease();
+      if (e.code === 'ArrowLeft' || e.code === 'KeyA') this.flipSteerRelease(-1);
+      if (e.code === 'ArrowRight' || e.code === 'KeyD') this.flipSteerRelease(1);
     });
 
     // Touch swipe steering on canvas
@@ -1911,6 +2145,13 @@ class Game {
         touchStartX = e.touches[0].clientX;
         touchStartY = e.touches[0].clientY;
         if (this.state === 'flip') {
+          if (this.flip && this.flip.touchHalves) {
+            // Kart steering: hold the left or right half of the screen
+            const rect = this.canvas.getBoundingClientRect();
+            this.touchSteerDir = (touchStartX - rect.left) < rect.width / 2 ? -1 : 1;
+            this.flipSteer(this.touchSteerDir);
+            return;
+          }
           // Hold-to-rise modules jump on the press so the hold length can shape the jump
           if (this.flip && this.flip.pressToJump) this.flipJump();
           return;
@@ -1932,7 +2173,18 @@ class Game {
       const dx = e.changedTouches[0].clientX - touchStartX;
       const dy = e.changedTouches[0].clientY - touchStartY;
       if (this.state === 'flip') {
-        // Swipe down = fast-fall. Otherwise a tap is a jump (valley) or the end of a held jump (kingdom).
+        if (this.touchSteerDir) {
+          // Letting go of a steering half straightens the wheel
+          this.flipSteerRelease(this.touchSteerDir);
+          this.touchSteerDir = 0;
+          return;
+        }
+        // Swipe sideways = strafe (GLOOM lanes). Swipe down = fast-fall.
+        // Otherwise a tap is a jump / shot (valley, GLOOM) or the end of a held jump (kingdom).
+        if (Math.abs(dx) > 30 && Math.abs(dx) > Math.abs(dy)) {
+          this.flipSteer(dx > 0 ? 1 : -1);
+          return;
+        }
         if (dy > 30 && Math.abs(dy) > Math.abs(dx)) {
           this.flipJumpRelease();
           this.flipFastFall();
@@ -1952,6 +2204,12 @@ class Game {
     this.canvas.addEventListener('mousedown', (e) => {
       this.sound.init();
       if (this.state === 'flip') {
+        if (this.flip && this.flip.touchHalves) {
+          const rect = this.canvas.getBoundingClientRect();
+          this.mouseSteerDir = (e.clientX - rect.left) < rect.width / 2 ? -1 : 1;
+          this.flipSteer(this.mouseSteerDir);
+          return;
+        }
         this.flipJump();
         return;
       }
@@ -1962,7 +2220,13 @@ class Game {
       const clickY = (e.clientY - rect.top) * scaleY;
       this.checkGhostClick(clickX, clickY);
     });
-    window.addEventListener('mouseup', () => this.flipJumpRelease());
+    window.addEventListener('mouseup', () => {
+      this.flipJumpRelease();
+      if (this.mouseSteerDir) {
+        this.flipSteerRelease(this.mouseSteerDir);
+        this.mouseSteerDir = 0;
+      }
+    });
   }
 
   touchSteer(dx, dy) {
@@ -2301,6 +2565,17 @@ class Game {
   flipFastFall() {
     if (this.state !== 'flip' || !this.flip) return;
     this.flip.fastFall();
+  }
+
+  // Sideways input: a lane strafe in GLOOM, the wheel in the Grand Prix (held until released). No-op elsewhere.
+  flipSteer(dir) {
+    if (this.state !== 'flip' || !this.flip || !this.flip.steer) return;
+    this.flip.steer(dir);
+  }
+
+  flipSteerRelease(dir) {
+    if (!this.flip || !this.flip.steerRelease) return;
+    this.flip.steerRelease(dir);
   }
 
   updateFlip(dt) {
@@ -3400,6 +3675,26 @@ class Game {
     ctx.stroke();
 
     this.drawMenaceFace(ctx, r);
+
+    // In-art gag: waving a tiny captured squad flag as he runs
+    ctx.save();
+    const flagWave = Math.sin(stride * 3) * 5;
+    ctx.strokeStyle = '#b45309';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(r * 0.65, -r * 0.2);
+    ctx.lineTo(r * 0.85, -r * 1.15);
+    ctx.stroke();
+    // Tiny captured flag
+    ctx.fillStyle = '#7c3aed';
+    ctx.beginPath();
+    ctx.moveTo(r * 0.85, -r * 1.15);
+    ctx.lineTo(r * 0.85 + 11, -r * 1.0 + flagWave * 0.25);
+    ctx.lineTo(r * 0.85, -r * 0.85);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
     ctx.restore();
   }
 
@@ -3608,8 +3903,8 @@ class Game {
 // Marlando's ruling: four flips, one per pellet, each an instantly recognisable genre homage in original dress.
 //   top-left (1,1)      Green Valley          rolling-hills chase      (Round 2)
 //   top-right (17,1)    Block Kingdom         bright platformer        (Round 3)
-//   bottom-left (1,19)  GLOOM                 first-person corridor    (next round — falls back to the valley)
-//   bottom-right (17,19) Phantom Grand Prix   kart racer               (next round — falls back to the valley)
+//   bottom-left (1,19)  GLOOM                 first-person corridor    (Round 4)
+//   bottom-right (17,19) Phantom Grand Prix   kart racer               (Round 4)
 //
 // Flip module contract (ValleyRun and KingdomRun both honour it):
 //   constructor(game, ghostIndex)             enter with the possessed ghost
@@ -3629,8 +3924,8 @@ const FLIP_ROUTES = {
 const FLIP_MODULES = {
   valley:    { name: 'Green Valley',       built: true,  create: (game, gi) => new ValleyRun(game, gi) },
   kingdom:   { name: 'Block Kingdom',      built: true,  create: (game, gi) => new KingdomRun(game, gi) },
-  gloom:     { name: 'GLOOM',              built: false, fallback: 'valley' },
-  grandprix: { name: 'Phantom Grand Prix', built: false, fallback: 'valley' }
+  gloom:     { name: 'GLOOM',              built: true,  create: (game, gi) => new GloomRun(game, gi) },
+  grandprix: { name: 'Phantom Grand Prix', built: true,  create: (game, gi) => new GrandPrixRun(game, gi) }
 };
 
 // Resolve a pellet position to the flip that runs. Unbuilt flips fall back along their chain.
@@ -3712,9 +4007,14 @@ class ValleyRun {
     };
   }
 
-  // Gently rolling ground; no pits in this version
+  // Gently rolling ground with signature steep slope section
   groundY(x) {
-    return this.H * 0.78 + Math.sin(x * 0.0042) * 20 + Math.sin(x * 0.0115 + 1.9) * 9;
+    let y = this.H * 0.78 + Math.sin(x * 0.0042) * 20 + Math.sin(x * 0.0115 + 1.9) * 9;
+    if (x >= 1100 && x <= 1650) {
+      const slopeT = (x - 1100) / 550;
+      y -= Math.sin(slopeT * Math.PI) * 44;
+    }
+    return y;
   }
 
   buildCourse() {
@@ -3845,10 +4145,16 @@ class ValleyRun {
         g.vy = 0;
         g.fastFall = false;
         g.dust = 0.2;
-        this.puff(g.x, g.y, 6, '#d9f99d');
+        this.puff(g.x, g.y, 8, '#d9f99d');
       }
     } else {
       g.y = groundHere;
+      // Dust puffs at pace
+      g.paceTimer = (g.paceTimer || 0) + dt;
+      if (g.paceTimer > 0.13) {
+        g.paceTimer = 0;
+        this.puff(g.x - 14, g.y, 2, '#d9f99d');
+      }
     }
     if (g.dust > 0) g.dust -= dt;
 
@@ -3874,19 +4180,37 @@ class ValleyRun {
       }
     }
 
-    // --- Pellets: +25 each, every 10 grants a surge ---
+    // --- Pellets: bold golden rings; +25 each, every 10 grants a surge ---
     const gcy = g.y - g.h / 2;
     for (const p of this.pellets) {
       if (p.taken) continue;
       const py = this.groundY(p.x) - p.lift;
-      if (Math.abs(p.x - g.x) < 20 && Math.abs(py - gcy) < 26) {
+      if (Math.abs(p.x - g.x) < 22 && Math.abs(py - gcy) < 26) {
         p.taken = true;
         this.collected++;
         this.chain++;
         this.game.score += 25;
         this.game.updateHUD();
         this.game.sound.playValleyPellet(this.chain);
-        this.puff(p.x, py, 4, '#fde047');
+        // Sparkle particles on pellet pickup
+        for (let s = 0; s < 6; s++) {
+          const ang = (s / 6) * Math.PI * 2;
+          const spd = 35 + Math.random() * 25;
+          this.particles.push({
+            x: p.x, y: py,
+            vx: Math.cos(ang) * spd,
+            vy: Math.sin(ang) * spd,
+            life: 0.3, maxLife: 0.3,
+            color: '#ffd32a',
+            update(pdt) { this.life -= pdt; this.x += this.vx * pdt; this.y += this.vy * pdt; },
+            draw(pctx) {
+              pctx.fillStyle = this.color;
+              pctx.beginPath();
+              pctx.arc(this.x, this.y, 2.5 * (this.life / this.maxLife), 0, Math.PI * 2);
+              pctx.fill();
+            }
+          });
+        }
         if (this.chain >= 10) {
           this.chain = 0;
           this.surge();
@@ -3904,6 +4228,13 @@ class ValleyRun {
     m.rot += ms * dt / m.r;
     if (m.squash > 0) m.squash = Math.max(0, m.squash - dt * 0.6);
 
+    // Near-catch shake
+    const gap = g.x - m.x;
+    if (gap < 140) {
+      this.game.shakeDuration = Math.max(this.game.shakeDuration, 0.08);
+      this.game.shakeIntensity = Math.min(4, (140 - gap) * 0.04);
+    }
+
     // Caught: he touches the ghost
     if (m.x + m.r >= g.x - g.w / 2 + 4) {
       this.outcome = 'caught';
@@ -3918,7 +4249,8 @@ class ValleyRun {
       return this.outcome;
     }
 
-    this.camX = g.x - 200;
+    // The chase in-frame: the Menace stays visible in shot in rolling-ball form, visibly gaining
+    this.camX = Math.min(g.x - 240, m.x - 45);
     return null;
   }
 
@@ -3939,22 +4271,72 @@ class ValleyRun {
     ctx.fill();
   }
 
+  // Palm-style trees with curved segmented brown trunks and spiky lush fronds
   drawTree(ctx, x, y, s, shade) {
     ctx.save();
     ctx.translate(x, y);
     ctx.scale(s, s);
-    ctx.fillStyle = '#7c4a1e';
-    ctx.fillRect(-3, -22, 6, 22);
-    ctx.fillStyle = shade > 0.5 ? '#2f8f3f' : '#3da34f';
+
+    // Palm-style curved segmented trunk
+    ctx.strokeStyle = '#78350f';
+    ctx.lineWidth = 6.5;
     ctx.beginPath();
-    ctx.arc(0, -30, 13, 0, Math.PI * 2);
-    ctx.arc(-9, -22, 10, 0, Math.PI * 2);
-    ctx.arc(9, -22, 10, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = 'rgba(255,255,255,0.18)';
+    ctx.moveTo(0, 0);
+    ctx.quadraticCurveTo(-6, -20, -2, -42);
+    ctx.stroke();
+
+    // Segment rings on trunk
+    ctx.strokeStyle = '#b45309';
+    ctx.lineWidth = 1.5;
+    [-8, -16, -24, -32, -38].forEach(ty => {
+      ctx.beginPath();
+      ctx.moveTo(-5, ty);
+      ctx.lineTo(1, ty);
+      ctx.stroke();
+    });
+
+    // Spiky lush palm fronds canopy
+    ctx.save();
+    ctx.translate(-2, -42);
+    const frondColor1 = shade > 0.5 ? '#16a34a' : '#22c55e';
+    const frondColor2 = shade > 0.5 ? '#15803d' : '#16a34a';
+    [-65, -35, -10, 20, 50, 75].forEach((deg, idx) => {
+      ctx.save();
+      ctx.rotate((deg * Math.PI) / 180);
+      ctx.fillStyle = idx % 2 === 0 ? frondColor1 : frondColor2;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.quadraticCurveTo(14, -7, 28, 0);
+      ctx.quadraticCurveTo(14, 7, 0, 0);
+      ctx.fill();
+      ctx.restore();
+    });
+    ctx.restore();
+
+    ctx.restore();
+  }
+
+  // Loop-de-loop silhouette in distant background
+  drawLoopSilhouette(ctx, x, y, s) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(s, s);
+    ctx.strokeStyle = '#60a5fa';
+    ctx.lineWidth = 6;
     ctx.beginPath();
-    ctx.arc(-4, -34, 5, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.arc(0, -42, 38, 0.25, Math.PI * 1.8);
+    ctx.stroke();
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(0, -42, 31, 0.3, Math.PI * 1.7);
+    ctx.stroke();
+    ctx.lineWidth = 1.5;
+    for (let a = 0; a < Math.PI * 2; a += Math.PI / 4) {
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(a) * 31, -42 + Math.sin(a) * 31);
+      ctx.lineTo(Math.cos(a) * 38, -42 + Math.sin(a) * 38);
+      ctx.stroke();
+    }
     ctx.restore();
   }
 
@@ -4168,11 +4550,11 @@ class ValleyRun {
     const W = this.W, H = this.H;
     const cam = this.camX;
 
-    // Sky
+    // --- Layer 1: Sky, Sun & Distant Water with Loop-de-loop ---
     const sky = ctx.createLinearGradient(0, 0, 0, H);
-    sky.addColorStop(0, '#6cc5f5');
-    sky.addColorStop(0.5, '#cfe9fb');
-    sky.addColorStop(1, '#fef3c7');
+    sky.addColorStop(0, '#38bdf8');
+    sky.addColorStop(0.45, '#bae6fd');
+    sky.addColorStop(0.7, '#fef08a');
     ctx.fillStyle = sky;
     ctx.fillRect(0, 0, W, H);
 
@@ -4186,7 +4568,19 @@ class ValleyRun {
     ctx.fill();
     ctx.restore();
 
-    // Clouds (slowest layer)
+    // Distant shimmering ocean waterline + Loop-de-loop silhouette
+    const waterY = H * 0.58;
+    ctx.fillStyle = '#60a5fa';
+    ctx.fillRect(0, waterY, W, 18);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
+    for (let w = 0; w < W; w += 28) {
+      ctx.fillRect(w + ((cam * 0.05) % 28), waterY + 4, 14, 2);
+    }
+    // Loop-de-loop silhouette in distant background layer
+    this.drawLoopSilhouette(ctx, 160 - ((cam * 0.1) % 500), waterY + 6, 1.2);
+    this.drawLoopSilhouette(ctx, 520 - ((cam * 0.1) % 500), waterY + 6, 1.0);
+
+    // Clouds
     ctx.fillStyle = 'rgba(255,255,255,0.9)';
     this.clouds.forEach(c => {
       let sx = ((c.x - cam * 0.08) % (W + 300));
@@ -4198,15 +4592,15 @@ class ValleyRun {
       ctx.fill();
     });
 
-    // Far hills + far treeline
-    this.drawHills(ctx, cam * 0.2, H * 0.62, 34, 0.0032, '#9fd3a5');
+    // --- Layer 2: Far hills + far palm trees ---
+    this.drawHills(ctx, cam * 0.22, H * 0.62, 34, 0.0032, '#9fd3a5');
     this.farTrees.forEach(t => {
-      const sx = t.x - cam * 0.2;
+      const sx = t.x - cam * 0.22;
       if (sx < -30 || sx > W + 30) return;
       this.drawTree(ctx, sx, this.hillY(t.x, H * 0.62, 34, 0.0032) + 2, t.s, 0.3);
     });
 
-    // Mid hills + trees
+    // --- Layer 3: Mid hills + mid palm trees ---
     this.drawHills(ctx, cam * 0.45, H * 0.705, 24, 0.0058, '#5fb86e');
     this.trees.forEach(t => {
       const sx = t.x - cam * 0.45;
@@ -4214,31 +4608,56 @@ class ValleyRun {
       this.drawTree(ctx, sx, this.hillY(t.x, H * 0.705, 24, 0.0058) + 3, t.s, t.shade);
     });
 
-    // Near ground (world layer)
-    ctx.fillStyle = '#3f9f4b';
+    // --- Layer 4: Foreground Textured Ground & Earth ---
+    // Two-tone geometric patterned earth face
+    ctx.save();
     ctx.beginPath();
     ctx.moveTo(0, H);
     for (let sx = 0; sx <= W; sx += 4) ctx.lineTo(sx, this.groundY(sx + cam));
     ctx.lineTo(W, H);
     ctx.closePath();
-    ctx.fill();
-    // Dirt band
-    ctx.fillStyle = '#6b4423';
-    ctx.beginPath();
-    ctx.moveTo(0, H);
-    for (let sx = 0; sx <= W; sx += 4) ctx.lineTo(sx, this.groundY(sx + cam) + 46);
-    ctx.lineTo(W, H);
-    ctx.closePath();
-    ctx.fill();
-    // Grass edge
+    ctx.clip();
+
+    ctx.fillStyle = '#78350f';
+    ctx.fillRect(0, 0, W, H);
+
+    // Geometric two-tone diamond checker pattern in original warm palette
+    ctx.fillStyle = '#92400e';
+    const patSize = 24;
+    const patOffsetX = (cam % patSize);
+    for (let px = -patSize; px <= W + patSize; px += patSize) {
+      for (let py = H * 0.68; py <= H; py += patSize) {
+        ctx.beginPath();
+        ctx.moveTo(px - patOffsetX, py);
+        ctx.lineTo(px - patOffsetX + patSize / 2, py - patSize / 2);
+        ctx.lineTo(px - patOffsetX + patSize, py);
+        ctx.lineTo(px - patOffsetX + patSize / 2, py + patSize / 2);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+
+    // Grass edge highlight fringe
     ctx.strokeStyle = '#86efac';
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 4;
     ctx.beginPath();
     for (let sx = 0; sx <= W; sx += 4) {
       const y = this.groundY(sx + cam);
       if (sx === 0) ctx.moveTo(sx, y); else ctx.lineTo(sx, y);
     }
     ctx.stroke();
+
+    // Secondary inner grass fringe
+    ctx.strokeStyle = '#22c55e';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    for (let sx = 0; sx <= W; sx += 4) {
+      const y = this.groundY(sx + cam) + 3;
+      if (sx === 0) ctx.moveTo(sx, y); else ctx.lineTo(sx, y);
+    }
+    ctx.stroke();
+
     // Tufts
     ctx.strokeStyle = '#4ade80';
     ctx.lineWidth = 1.5;
@@ -4251,6 +4670,7 @@ class ValleyRun {
       ctx.lineTo(sx + t.lean * 6, gy - t.h);
       ctx.stroke();
     });
+
     // Flowers
     this.flowers.forEach(f => {
       const sx = f.x - cam;
@@ -4262,33 +4682,45 @@ class ValleyRun {
     const gateSx = this.gateX - cam;
     if (gateSx > -120 && gateSx < W + 120) this.drawGate(ctx, gateSx);
 
-    // Obstacles
+    // Obstacles with soft contact shadows
     this.obstacles.forEach(ob => {
       const sx = ob.x - cam;
       if (sx < -60 || sx > W + 60) return;
+      const gy = this.groundY(ob.x);
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+      ctx.beginPath();
+      ctx.ellipse(sx, gy + 1, ob.w * 0.55, 4.5, 0, 0, Math.PI * 2);
+      ctx.fill();
       this.drawObstacle(ctx, ob, sx);
     });
 
-    // Pellets
+    // Pellets: bold golden ring-style arcs with spinning shine
     this.pellets.forEach(p => {
       if (p.taken) return;
       const sx = p.x - cam;
-      if (sx < -10 || sx > W + 10) return;
+      if (sx < -16 || sx > W + 16) return;
       const py = this.groundY(p.x) - p.lift + Math.sin(time * 5 + p.x * 0.05) * 2;
+      const r = 7.5;
+
+      ctx.save();
       ctx.fillStyle = '#ffd32a';
-      ctx.shadowColor = 'rgba(255, 211, 42, 0.7)';
-      ctx.shadowBlur = 8;
+      ctx.shadowColor = '#ffd32a';
+      ctx.shadowBlur = 10;
       ctx.beginPath();
-      ctx.arc(sx, py, 4.5, 0, Math.PI * 2);
+      ctx.arc(sx, py, r, 0, Math.PI * 2);
+      ctx.arc(sx, py, r - 3.2, 0, Math.PI * 2, true);
       ctx.fill();
       ctx.shadowBlur = 0;
-      ctx.fillStyle = '#fff7cc';
+
+      const shineAngle = (time * 6 + p.x * 0.08) % (Math.PI * 2);
+      ctx.fillStyle = '#ffffff';
       ctx.beginPath();
-      ctx.arc(sx - 1.2, py - 1.2, 1.6, 0, Math.PI * 2);
+      ctx.arc(sx + Math.cos(shineAngle) * (r - 1.6), py + Math.sin(shineAngle) * (r - 1.6), 1.8, 0, Math.PI * 2);
       ctx.fill();
+      ctx.restore();
     });
 
-    // Surge shockwave
+    // Surging speed lines & shockwave
     if (this.surgeFx > 0) {
       const p = 1 - this.surgeFx / 0.7;
       ctx.save();
@@ -4300,15 +4732,34 @@ class ValleyRun {
       ctx.beginPath();
       ctx.arc(this.ghost.x - cam, this.ghost.y - 14, 10 + p * 160, 0, Math.PI * 2);
       ctx.stroke();
+
+      // Horizontal speed lines across screen
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+      ctx.lineWidth = 2.5;
+      for (let i = 0; i < 14; i++) {
+        const ly = 120 + i * (H / 16) + (Math.sin(i * 43) * 10);
+        const lx1 = 20 + Math.random() * 80;
+        const lx2 = lx1 + 220 + Math.random() * 120;
+        ctx.beginPath();
+        ctx.moveTo(lx1, ly);
+        ctx.lineTo(lx2, ly);
+        ctx.stroke();
+      }
       ctx.restore();
     }
 
-    // The Menace (rolling ball form)
+    // The Menace (rolling ball form) — stays visible in shot, visibly gaining
     const m = this.menace;
     const msx = m.x - cam;
     if (msx > -60) {
+      // Soft contact shadow
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+      ctx.beginPath();
+      ctx.ellipse(msx, m.y + m.r, m.r * 0.95, 5, 0, 0, Math.PI * 2);
+      ctx.fill();
+
       // Dust trail
-      ctx.fillStyle = 'rgba(120, 90, 50, 0.25)';
+      ctx.fillStyle = 'rgba(120, 90, 50, 0.28)';
       for (let i = 0; i < 3; i++) {
         ctx.beginPath();
         ctx.arc(msx - 18 - i * 12, m.y + m.r - 4 - i * 2, 6 - i, 0, Math.PI * 2);
@@ -4317,18 +4768,42 @@ class ValleyRun {
       this.game.drawMenaceBall(ctx, msx, m.y, m.r, m.rot, m.squash);
     }
 
-    // The ghost
+    // The Ghost: larger, panicked backward glance, squash & stretch
     const g = this.ghost;
     const gsx = g.x - cam;
     const gap = g.x - m.x;
+
+    // Soft contact shadow under ghost
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+    ctx.beginPath();
+    ctx.ellipse(gsx, g.y + 1, 16, 5, 0, 0, Math.PI * 2);
+    ctx.fill();
+
     ctx.save();
     ctx.translate(gsx, g.y - g.h / 2);
-    ctx.scale(1.3, 1.3);
+
+    // Squash & Stretch
+    let scX = 1.45;
+    let scY = 1.45;
+    if (!g.grounded) {
+      if (g.vy < -80) {
+        scX = 1.25; scY = 1.65; // Stretch rising
+      } else if (g.vy > 80) {
+        scX = 1.35; scY = 1.55;
+      }
+    } else if (g.dust > 0) {
+      scX = 1.65; scY = 1.25; // Squash landing
+    }
+    ctx.scale(scX, scY);
+
     if (g.stumbleTimer > 0) ctx.rotate(Math.sin(g.stumbleTimer * 28) * 0.28);
     else if (!g.grounded) ctx.rotate(Math.max(-0.25, Math.min(0.25, g.vy / 2500)));
+
     const ghostRef = this.game.ghosts[this.ghostIndex];
-    this.game.drawGhostBody(ctx, ghostRef, time, { x: 1, y: 0 }, gap < 150);
+    // Panicked backward glance toward the Menace chasing from the left
+    this.game.drawGhostBody(ctx, ghostRef, time, { x: -1, y: 0 }, true);
     ctx.restore();
+
     if (g.dust > 0) {
       ctx.fillStyle = 'rgba(217, 249, 157, 0.6)';
       ctx.beginPath();
@@ -4357,8 +4832,8 @@ class ValleyRun {
     ctx.restore();
 
     // Red vignette when he is right behind you
-    if (gap < 120) {
-      const danger = Math.min(1, (120 - gap) / 120);
+    if (gap < 140) {
+      const danger = Math.min(1, (140 - gap) / 140);
       const vg = ctx.createRadialGradient(W / 2, H / 2, H * 0.35, W / 2, H / 2, H * 0.8);
       vg.addColorStop(0, 'rgba(255, 51, 68, 0)');
       vg.addColorStop(1, `rgba(255, 51, 68, ${0.45 * danger})`);
@@ -4451,20 +4926,27 @@ class KingdomRun {
       this.gaps.push({ x0: this.segments[i - 1].x1, x1: this.segments[i].x0 });
     }
 
-    // Floating star blocks at two heights: low = 3 tiles up (reachable from the ground), high = 5 tiles up (via a low row)
+    // Floating star blocks at varied heights: low (3 tiles), mid (4 tiles), high (5 tiles) with stepped clusters
     const lowY = this.groundTop - 3 * T;
+    const midY = this.groundTop - 4 * T;
     const highY = this.groundTop - 5 * T;
     const blockRows = [
-      [8, 10, lowY], [26, 28, lowY], [45, 47, lowY], [49, 52, highY],
-      [72, 74, lowY], [86, 88, lowY], [90, 93, highY]
+      [8, 11, lowY], [25, 29, lowY], [44, 46, lowY], [47, 49, midY], [50, 53, highY],
+      [71, 75, lowY], [85, 87, lowY], [88, 90, midY], [91, 94, highY]
     ];
     this.blocks = [];
     blockRows.forEach(([a, b, y]) => {
       for (let t = a; t <= b; t++) this.blocks.push({ x: t * T, y, w: T, h: T, kind: 'block', bump: 0 });
     });
 
-    // Striped chimneys: one tile wide, two tall, standing on the ground. Solid — hop them or get pinned.
-    this.chimneys = [15, 31, 42, 68, 83].map(t => ({ x: t * T, y: this.groundTop - 2 * T, w: T, h: 2 * T, kind: 'chimney' }));
+    // Striped chimneys: taller chimneys included (tile 31 and 68 are 3 tiles tall)
+    this.chimneys = [
+      { x: 15 * T, y: this.groundTop - 2 * T, w: T, h: 2 * T, kind: 'chimney' },
+      { x: 31 * T, y: this.groundTop - 3 * T, w: T, h: 3 * T, kind: 'chimney' },
+      { x: 42 * T, y: this.groundTop - 2 * T, w: T, h: 2 * T, kind: 'chimney' },
+      { x: 68 * T, y: this.groundTop - 3 * T, w: T, h: 3 * T, kind: 'chimney' },
+      { x: 83 * T, y: this.groundTop - 2 * T, w: T, h: 2 * T, kind: 'chimney' }
+    ];
     this.solids = this.blocks.concat(this.chimneys);
 
     // Everything the Menace has to hop: gaps and chimneys, in course order
@@ -4513,17 +4995,34 @@ class KingdomRun {
   }
 
   buildScenery() {
-    this.clouds = [];
-    for (let i = 0; i < 8; i++) {
-      this.clouds.push({ x: i * 210 + this.rng() * 100, y: 44 + this.rng() * 90, s: 0.8 + this.rng() * 0.8 });
+    this.cloudsFar = [];
+    for (let i = 0; i < 7; i++) {
+      this.cloudsFar.push({ x: i * 230 + this.rng() * 80, y: 35 + this.rng() * 40, s: 0.6 + this.rng() * 0.3 });
+    }
+    this.cloudsNear = [];
+    for (let i = 0; i < 6; i++) {
+      this.cloudsNear.push({ x: i * 270 + this.rng() * 110, y: 70 + this.rng() * 65, s: 1.0 + this.rng() * 0.4 });
     }
     this.farHills = [];
     for (let x = -300; x < this.levelEnd * 0.35 + 700; x += 110 + this.rng() * 90) {
       this.farHills.push({ x, r: 60 + this.rng() * 50 });
     }
+    this.midHills = [];
+    for (let x = -260; x < this.levelEnd * 0.5 + 700; x += 95 + this.rng() * 85) {
+      this.midHills.push({ x, r: 40 + this.rng() * 30 });
+    }
     this.bushes = [];
     for (let x = -300; x < this.levelEnd * 0.6 + 700; x += 70 + this.rng() * 120) {
       this.bushes.push({ x, r: 16 + this.rng() * 14, lobes: 2 + Math.floor(this.rng() * 2) });
+    }
+    this.flowers = [];
+    const palette = ['#f472b6', '#fbbf24', '#f87171', '#c084fc', '#f8fafc', '#fb923c'];
+    for (let x = -100; x < this.levelEnd + 200; x += 32 + this.rng() * 65) {
+      this.flowers.push({ x, c: palette[Math.floor(this.rng() * palette.length)] });
+    }
+    this.grassTufts = [];
+    for (let x = -100; x < this.levelEnd + 200; x += 16 + this.rng() * 30) {
+      this.grassTufts.push({ x, h: 5 + this.rng() * 6 });
     }
   }
 
@@ -4745,6 +5244,22 @@ class KingdomRun {
     const speed = g.dazeTimer > 0 ? 0 : this.runSpeed * (g.stumbleTimer > 0 ? 0.7 : 1);
     g.x += speed * dt;
 
+    // Running dust puffs while grounded
+    if (g.grounded && g.dazeTimer <= 0) {
+      g.runDust = (g.runDust || 0) + dt;
+      if (g.runDust > 0.14) {
+        g.runDust = 0;
+        this.puff(g.x - 12, g.y, 2, '#ffffff');
+      }
+    }
+
+    // Bounce animation when a star block is passed close or struck
+    for (const b of this.blocks) {
+      if (Math.abs(g.x - (b.x + b.w / 2)) < b.w * 0.75 && Math.abs(g.y - b.y) < 22) {
+        if (b.bump <= 0) b.bump = 0.22;
+      }
+    }
+
     // Shoulder against a solid's side: pinned until she jumps clear (landings and head-bonks are handled vertically)
     const bodyTop = g.y - g.h, bodyBottom = g.y;
     for (const s of this.solids) {
@@ -4896,6 +5411,25 @@ class KingdomRun {
         this.game.updateHUD();
         this.game.sound.playValleyPellet(this.chain);
         this.puff(p.x, p.y, 4, '#fde047');
+        // Sparkle trail on pickup
+        for (let s = 0; s < 5; s++) {
+          const ang = (s / 5) * Math.PI * 2;
+          const spd = 30 + Math.random() * 25;
+          this.particles.push({
+            x: p.x, y: p.y,
+            vx: Math.cos(ang) * spd,
+            vy: Math.sin(ang) * spd,
+            life: 0.35, maxLife: 0.35,
+            color: '#fef08a',
+            update(pdt) { this.life -= pdt; this.x += this.vx * pdt; this.y += this.vy * pdt; },
+            draw(pctx) {
+              pctx.fillStyle = this.color;
+              pctx.beginPath();
+              pctx.arc(this.x, this.y, 2.5 * (this.life / this.maxLife), 0, Math.PI * 2);
+              pctx.fill();
+            }
+          });
+        }
         if (this.chain >= 10) {
           this.chain = 0;
           this.surge();
@@ -5128,6 +5662,26 @@ class KingdomRun {
     ctx.restore();
   }
 
+  // Distant pale spotted hills echoing the genre backdrop
+  drawSpottedHill(ctx, sx, gy, r) {
+    ctx.save();
+    ctx.fillStyle = '#bbf7d0';
+    ctx.strokeStyle = '#86efac';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(sx, gy + 8, r, Math.PI, 0);
+    ctx.fill();
+    ctx.stroke();
+
+    // Darker green circular spots echoing classic genre backdrop
+    ctx.fillStyle = '#4ade80';
+    ctx.beginPath();
+    ctx.ellipse(sx - r * 0.32, gy + 8 - r * 0.55, r * 0.1, r * 0.18, 0, 0, Math.PI * 2);
+    ctx.ellipse(sx + r * 0.32, gy + 8 - r * 0.55, r * 0.1, r * 0.18, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
   drawGroundTiles(ctx, cam) {
     const T = this.T, W = this.W, H = this.H, gy = this.groundTop;
     for (const seg of this.segments) {
@@ -5144,22 +5698,22 @@ class KingdomRun {
         ctx.strokeStyle = '#2d6a2f';
         ctx.lineWidth = 2;
         ctx.strokeRect(x + 1, gy + 1, T - 2, T - 2);
-        // Brick rows
-        for (let r = 1; r < 3; r++) {
+
+        // Shaded dirt stratum rows under ground line
+        for (let r = 1; r < 4; r++) {
           const y = gy + r * T;
-          ctx.fillStyle = '#c67a4a';
+          const stratumGrad = ctx.createLinearGradient(0, y, 0, y + T);
+          stratumGrad.addColorStop(0, r === 1 ? '#c67a4a' : '#a15830');
+          stratumGrad.addColorStop(1, r === 1 ? '#a15830' : '#783818');
+          ctx.fillStyle = stratumGrad;
           ctx.fillRect(x, y, T, T);
-          ctx.strokeStyle = '#8e4f2a';
-          ctx.lineWidth = 2;
-          ctx.strokeRect(x + 1, y + 1, T - 2, T - 2);
-          ctx.beginPath();
-          ctx.moveTo(x, y + T / 2);
-          ctx.lineTo(x + T, y + T / 2);
-          ctx.moveTo(x + (r % 2 ? T / 2 : T / 4), y);
-          ctx.lineTo(x + (r % 2 ? T / 2 : T / 4), y + T / 2);
-          ctx.moveTo(x + (r % 2 ? T / 4 : T * 0.75), y + T / 2);
-          ctx.lineTo(x + (r % 2 ? T / 4 : T * 0.75), y + T);
-          ctx.stroke();
+          ctx.strokeStyle = '#6b3214';
+          ctx.lineWidth = 1.5;
+          ctx.strokeRect(x + 0.5, y + 0.5, T - 1, T - 1);
+          // Strata stone speckles
+          ctx.fillStyle = '#df9b6d';
+          ctx.fillRect(x + 5, y + 6, 3, 2);
+          ctx.fillRect(x + 14, y + 14, 4, 3);
         }
       }
     }
@@ -5169,7 +5723,7 @@ class KingdomRun {
       if (x1 < 0 || x0 > W) continue;
       const grd = ctx.createLinearGradient(0, gy, 0, H);
       grd.addColorStop(0, 'rgba(10, 30, 70, 0)');
-      grd.addColorStop(1, 'rgba(10, 30, 70, 0.55)');
+      grd.addColorStop(1, 'rgba(10, 30, 70, 0.7)');
       ctx.fillStyle = grd;
       ctx.fillRect(x0, gy, x1 - x0, H - gy);
     }
@@ -5251,31 +5805,47 @@ class KingdomRun {
     ctx.fillStyle = sky;
     ctx.fillRect(0, 0, W, H);
 
-    // Clouds (slow layer)
-    this.clouds.forEach(c => {
-      let sx = ((c.x - cam * 0.1) % (W + 260));
+    // Clouds at two depths
+    // Far clouds (slow layer, smaller)
+    this.cloudsFar.forEach(c => {
+      let sx = ((c.x - cam * 0.06) % (W + 260));
       if (sx < -130) sx += W + 260;
       this.drawCloud(ctx, sx, c.y, c.s);
     });
 
-    // Far hills
-    ctx.fillStyle = '#8fdc7a';
-    ctx.strokeStyle = '#5fb35a';
-    ctx.lineWidth = 3;
+    // Distant pale spotted hills
     this.farHills.forEach(h => {
-      const sx = h.x - cam * 0.25;
+      const sx = h.x - cam * 0.22;
+      if (sx < -h.r - 20 || sx > W + h.r + 20) return;
+      this.drawSpottedHill(ctx, sx, gy, h.r);
+    });
+
+    // Near clouds (faster layer, puffier)
+    this.cloudsNear.forEach(c => {
+      let sx = ((c.x - cam * 0.16) % (W + 300));
+      if (sx < -150) sx += W + 300;
+      this.drawCloud(ctx, sx, c.y, c.s);
+    });
+
+    // Mid-ground hill band
+    ctx.fillStyle = '#4ade80';
+    ctx.strokeStyle = '#22c55e';
+    ctx.lineWidth = 3;
+    this.midHills.forEach(h => {
+      const sx = h.x - cam * 0.42;
       if (sx < -h.r - 10 || sx > W + h.r + 10) return;
       ctx.beginPath();
-      ctx.arc(sx, gy + 6, h.r, Math.PI, 0);
+      ctx.arc(sx, gy + 4, h.r, Math.PI, 0);
       ctx.fill();
       ctx.stroke();
     });
+
     // Bushes
     ctx.fillStyle = '#43b649';
     ctx.strokeStyle = '#2f7d32';
     ctx.lineWidth = 2.5;
     this.bushes.forEach(b => {
-      const sx = b.x - cam * 0.5;
+      const sx = b.x - cam * 0.55;
       if (sx < -b.r * 3 || sx > W + b.r * 3) return;
       ctx.beginPath();
       for (let i = 0; i < b.lobes; i++) ctx.arc(sx + (i - (b.lobes - 1) / 2) * b.r * 1.1, gy + 2, b.r, Math.PI, 0);
@@ -5283,27 +5853,61 @@ class KingdomRun {
       ctx.stroke();
     });
 
-    // Ground, gaps
+    // Flowers along ground line
+    this.flowers.forEach(f => {
+      const sx = f.x - cam;
+      if (sx < -10 || sx > W + 10) return;
+      ctx.fillStyle = f.c;
+      ctx.beginPath();
+      ctx.arc(sx, gy - 2, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#fde047';
+      ctx.beginPath();
+      ctx.arc(sx, gy - 2, 1.2, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    // Grass tufts along ground line
+    ctx.strokeStyle = '#86efac';
+    ctx.lineWidth = 1.5;
+    this.grassTufts.forEach(t => {
+      const sx = t.x - cam;
+      if (sx < -10 || sx > W + 10) return;
+      ctx.beginPath();
+      ctx.moveTo(sx, gy + 1);
+      ctx.lineTo(sx - 2, gy - t.h);
+      ctx.moveTo(sx, gy + 1);
+      ctx.lineTo(sx + 2, gy - t.h + 1);
+      ctx.stroke();
+    });
+
+    // Ground, gaps with shaded dirt stratum
     this.drawGroundTiles(ctx, cam);
 
-    // Banner pole
+    // Banner pole (in-world at goal)
     const poleSx = this.poleX - cam;
     if (poleSx > -80 && poleSx < W + 80) this.drawPole(ctx, poleSx, time);
 
-    // Chimneys and blocks
+    // Chimneys and blocks with soft drop shadows
     this.chimneys.forEach(c => {
       const sx = c.x - cam;
       if (sx < -40 || sx > W + 40) return;
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.28)';
+      ctx.fillRect(sx + 2, gy - 2, c.w - 4, 4);
       this.drawChimney(ctx, c, sx, time);
     });
+
     this.blocks.forEach(b => {
       if (b.bump > 0) b.bump -= 1 / 60;
       const sx = b.x - cam;
       if (sx < -30 || sx > W + 30) return;
+      // Soft drop shadow under floating star blocks
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.22)';
+      ctx.fillRect(sx + 3, b.y + b.h + 2, b.w - 6, 4);
       this.drawBlock(ctx, b, sx);
     });
 
-    // Pellets
+    // Pellets with sparkle
     this.pellets.forEach(p => {
       if (p.taken) return;
       const sx = p.x - cam;
@@ -5322,11 +5926,15 @@ class KingdomRun {
       ctx.fill();
     });
 
-    // Sprouts
+    // Sprouts with soft drop shadow
     this.sprouts.forEach(sp => {
       if (!sp.alive && sp.squashT <= 0) return;
       const sx = sp.x - cam;
       if (sx < -30 || sx > W + 30) return;
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
+      ctx.beginPath();
+      ctx.ellipse(sx, gy, sp.r * 1.1, 3.5, 0, 0, Math.PI * 2);
+      ctx.fill();
       this.drawSprout(ctx, sp, sx);
     });
 
@@ -5345,10 +5953,34 @@ class KingdomRun {
       ctx.restore();
     }
 
-    // The Menace on foot
+    // Speed lines as the Menace closes
     const m = this.menace;
+    const g = this.ghost;
+    const gap = g.x - m.x;
+    if (gap < 160) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+      ctx.lineWidth = 2;
+      for (let i = 0; i < 12; i++) {
+        const ly = 100 + i * (H / 14) + (Math.sin(i * 37) * 8);
+        const lx1 = 15 + Math.random() * 60;
+        const lx2 = lx1 + 180 + Math.random() * 100;
+        ctx.beginPath();
+        ctx.moveTo(lx1, ly);
+        ctx.lineTo(lx2, ly);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    // The Menace on foot with soft contact shadow
     const msx = m.x - cam;
     if (msx > -60 && msx < W + 60) {
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+      ctx.beginPath();
+      ctx.ellipse(msx, gy, m.r * 1.1, 5, 0, 0, Math.PI * 2);
+      ctx.fill();
+
       if (m.state === 'run') {
         ctx.fillStyle = 'rgba(120, 90, 50, 0.25)';
         for (let i = 0; i < 3; i++) {
@@ -5361,17 +5993,34 @@ class KingdomRun {
       this.game.drawMenaceRunner(ctx, msx, m.y, m.r, m.stride, m.state === 'hop', m.squash + crouch);
     }
 
-    // The ghost
-    const g = this.ghost;
+    // The Ghost: larger, landing squash-and-stretch
     const gsx = g.x - cam;
-    const gap = g.x - m.x;
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+    ctx.beginPath();
+    ctx.ellipse(gsx, g.y, 14, 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+
     ctx.save();
     ctx.translate(gsx, g.y - g.h / 2);
-    ctx.scale(1.3, 1.3);
-    if (g.dust > 0) ctx.scale(1.1, 0.9);
+
+    // Squash & Stretch
+    let scX = 1.35;
+    let scY = 1.35;
+    if (!g.grounded) {
+      if (g.vy < -60) {
+        scX = 1.15; scY = 1.55; // Stretch rising
+      } else if (g.vy > 60) {
+        scX = 1.3; scY = 1.4;
+      }
+    } else if (g.dust > 0) {
+      scX = 1.55; scY = 1.1; // Squash landing
+    }
+    ctx.scale(scX, scY);
+
     if (g.dazeTimer > 0) ctx.rotate(Math.sin(g.dazeTimer * 22) * 0.2);
     else if (g.stumbleTimer > 0) ctx.rotate(Math.sin(g.stumbleTimer * 28) * 0.28);
     else if (!g.grounded) ctx.rotate(Math.max(-0.22, Math.min(0.22, g.vy / 2600)));
+
     const ghostRef = this.game.ghosts[this.ghostIndex];
     this.game.drawGhostBody(ctx, ghostRef, time, { x: 1, y: 0 }, gap < 170 || g.dazeTimer > 0);
     ctx.restore();
@@ -5438,6 +6087,1813 @@ class KingdomRun {
       vg.addColorStop(1, `rgba(255, 51, 68, ${0.45 * danger})`);
       ctx.fillStyle = vg;
       ctx.fillRect(0, 0, W, H);
+    }
+  }
+}
+
+// 3d. GLOOM — the first-person corridor shooter parody the bottom-left power pellet triggers.
+// Classic 90s FPS in original Round Menace dress: textured tech-base panel corridor rushing past
+// in perspective, 3-lane strafing, pellet blaster with muzzle flash and recoil at bottom-center,
+// and a chunky status bar with NERVE %, PELLETS ammo, and animated ghost face portrait.
+class GloomRun {
+  constructor(game, ghostIndex) {
+    this.game = game;
+    this.ghostIndex = ghostIndex;
+    this.W = game.width;
+    this.H = game.height;
+    const cfg = MAZE_CONFIGS[game.mazeIndex];
+
+    // Flip module contract
+    this.kind = 'gloom';
+    this.musicMode = 'gloom';
+    this.hudLabel = '⚠️ Hunt Flipped — GLOOM Tech-Base Corridor';
+    this.openingBanner = 'GLOOM — TECH-BASE ESCAPE!';
+    this.bannerColor = '#ef4444';
+    this.exitBanner = 'DECONTAMINATION CHAMBER REACHED';
+    this.surviveText = 'Corridor cleared! Survival +200';
+    this.pressToJump = false; // tap/space fires pellet burst
+    this.touchHalves = false; // swipe or arrow keys strafe
+
+    this.duration = 20; // ~20 seconds of running to exit door
+    this.phase = 'tear_in'; // tear_in -> run -> survived | caught
+    this.tearInDuration = 0.7;
+    this.phaseT = 0;
+    this.elapsed = 0;
+    this.outcome = null;
+
+    // Player strafe and health/ammo state
+    this.targetLane = 0; // -1: Left, 0: Center, 1: Right
+    this.laneX = 0; // smoothly lerped towards targetLane
+    this.nerve = 100; // NERVE %
+    this.grabs = 0;
+    this.pellets = 20; // ammo count
+    this.maxPellets = 40;
+    this.collected = 0; // floor pellets picked up
+    this.surges = 0;
+
+    // Weapons & visual juice
+    this.recoil = 0;
+    this.muzzleFlash = 0;
+    this.fireCooldown = 0;
+    this.screenShake = 0;
+    this.redFlash = 0;
+    this.faceState = 'normal'; // normal, firing, hurt, low_nerve
+    this.faceTimer = 0;
+    this.lookDir = 0;
+    this.bobTime = 0;
+
+    // Menace pursuer
+    this.menaceStartDist = 26;
+    this.menaceDist = this.menaceStartDist;
+    this.menaceLane = 0;
+    this.menaceLaneX = 0;
+    this.menaceSpeed = 1.35;
+    this.menaceChargeTimer = 2.2;
+    this.menaceHitFlash = 0;
+
+    // Entities
+    this.projectiles = [];
+    this.floorPellets = [];
+    this.obstacles = [];
+    this.sparks = [];
+    this.pelletSpawnTimer = 0.8;
+
+    // Seed some initial floor pellets down the corridor
+    for (let z = 6; z <= 28; z += 4.5) {
+      this.floorPellets.push({ lane: (Math.floor(Math.random() * 3) - 1), z });
+    }
+  }
+
+  jump() {
+    if (this.phase !== 'run') return false;
+    if (this.fireCooldown > 0) return false;
+    if (this.pellets <= 0) return false;
+
+    this.pellets--;
+    this.fireCooldown = 0.18;
+    this.recoil = 1.0;
+    this.muzzleFlash = 0.09;
+    this.screenShake = Math.max(this.screenShake, 0.12);
+    this.faceState = 'firing';
+    this.faceTimer = 0.32;
+    if (this.game.sound.playBlaster) this.game.sound.playBlaster();
+
+    // Spawn blaster projectile flying down the corridor
+    this.projectiles.push({
+      x: this.laneX * 1.1,
+      z: 1.2,
+      vz: 42,
+      hit: false
+    });
+    return true;
+  }
+
+  jumpRelease() {}
+  fastFall() {}
+
+  steer(dir) {
+    if (this.phase !== 'run') return;
+    this.targetLane = Math.max(-1, Math.min(1, this.targetLane + dir));
+    this.lookDir = this.targetLane;
+  }
+
+  steerRelease(dir) {}
+
+  progress() {
+    return Math.max(0, Math.min(1, this.elapsed / this.duration));
+  }
+
+  menaceProgress() {
+    return Math.max(0, Math.min(1, 1 - (this.menaceDist / this.menaceStartDist)));
+  }
+
+  remainingSeconds() {
+    return Math.max(0, this.duration - this.elapsed);
+  }
+
+  puffSparks(x, z) {
+    for (let i = 0; i < 14; i++) {
+      const ang = Math.random() * Math.PI * 2;
+      const spd = 20 + Math.random() * 50;
+      this.sparks.push({
+        x: x,
+        y: 0.2,
+        z: z,
+        vx: Math.cos(ang) * spd,
+        vy: (Math.random() - 0.5) * spd,
+        life: 0.3 + Math.random() * 0.2,
+        maxLife: 0.5,
+        color: Math.random() < 0.5 ? '#fde047' : '#f97316'
+      });
+    }
+  }
+
+  update(dt) {
+    if (this.outcome) return this.outcome;
+    this.phaseT += dt;
+
+    if (this.phase === 'tear_in') {
+      if (this.phaseT >= this.tearInDuration) {
+        this.phase = 'run';
+        this.phaseT = 0;
+      }
+      return null;
+    }
+
+    this.elapsed += dt;
+    this.bobTime += dt;
+
+    // Timers & cooldowns
+    if (this.fireCooldown > 0) this.fireCooldown -= dt;
+    if (this.recoil > 0) this.recoil = Math.max(0, this.recoil - dt * 4.5);
+    if (this.muzzleFlash > 0) this.muzzleFlash -= dt;
+    if (this.screenShake > 0) this.screenShake = Math.max(0, this.screenShake - dt * 2.2);
+    if (this.redFlash > 0) this.redFlash = Math.max(0, this.redFlash - dt * 2.0);
+    if (this.menaceHitFlash > 0) this.menaceHitFlash -= dt;
+
+    if (this.faceTimer > 0) {
+      this.faceTimer -= dt;
+    } else {
+      this.faceState = this.nerve <= 33 ? 'low_nerve' : 'normal';
+    }
+
+    // Smooth lane transitions
+    this.laneX += (this.targetLane - this.laneX) * Math.min(1, dt * 14);
+    this.menaceLaneX += (this.menaceLane - this.menaceLaneX) * Math.min(1, dt * 6.5);
+
+    // Menace moves closer steadily
+    const advanceSpeed = this.menaceSpeed + this.elapsed * 0.025;
+    this.menaceDist -= advanceSpeed * dt;
+
+    // Menace charges / lane switches
+    this.menaceChargeTimer -= dt;
+    if (this.menaceChargeTimer <= 0) {
+      this.menaceChargeTimer = 2.0 + Math.random() * 1.5;
+      this.menaceLane = this.targetLane;
+      // Knock loose an obstacle
+      this.obstacles.push({
+        lane: (Math.floor(Math.random() * 3) - 1),
+        z: this.menaceDist + 0.5,
+        rot: 0,
+        hit: false
+      });
+    }
+
+    // Floor pellets spawning
+    this.pelletSpawnTimer -= dt;
+    if (this.pelletSpawnTimer <= 0) {
+      this.pelletSpawnTimer = 1.1 + Math.random() * 0.7;
+      this.floorPellets.push({
+        lane: (Math.floor(Math.random() * 3) - 1),
+        z: 32,
+        collected: false
+      });
+    }
+
+    // Floor pellets movement and collection
+    for (const p of this.floorPellets) {
+      p.z -= 6.8 * dt;
+      if (!p.collected && p.z <= 1.5 && p.z >= 0.4) {
+        if (Math.abs(p.lane - this.laneX) < 0.6) {
+          p.collected = true;
+          this.pellets = Math.min(this.maxPellets, this.pellets + 5);
+          this.collected++;
+          this.game.score += 25;
+          this.game.updateHUD();
+          if (this.game.sound.playGloomReload) this.game.sound.playGloomReload();
+        }
+      }
+    }
+    this.floorPellets = this.floorPellets.filter(p => !p.collected && p.z > 0.2);
+
+    // Obstacles movement and collisions
+    for (const ob of this.obstacles) {
+      ob.z -= 6.8 * dt;
+      ob.rot += dt * 3.5;
+      if (!ob.hit && ob.z <= 1.5 && ob.z >= 0.4) {
+        if (Math.abs(ob.lane - this.laneX) < 0.6) {
+          ob.hit = true;
+          this.nerve = Math.max(0, this.nerve - 10);
+          this.screenShake = 0.35;
+          this.redFlash = 0.35;
+          this.faceState = 'hurt';
+          this.faceTimer = 0.5;
+          if (this.game.sound.playSmash) this.game.sound.playSmash();
+        }
+      }
+    }
+    this.obstacles = this.obstacles.filter(ob => !ob.hit && ob.z > 0.2);
+
+    // Projectiles
+    for (const p of this.projectiles) {
+      p.z += p.vz * dt;
+      // Hit check against Menace
+      if (!p.hit && p.z >= this.menaceDist && p.z <= this.menaceDist + 2.5) {
+        if (Math.abs(p.x - this.menaceLaneX * 1.1) < 0.85) {
+          p.hit = true;
+          this.menaceDist = Math.min(29, this.menaceDist + 2.8);
+          this.menaceHitFlash = 0.22;
+          this.screenShake = 0.14;
+          this.game.score += 50;
+          this.game.updateHUD();
+          if (this.game.sound.playGloomHit) this.game.sound.playGloomHit();
+          this.puffSparks(p.x, this.menaceDist);
+        }
+      }
+    }
+    this.projectiles = this.projectiles.filter(p => !p.hit && p.z < 34);
+
+    // Sparks
+    for (let i = this.sparks.length - 1; i >= 0; i--) {
+      const sp = this.sparks[i];
+      sp.life -= dt;
+      sp.x += sp.vx * 0.001 * dt;
+      sp.y += sp.vy * 0.001 * dt;
+      if (sp.life <= 0) this.sparks.splice(i, 1);
+    }
+
+    // Menace grabs check
+    if (this.menaceDist <= 2.2) {
+      if (Math.abs(this.menaceLaneX - this.laneX) < 0.7) {
+        this.grabs++;
+        this.nerve = Math.max(0, 100 - this.grabs * 34);
+        this.screenShake = 0.65;
+        this.redFlash = 0.6;
+        this.faceState = 'hurt';
+        this.faceTimer = 0.7;
+        if (this.game.sound.playGrabStinger) this.game.sound.playGrabStinger();
+        this.menaceDist = 8.5; // Wind up for next charge
+        if (this.grabs >= 3 || this.nerve <= 0) {
+          this.outcome = 'caught';
+          return 'caught';
+        }
+      }
+    }
+
+    // Camera overrun
+    if (this.menaceDist <= 1.0) {
+      this.outcome = 'caught';
+      return 'caught';
+    }
+
+    // Survived to Exit Door
+    if (this.elapsed >= this.duration) {
+      this.outcome = 'survived';
+      return 'survived';
+    }
+
+    return null;
+  }
+
+  draw(ctx, time) {
+    const W = this.W, H = this.H;
+    const viewH = H - 84; // Leave 84px for chunky status bar
+    const midX = W / 2;
+    const midY = viewH * 0.48;
+    const fov = 260;
+
+    ctx.save();
+
+    // Screen Shake
+    if (this.screenShake > 0) {
+      const sx = (Math.random() - 0.5) * this.screenShake * 24;
+      const sy = (Math.random() - 0.5) * this.screenShake * 24;
+      ctx.translate(sx, sy);
+    }
+
+    // Background darkness
+    ctx.fillStyle = '#06080d';
+    ctx.fillRect(0, 0, W, viewH);
+
+    const camX = this.laneX * 0.7;
+    const proj = (xw, yw, zw) => {
+      const s = fov / Math.max(0.5, zw);
+      return {
+        x: midX + (xw - camX) * s,
+        y: midY + yw * s,
+        s: s
+      };
+    };
+
+    const Xw = 2.1;
+    const Yc = -1.6;
+    const Yf = 1.6;
+
+    // --- Render corridor segments back-to-front ---
+    const segLen = 2.0;
+    const scrollZ = (this.elapsed * 5.5) % segLen;
+    const minZ = 1.6;
+    const maxZ = 30.0;
+
+    for (let zFar = maxZ; zFar >= minZ; zFar -= segLen) {
+      const z1 = zFar - scrollZ;
+      const z2 = z1 - segLen;
+      if (z2 < minZ || z1 > maxZ) continue;
+
+      const pL1 = proj(-Xw, Yc, z1), pL2 = proj(-Xw, Yc, z2);
+      const pR1 = proj(Xw, Yc, z1), pR2 = proj(Xw, Yc, z2);
+      const bL1 = proj(-Xw, Yf, z1), bL2 = proj(-Xw, Yf, z2);
+      const bR1 = proj(Xw, Yf, z1), bR2 = proj(Xw, Yf, z2);
+
+      const depthShade = Math.max(0.08, Math.min(1, 1 - (z2 / maxZ)));
+      const segIndex = Math.floor((zFar + this.elapsed * 5.5) / segLen);
+
+      // Floor quad
+      ctx.fillStyle = segIndex % 2 === 0 ? `rgba(22, 27, 38, ${depthShade})` : `rgba(16, 20, 29, ${depthShade})`;
+      ctx.beginPath();
+      ctx.moveTo(bL1.x, bL1.y);
+      ctx.lineTo(bR1.x, bR1.y);
+      ctx.lineTo(bR2.x, bR2.y);
+      ctx.lineTo(bL2.x, bL2.y);
+      ctx.closePath();
+      ctx.fill();
+
+      // Lane guides on floor
+      [-1.1, 0, 1.1].forEach(lx => {
+        const pt1 = proj(lx, Yf, z1);
+        const pt2 = proj(lx, Yf, z2);
+        ctx.strokeStyle = `rgba(234, 179, 8, ${0.25 * depthShade})`;
+        ctx.lineWidth = Math.max(1, 2.5 * pt2.s);
+        ctx.beginPath();
+        ctx.moveTo(pt1.x, pt1.y);
+        ctx.lineTo(pt2.x, pt2.y);
+        ctx.stroke();
+      });
+
+      // Ceiling quad
+      ctx.fillStyle = `rgba(13, 17, 24, ${depthShade})`;
+      ctx.beginPath();
+      ctx.moveTo(pL1.x, pL1.y);
+      ctx.lineTo(pR1.x, pR1.y);
+      ctx.lineTo(pR2.x, pR2.y);
+      ctx.lineTo(pL2.x, pL2.y);
+      ctx.closePath();
+      ctx.fill();
+
+      // Left Wall
+      const wallGradL = ctx.createLinearGradient(pL1.x, 0, pL2.x, 0);
+      wallGradL.addColorStop(0, `rgba(30, 41, 59, ${depthShade})`);
+      wallGradL.addColorStop(1, `rgba(15, 23, 42, ${depthShade})`);
+      ctx.fillStyle = wallGradL;
+      ctx.beginPath();
+      ctx.moveTo(pL1.x, pL1.y);
+      ctx.lineTo(pL2.x, pL2.y);
+      ctx.lineTo(bL2.x, bL2.y);
+      ctx.lineTo(bL1.x, bL1.y);
+      ctx.closePath();
+      ctx.fill();
+
+      // Hazard strip on base of left wall
+      const hL1 = { x: pL1.x + (bL1.x - pL1.x) * 0.82, y: pL1.y + (bL1.y - pL1.y) * 0.82 };
+      const hL2 = { x: pL2.x + (bL2.x - pL2.x) * 0.82, y: pL2.y + (bL2.y - pL2.y) * 0.82 };
+      ctx.fillStyle = (segIndex % 2 === 0) ? `rgba(234, 179, 8, ${0.65 * depthShade})` : `rgba(15, 23, 42, ${0.9 * depthShade})`;
+      ctx.beginPath();
+      ctx.moveTo(hL1.x, hL1.y);
+      ctx.lineTo(hL2.x, hL2.y);
+      ctx.lineTo(bL2.x, bL2.y);
+      ctx.lineTo(bL1.x, bL1.y);
+      ctx.closePath();
+      ctx.fill();
+
+      // Right Wall
+      const wallGradR = ctx.createLinearGradient(pR2.x, 0, pR1.x, 0);
+      wallGradR.addColorStop(0, `rgba(15, 23, 42, ${depthShade})`);
+      wallGradR.addColorStop(1, `rgba(30, 41, 59, ${depthShade})`);
+      ctx.fillStyle = wallGradR;
+      ctx.beginPath();
+      ctx.moveTo(pR1.x, pR1.y);
+      ctx.lineTo(pR2.x, pR2.y);
+      ctx.lineTo(bR2.x, bR2.y);
+      ctx.lineTo(bR1.x, bR1.y);
+      ctx.closePath();
+      ctx.fill();
+
+      // Hazard strip on base of right wall
+      const hR1 = { x: pR1.x + (bR1.x - pR1.x) * 0.82, y: pR1.y + (bR1.y - pR1.y) * 0.82 };
+      const hR2 = { x: pR2.x + (bR2.x - pR2.x) * 0.82, y: pR2.y + (bR2.y - pR2.y) * 0.82 };
+      ctx.fillStyle = (segIndex % 2 === 0) ? `rgba(234, 179, 8, ${0.65 * depthShade})` : `rgba(15, 23, 42, ${0.9 * depthShade})`;
+      ctx.beginPath();
+      ctx.moveTo(hR1.x, hR1.y);
+      ctx.lineTo(hR2.x, hR2.y);
+      ctx.lineTo(bR2.x, bR2.y);
+      ctx.lineTo(bR1.x, bR1.y);
+      ctx.closePath();
+      ctx.fill();
+
+      // Wall Lights & Pillars
+      if (segIndex % 3 === 0) {
+        // Wall light panel (cyan/amber flickering light)
+        let flicker = 0.75 + 0.25 * Math.sin(time * 28 + segIndex * 17);
+        if (Math.abs(this.menaceDist - z2) < 2.5) flicker *= (0.3 + 0.7 * Math.random());
+        const lightColor = segIndex % 6 === 0 ? `rgba(56, 189, 248, ${flicker * depthShade})` : `rgba(251, 146, 60, ${flicker * depthShade})`;
+        ctx.fillStyle = lightColor;
+        const lwL1 = { x: pL1.x + (bL1.x - pL1.x) * 0.42, y: pL1.y + (bL1.y - pL1.y) * 0.42 };
+        const lwL2 = { x: pL2.x + (bL2.x - pL2.x) * 0.42, y: pL2.y + (bL2.y - pL2.y) * 0.42 };
+        const lwLb1 = { x: pL1.x + (bL1.x - pL1.x) * 0.58, y: pL1.y + (bL1.y - pL1.y) * 0.58 };
+        const lwLb2 = { x: pL2.x + (bL2.x - pL2.x) * 0.58, y: pL2.y + (bL2.y - pL2.y) * 0.58 };
+        ctx.beginPath();
+        ctx.moveTo(lwL1.x, lwL1.y);
+        ctx.lineTo(lwL2.x, lwL2.y);
+        ctx.lineTo(lwLb2.x, lwLb2.y);
+        ctx.lineTo(lwLb1.x, lwLb1.y);
+        ctx.closePath();
+        ctx.fill();
+
+        const lwR1 = { x: pR1.x + (bR1.x - pR1.x) * 0.42, y: pR1.y + (bR1.y - pR1.y) * 0.42 };
+        const lwR2 = { x: pR2.x + (bR2.x - pR2.x) * 0.42, y: pR2.y + (bR2.y - pR2.y) * 0.42 };
+        const lwRb1 = { x: pR1.x + (bR1.x - pR1.x) * 0.58, y: pR1.y + (bR1.y - pR1.y) * 0.58 };
+        const lwRb2 = { x: pR2.x + (bR2.x - pR2.x) * 0.58, y: pR2.y + (bR2.y - pR2.y) * 0.58 };
+        ctx.beginPath();
+        ctx.moveTo(lwR1.x, lwR1.y);
+        ctx.lineTo(lwR2.x, lwR2.y);
+        ctx.lineTo(lwRb2.x, lwRb2.y);
+        ctx.lineTo(lwRb1.x, lwRb1.y);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      // Pillars / Side alcoves
+      if (segIndex % 4 === 0) {
+        const pilL = proj(-Xw + 0.35, Yc, z2);
+        const pilLb = proj(-Xw + 0.35, Yf, z2);
+        ctx.strokeStyle = `rgba(15, 23, 42, ${0.85 * depthShade})`;
+        ctx.lineWidth = Math.max(1, 3 * pL2.s);
+        ctx.beginPath();
+        ctx.moveTo(pilL.x, pilL.y);
+        ctx.lineTo(pilLb.x, pilLb.y);
+        ctx.stroke();
+
+        const pilR = proj(Xw - 0.35, Yc, z2);
+        const pilRb = proj(Xw - 0.35, Yf, z2);
+        ctx.beginPath();
+        ctx.moveTo(pilR.x, pilR.y);
+        ctx.lineTo(pilRb.x, pilRb.y);
+        ctx.stroke();
+      }
+    }
+
+    // --- EXIT Door (Approaching at end of 20s run) ---
+    if (this.elapsed >= this.duration - 5.5) {
+      const doorZ = Math.max(1.8, (this.duration - this.elapsed) * 4.2);
+      const pDL = proj(-Xw, Yc, doorZ);
+      const pDR = proj(Xw, Yc, doorZ);
+      const pDbL = proj(-Xw, Yf, doorZ);
+      const pDbR = proj(Xw, Yf, doorZ);
+
+      // Door panel
+      ctx.fillStyle = '#1e293b';
+      ctx.beginPath();
+      ctx.moveTo(pDL.x, pDL.y);
+      ctx.lineTo(pDR.x, pDR.y);
+      ctx.lineTo(pDbR.x, pDbR.y);
+      ctx.lineTo(pDbL.x, pDbL.y);
+      ctx.closePath();
+      ctx.fill();
+
+      // Yellow chevron warning border
+      ctx.strokeStyle = '#eab308';
+      ctx.lineWidth = Math.max(2, 6 * pDL.s);
+      ctx.stroke();
+
+      // Bright glowing EXIT sign above door
+      const signPt = proj(0, Yc + 0.3, doorZ);
+      ctx.save();
+      ctx.font = `900 ${Math.max(10, Math.floor(28 * signPt.s))}px system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#22c55e';
+      ctx.shadowColor = '#22c55e';
+      ctx.shadowBlur = 12;
+      ctx.fillText('EXIT ▶', signPt.x, signPt.y);
+      ctx.restore();
+
+      // Door opening illumination if within last second
+      if (this.elapsed >= this.duration - 0.8) {
+        const openPct = (this.elapsed - (this.duration - 0.8)) / 0.8;
+        ctx.fillStyle = `rgba(240, 253, 244, ${Math.min(0.9, openPct * 1.5)})`;
+        ctx.fillRect(pDL.x, pDL.y, pDR.x - pDL.x, pDbL.y - pDL.y);
+      }
+    }
+
+    // --- Collect Dynamic Entities for Depth-Sorting ---
+    const drawList = [];
+
+    // Floor Pellets
+    this.floorPellets.forEach(p => {
+      drawList.push({ type: 'pellet', z: p.z, lane: p.lane });
+    });
+
+    // Obstacles
+    this.obstacles.forEach(ob => {
+      drawList.push({ type: 'obstacle', z: ob.z, lane: ob.lane, rot: ob.rot });
+    });
+
+    // Projectiles
+    this.projectiles.forEach(p => {
+      drawList.push({ type: 'proj', z: p.z, x: p.x });
+    });
+
+    // The Menace
+    drawList.push({ type: 'menace', z: this.menaceDist, laneX: this.menaceLaneX });
+
+    // Sort by depth (farthest first)
+    drawList.sort((a, b) => b.z - a.z);
+
+    // Draw sorted entities
+    for (const ent of drawList) {
+      if (ent.type === 'pellet') {
+        const pt = proj(ent.lane * 1.1, Yf - 0.2, ent.z);
+        const r = Math.max(2, 6.5 * pt.s);
+        ctx.save();
+        ctx.fillStyle = '#ffd32a';
+        ctx.shadowColor = '#ffd32a';
+        ctx.shadowBlur = 10;
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(pt.x - r * 0.3, pt.y - r * 0.3, r * 0.35, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      } else if (ent.type === 'obstacle') {
+        const pt = proj(ent.lane * 1.1, Yf - 0.5, ent.z);
+        const size = Math.max(6, 18 * pt.s);
+        ctx.save();
+        ctx.translate(pt.x, pt.y);
+        ctx.rotate(ent.rot);
+        ctx.fillStyle = '#475569';
+        ctx.fillRect(-size / 2, -size / 2, size, size);
+        ctx.strokeStyle = '#eab308';
+        ctx.lineWidth = Math.max(1, 2 * pt.s);
+        ctx.strokeRect(-size / 2, -size / 2, size, size);
+        ctx.restore();
+      } else if (ent.type === 'proj') {
+        const pt = proj(ent.x, 0.2, ent.z);
+        const pr = Math.max(2, 5 * pt.s);
+        ctx.save();
+        ctx.fillStyle = '#38bdf8';
+        ctx.shadowColor = '#38bdf8';
+        ctx.shadowBlur = 12;
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, pr, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, pr * 0.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      } else if (ent.type === 'menace') {
+        const pt = proj(ent.laneX * 1.1, 0.3, ent.z);
+        const r = Math.max(8, 48 * pt.s);
+        const bounce = Math.sin(this.elapsed * 15) * (4 * pt.s);
+        const cy = pt.y + bounce;
+
+        ctx.save();
+        // Shadow on floor
+        const sPt = proj(ent.laneX * 1.1, Yf - 0.05, ent.z);
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+        ctx.beginPath();
+        ctx.ellipse(sPt.x, sPt.y, r * 0.85, r * 0.25, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Menace sphere body
+        ctx.translate(pt.x, cy);
+        if (this.menaceHitFlash > 0) {
+          ctx.fillStyle = '#ffffff';
+          ctx.shadowColor = '#fde047';
+          ctx.shadowBlur = 20;
+          ctx.beginPath();
+          ctx.arc(0, 0, r, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          const mGrad = ctx.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.1, 0, 0, r);
+          mGrad.addColorStop(0, '#fef08a');
+          mGrad.addColorStop(0.6, '#ffd32a');
+          mGrad.addColorStop(1, '#b45309');
+          ctx.fillStyle = mGrad;
+          ctx.beginPath();
+          ctx.arc(0, 0, r, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Angry menacing brows
+          ctx.strokeStyle = '#0f172a';
+          ctx.lineWidth = Math.max(1.5, r * 0.14);
+          ctx.beginPath();
+          ctx.moveTo(-r * 0.6, -r * 0.35);
+          ctx.lineTo(-r * 0.15, -r * 0.18);
+          ctx.moveTo(r * 0.6, -r * 0.35);
+          ctx.lineTo(r * 0.15, -r * 0.18);
+          ctx.stroke();
+
+          // Glowing furious eyes
+          ctx.fillStyle = '#ef4444';
+          ctx.beginPath();
+          ctx.arc(-r * 0.35, -r * 0.1, r * 0.16, 0, Math.PI * 2);
+          ctx.arc(r * 0.35, -r * 0.1, r * 0.16, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath();
+          ctx.arc(-r * 0.32, -r * 0.12, r * 0.07, 0, Math.PI * 2);
+          ctx.arc(r * 0.38, -r * 0.12, r * 0.07, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Menacing gaping mouth with sharp fangs
+          const mouthOpen = 0.2 + 0.15 * Math.sin(this.elapsed * 12);
+          ctx.fillStyle = '#1e1b4b';
+          ctx.beginPath();
+          ctx.ellipse(0, r * 0.3, r * 0.5, r * mouthOpen, 0, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Triangular sharp teeth
+          ctx.fillStyle = '#ffffff';
+          [-r * 0.3, -r * 0.1, r * 0.1, r * 0.3].forEach(tx => {
+            ctx.beginPath();
+            ctx.moveTo(tx - r * 0.07, r * (0.3 - mouthOpen * 0.9));
+            ctx.lineTo(tx + r * 0.07, r * (0.3 - mouthOpen * 0.9));
+            ctx.lineTo(tx, r * (0.3 - mouthOpen * 0.1));
+            ctx.closePath();
+            ctx.fill();
+          });
+        }
+        ctx.restore();
+      }
+    }
+
+    // --- Hit Sparks & Atmosphere Dust ---
+    this.sparks.forEach(sp => {
+      const pt = proj(sp.x, sp.y, sp.z);
+      ctx.fillStyle = sp.color;
+      ctx.beginPath();
+      ctx.arc(pt.x, pt.y, Math.max(1, 3 * pt.s), 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    // --- Muzzle Flash Screen Illumination ---
+    if (this.muzzleFlash > 0) {
+      const mfGrad = ctx.createRadialGradient(midX, viewH - 20, 30, midX, viewH - 20, W * 0.85);
+      mfGrad.addColorStop(0, 'rgba(56, 189, 248, 0.45)');
+      mfGrad.addColorStop(1, 'rgba(56, 189, 248, 0)');
+      ctx.fillStyle = mfGrad;
+      ctx.fillRect(0, 0, W, viewH);
+    }
+
+    // --- Ghost Pellet Blaster (Bottom-Center Weapon) ---
+    const ghostRef = this.game.ghosts[this.ghostIndex];
+    const ghostColor = ghostRef ? ghostRef.color : '#ec4899';
+    const gunX = midX - camX * 22 + Math.sin(this.bobTime * 7) * 4 + this.lookDir * 10;
+    const gunY = viewH + 20 + Math.cos(this.bobTime * 14) * 3 + this.recoil * 35;
+
+    ctx.save();
+    ctx.translate(gunX, gunY);
+
+    // Blaster shadow/base
+    ctx.fillStyle = '#0f172a';
+    ctx.beginPath();
+    ctx.moveTo(-54, 0);
+    ctx.lineTo(54, 0);
+    ctx.lineTo(38, -90);
+    ctx.lineTo(-38, -90);
+    ctx.closePath();
+    ctx.fill();
+
+    // Twin Gunmetal Barrels
+    const barrelGrad = ctx.createLinearGradient(-35, 0, 35, 0);
+    barrelGrad.addColorStop(0, '#1e293b');
+    barrelGrad.addColorStop(0.3, '#475569');
+    barrelGrad.addColorStop(0.7, '#475569');
+    barrelGrad.addColorStop(1, '#0f172a');
+    ctx.fillStyle = barrelGrad;
+    // Left barrel
+    ctx.fillRect(-32, -100, 26, 75);
+    // Right barrel
+    ctx.fillRect(6, -100, 26, 75);
+
+    // Muzzle openings
+    ctx.fillStyle = '#020617';
+    ctx.beginPath();
+    ctx.ellipse(-19, -100, 11, 4, 0, 0, Math.PI * 2);
+    ctx.ellipse(19, -100, 11, 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Heavy Armored Receiver Housing
+    ctx.fillStyle = '#334155';
+    ctx.fillRect(-45, -45, 90, 50);
+    ctx.strokeStyle = '#64748b';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(-45, -45, 90, 50);
+
+    // Glowing Squad Plasma Core in center
+    ctx.fillStyle = ghostColor;
+    ctx.shadowColor = ghostColor;
+    ctx.shadowBlur = 12;
+    ctx.beginPath();
+    ctx.arc(0, -22, 10, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // Heat vents / rivets
+    ctx.fillStyle = '#1e293b';
+    [-24, -12, 12, 24].forEach(vx => {
+      ctx.fillRect(vx - 2, -40, 4, 10);
+    });
+
+    // Muzzle Flash Effect
+    if (this.muzzleFlash > 0) {
+      ctx.save();
+      ctx.fillStyle = '#ffffff';
+      ctx.shadowColor = '#38bdf8';
+      ctx.shadowBlur = 25;
+      // 8-point bright starburst at barrel tips
+      [-19, 19].forEach(bx => {
+        ctx.beginPath();
+        for (let i = 0; i < 8; i++) {
+          const ang = (i * Math.PI) / 4;
+          const len = i % 2 === 0 ? 34 : 16;
+          const mx = bx + Math.cos(ang) * len;
+          const my = -100 + Math.sin(ang) * len;
+          if (i === 0) ctx.moveTo(mx, my); else ctx.lineTo(mx, my);
+        }
+        ctx.closePath();
+        ctx.fill();
+      });
+      ctx.restore();
+    }
+    ctx.restore();
+
+    // --- Red Vignette / Edge Pulse on Low NERVE or Grab ---
+    const dangerLevel = this.nerve <= 33 ? (34 - this.nerve) / 34 : 0;
+    const pulseAlpha = Math.max(this.redFlash, dangerLevel > 0 ? (0.2 + 0.25 * Math.sin(time * 8)) : 0);
+    if (pulseAlpha > 0) {
+      const redVig = ctx.createRadialGradient(midX, viewH / 2, viewH * 0.35, midX, viewH / 2, viewH * 0.85);
+      redVig.addColorStop(0, 'rgba(239, 68, 68, 0)');
+      redVig.addColorStop(1, `rgba(239, 68, 68, ${pulseAlpha * 0.65})`);
+      ctx.fillStyle = redVig;
+      ctx.fillRect(0, 0, W, viewH);
+    }
+
+    ctx.restore(); // Undo screen shake
+
+    // --- CHUNKY DOOM-INSPIRED STATUS BAR (Bottom 84px) ---
+    const barY = H - 84;
+    const barH = 84;
+
+    // Beveled gunmetal steel base
+    const barGrad = ctx.createLinearGradient(0, barY, 0, H);
+    barGrad.addColorStop(0, '#334155');
+    barGrad.addColorStop(0.04, '#1e2430');
+    barGrad.addColorStop(0.96, '#111620');
+    barGrad.addColorStop(1, '#0b0e14');
+    ctx.fillStyle = barGrad;
+    ctx.fillRect(0, barY, W, barH);
+
+    // Bevel borders
+    ctx.strokeStyle = '#475569';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(1, barY + 1, W - 2, barH - 2);
+
+    // Corner rivets
+    ctx.fillStyle = '#64748b';
+    [[6, barY + 6], [W - 6, barY + 6], [6, H - 6], [W - 6, H - 6]].forEach(([rx, ry]) => {
+      ctx.beginPath();
+      ctx.arc(rx, ry, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    // Top Strip: EXIT Progress Bar
+    const prog = this.progress();
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(14, barY + 5, W - 28, 9);
+    ctx.fillStyle = '#22c55e';
+    ctx.fillRect(14, barY + 5, (W - 28) * prog, 9);
+    ctx.strokeStyle = '#334155';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(14, barY + 5, W - 28, 9);
+
+    // Left Box: NERVE %
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(14, barY + 18, 120, 58);
+    ctx.strokeStyle = '#334155';
+    ctx.strokeRect(14, barY + 18, 120, 58);
+
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '800 10px system-ui, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('NERVE', 22, barY + 32);
+
+    const nerveColor = this.nerve > 60 ? '#22c55e' : (this.nerve > 30 ? '#eab308' : '#ef4444');
+    ctx.fillStyle = nerveColor;
+    ctx.font = '900 24px monospace, sans-serif';
+    ctx.fillText(`${this.nerve}%`, 22, barY + 58);
+
+    // Center Box: GHOST FACE PORTRAIT (Recessed 62x62 Frame)
+    const portX = midX - 31;
+    const portY = barY + 16;
+    ctx.fillStyle = '#090d16';
+    ctx.fillRect(portX, portY, 62, 62);
+    ctx.strokeStyle = '#475569';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(portX, portY, 62, 62);
+
+    // Draw Animated Ghost Face Portrait
+    ctx.save();
+    ctx.translate(midX, portY + 31);
+
+    // Ghost body silhouette
+    ctx.fillStyle = ghostColor;
+    ctx.beginPath();
+    ctx.arc(0, -4, 18, Math.PI, 0, false);
+    ctx.lineTo(18, 14);
+    // Skirt ruffles
+    ctx.lineTo(12, 10);
+    ctx.lineTo(6, 14);
+    ctx.lineTo(0, 10);
+    ctx.lineTo(-6, 14);
+    ctx.lineTo(-12, 10);
+    ctx.lineTo(-18, 14);
+    ctx.closePath();
+    ctx.fill();
+
+    // Eyes
+    const eyeOffsetX = this.faceState === 'firing' ? 0 : (this.lookDir * 3);
+    if (this.faceState === 'hurt') {
+      // Clenched painful eyes
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(-11, -3); ctx.lineTo(-4, 0); ctx.lineTo(-11, 3);
+      ctx.moveTo(11, -3); ctx.lineTo(4, 0); ctx.lineTo(11, 3);
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(-7 + eyeOffsetX, -3, 4.5, 0, Math.PI * 2);
+      ctx.arc(7 + eyeOffsetX, -3, 4.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Pupils
+      ctx.fillStyle = this.nerve <= 33 ? '#ef4444' : '#0f172a';
+      ctx.beginPath();
+      ctx.arc(-7 + eyeOffsetX * 1.5, -3, 2.2, 0, Math.PI * 2);
+      ctx.arc(7 + eyeOffsetX * 1.5, -3, 2.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Mouth
+    if (this.faceState === 'firing') {
+      ctx.fillStyle = '#0f172a';
+      ctx.beginPath();
+      ctx.arc(0, 6, 4, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (this.faceState === 'hurt') {
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(0, 8, 5, Math.PI * 1.1, Math.PI * 1.9);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // Right Box: PELLETS Ammo
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(W - 134, barY + 18, 120, 58);
+    ctx.strokeStyle = '#334155';
+    ctx.strokeRect(W - 134, barY + 18, 120, 58);
+
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '800 10px system-ui, sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText('PELLETS', W - 22, barY + 32);
+
+    ctx.fillStyle = '#ffd32a';
+    ctx.font = '900 24px monospace, sans-serif';
+    ctx.fillText(`${this.pellets}`, W - 42, barY + 58);
+
+    // Mini pellet icon
+    ctx.beginPath();
+    ctx.arc(W - 26, barY + 50, 5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+// 3e. PHANTOM GRAND PRIX — the behind-the-kart pseudo-3D racer parody the bottom-right power pellet triggers.
+// Segmented curving banked track, checkered start/finish arch, bobbing grandstand crowd,
+// ghost kart with visible steering lean and drift sparks, Menace in his own monster kart throwing pellet bombs,
+// boost pads with speed lines, and 1st/2nd position indicator for a 1-lap ~25s showdown.
+class GrandPrixRun {
+  constructor(game, ghostIndex) {
+    this.game = game;
+    this.ghostIndex = ghostIndex;
+    this.W = game.width;
+    this.H = game.height;
+    const cfg = MAZE_CONFIGS[game.mazeIndex];
+
+    // Flip module contract
+    this.kind = 'grandprix';
+    this.musicMode = 'grandprix';
+    this.hudLabel = '⚠️ Hunt Flipped — Phantom Grand Prix';
+    this.openingBanner = 'PHANTOM GRAND PRIX — LAP 1!';
+    this.bannerColor = '#38bdf8';
+    this.exitBanner = 'CHECKERED FLAG!';
+    this.surviveText = '1st Place! Grand Prix survival +200';
+    this.pressToJump = false;
+    this.touchHalves = true; // Left/right screen halves steer
+
+    this.duration = 25; // ~25s for 1 full lap
+    this.phase = 'tear_in'; // tear_in -> run -> survived | caught
+    this.tearInDuration = 0.7;
+    this.phaseT = 0;
+    this.elapsed = 0;
+    this.outcome = null;
+    this.collected = 0;
+    this.surges = 0;
+
+    // Track setup
+    this.trackLength = 7600;
+    this.segLen = 40;
+    this.numSegs = Math.ceil(this.trackLength / this.segLen);
+    this.buildTrack();
+
+    // Player Kart
+    this.playerDist = 0;
+    this.playerX = 0; // -1 to 1 on road
+    this.steerDir = 0; // -1, 0, 1
+    this.steerLean = 0;
+    this.speed = 0;
+    this.baseSpeed = 295;
+    this.boostTimer = 0;
+    this.spinTimer = 0;
+    this.rams = 0;
+    this.lastDriftSound = 0;
+
+    // Menace Kart
+    this.menaceDist = 320; // Starts slightly ahead
+    this.menaceX = 0;
+    this.menaceSpeed = 296;
+    this.bombTimer = 3.2;
+
+    // Entities & Juice
+    this.bombs = [];
+    this.driftSparks = [];
+    this.exhaustPuffs = [];
+    this.confetti = [];
+    this.screenShake = 0;
+    this.exhaustTimer = 0;
+
+    // Initial confetti shower at start arch
+    for (let i = 0; i < 45; i++) {
+      this.confetti.push({
+        x: Math.random() * this.W,
+        y: Math.random() * (this.H * 0.45),
+        vx: (Math.random() - 0.5) * 35,
+        vy: 35 + Math.random() * 45,
+        color: ['#ffd32a', '#38bdf8', '#ec4899', '#22c55e', '#ffffff'][Math.floor(Math.random() * 5)],
+        size: 3 + Math.random() * 4,
+        rot: Math.random() * Math.PI * 2
+      });
+    }
+  }
+
+  buildTrack() {
+    this.segments = [];
+    for (let i = 0; i < this.numSegs; i++) {
+      let curve = 0;
+      let pitch = 0;
+      let boost = false;
+      let grandstand = false;
+
+      // Start straight with grandstands
+      if (i < 16) {
+        grandstand = true;
+      } else if (i >= 18 && i <= 44) {
+        // Sweeping right bend
+        curve = 1.35;
+      } else if (i >= 48 && i <= 54) {
+        // Boost straight
+        boost = true;
+      } else if (i >= 60 && i <= 95) {
+        // Banked sharp left hairpin
+        curve = -2.1;
+      } else if (i >= 100 && i <= 118) {
+        // Hill crest and dip
+        pitch = Math.sin(((i - 100) / 18) * Math.PI) * 22;
+      } else if (i >= 122 && i <= 148) {
+        // S-chicane
+        curve = (i < 135) ? 1.7 : -1.7;
+      } else if (i >= 152 && i <= 158) {
+        // Second boost straight
+        boost = true;
+        grandstand = true;
+      } else if (i >= 165 && i <= 182) {
+        // Final curve
+        curve = 1.4;
+      } else if (i >= 185) {
+        // Finish straight with grandstands
+        grandstand = true;
+      }
+
+      this.segments.push({
+        index: i,
+        z: i * this.segLen,
+        curve: curve,
+        pitch: pitch,
+        boost: boost,
+        grandstand: grandstand
+      });
+    }
+  }
+
+  jump() { return false; }
+  jumpRelease() {}
+  fastFall() {}
+
+  steer(dir) {
+    if (this.phase !== 'run') return;
+    this.steerDir = dir;
+  }
+
+  steerRelease(dir) {
+    if (this.steerDir === dir) {
+      this.steerDir = 0;
+    }
+  }
+
+  progress() {
+    return Math.max(0, Math.min(1, this.playerDist / this.trackLength));
+  }
+
+  menaceProgress() {
+    return Math.max(0, Math.min(1, this.menaceDist / this.trackLength));
+  }
+
+  remainingSeconds() {
+    return Math.max(0, (this.trackLength - this.playerDist) / (this.baseSpeed || 1));
+  }
+
+  update(dt) {
+    if (this.outcome) return this.outcome;
+    this.phaseT += dt;
+
+    if (this.phase === 'tear_in') {
+      if (this.phaseT >= this.tearInDuration) {
+        this.phase = 'run';
+        this.phaseT = 0;
+      }
+      return null;
+    }
+
+    this.elapsed += dt;
+
+    // Timers
+    if (this.boostTimer > 0) this.boostTimer -= dt;
+    if (this.spinTimer > 0) this.spinTimer -= dt;
+    if (this.screenShake > 0) this.screenShake = Math.max(0, this.screenShake - dt * 2.2);
+
+    // Target Speed Calculation
+    let targetSpeed = this.baseSpeed;
+    if (this.spinTimer > 0) {
+      targetSpeed = 45;
+    } else if (this.boostTimer > 0) {
+      targetSpeed = 440;
+    } else if (Math.abs(this.playerX) > 1.05) {
+      // Off-track grass penalty
+      targetSpeed = 135;
+    }
+
+    this.speed += (targetSpeed - this.speed) * Math.min(1, dt * 5.0);
+    this.playerDist += this.speed * dt;
+
+    // Steering & Road Position
+    this.steerLean += (this.steerDir - this.steerLean) * Math.min(1, dt * 10);
+    if (this.spinTimer <= 0) {
+      this.playerX += this.steerDir * 2.2 * dt;
+      this.playerX = Math.max(-1.7, Math.min(1.7, this.playerX));
+    }
+
+    // Drift Sparks sound & generation
+    if (this.steerDir !== 0 && this.speed > 160 && this.spinTimer <= 0) {
+      if (this.elapsed - this.lastDriftSound > 0.18) {
+        this.lastDriftSound = this.elapsed;
+        if (this.game.sound.playKartDrift) this.game.sound.playKartDrift();
+      }
+      for (let i = 0; i < 3; i++) {
+        this.driftSparks.push({
+          x: (this.steerDir < 0 ? -42 : 42) + (Math.random() - 0.5) * 12,
+          y: 20 + Math.random() * 8,
+          vx: (this.steerDir < 0 ? -1 : 1) * (40 + Math.random() * 60),
+          vy: -20 - Math.random() * 30,
+          color: Math.random() < 0.6 ? '#38bdf8' : '#fde047',
+          life: 0.2 + Math.random() * 0.15
+        });
+      }
+    }
+
+    // Exhaust Puffs
+    this.exhaustTimer += dt;
+    if (this.exhaustTimer > 0.08) {
+      this.exhaustTimer = 0;
+      this.exhaustPuffs.push({
+        x: (Math.random() - 0.5) * 20,
+        y: 12,
+        r: 4,
+        vy: -25,
+        alpha: 0.5,
+        life: 0.35
+      });
+    }
+    for (let i = this.exhaustPuffs.length - 1; i >= 0; i--) {
+      const ep = this.exhaustPuffs[i];
+      ep.life -= dt;
+      ep.y += ep.vy * dt;
+      ep.r += dt * 14;
+      ep.alpha = (ep.life / 0.35) * 0.5;
+      if (ep.life <= 0) this.exhaustPuffs.splice(i, 1);
+    }
+
+    // Drift Sparks update
+    for (let i = this.driftSparks.length - 1; i >= 0; i--) {
+      const sp = this.driftSparks[i];
+      sp.life -= dt;
+      sp.x += sp.vx * dt;
+      sp.y += sp.vy * dt;
+      if (sp.life <= 0) this.driftSparks.splice(i, 1);
+    }
+
+    // Confetti update
+    for (let i = this.confetti.length - 1; i >= 0; i--) {
+      const c = this.confetti[i];
+      c.x += c.vx * dt;
+      c.y += c.vy * dt;
+      c.rot += dt * 5;
+      if (c.y > this.H) this.confetti.splice(i, 1);
+    }
+
+    // Boost Pad Detection
+    const curSegIdx = Math.floor(this.playerDist / this.segLen);
+    const curSeg = this.segments[curSegIdx % this.numSegs];
+    if (curSeg && curSeg.boost && Math.abs(this.playerX) < 0.65) {
+      if (this.boostTimer <= 0.4) {
+        this.boostTimer = 1.8;
+        this.surges++;
+        this.game.score += 50;
+        this.game.updateHUD();
+        if (this.game.sound.playKartBoost) this.game.sound.playKartBoost();
+      }
+    }
+
+    // Menace Kart AI
+    this.menaceSpeed = 296 + (this.elapsed * 0.75);
+    this.menaceDist += this.menaceSpeed * dt;
+    this.menaceX = Math.sin(this.elapsed * 1.4) * 0.45;
+
+    // Menace Bomb Throwing
+    if (this.menaceDist > this.playerDist + 70) {
+      this.bombTimer -= dt;
+      if (this.bombTimer <= 0) {
+        this.bombTimer = 3.6 + Math.random() * 1.2;
+        this.bombs.push({
+          dist: this.menaceDist - 30,
+          x: this.menaceX + (Math.random() - 0.5) * 0.3,
+          rot: 0,
+          life: 8.0
+        });
+      }
+    }
+
+    // Bombs update & collision
+    for (let i = this.bombs.length - 1; i >= 0; i--) {
+      const b = this.bombs[i];
+      b.life -= dt;
+      b.rot += dt * 4;
+      if (Math.abs(this.playerDist - b.dist) < 36 && Math.abs(this.playerX - b.x) < 0.45) {
+        // Hit Bomb!
+        this.spinTimer = 0.75;
+        this.screenShake = 0.45;
+        if (this.game.sound.playKartHit) this.game.sound.playKartHit();
+        this.bombs.splice(i, 1);
+        continue;
+      }
+      if (b.life <= 0 || b.dist < this.playerDist - 200) {
+        this.bombs.splice(i, 1);
+      }
+    }
+
+    // Menace Ramming Detection
+    if (Math.abs(this.playerDist - this.menaceDist) < 65 && Math.abs(this.playerX - this.menaceX) < 0.5) {
+      this.rams++;
+      this.screenShake = 0.55;
+      this.speed = Math.max(90, this.speed - 90);
+      this.playerX += (this.playerX < this.menaceX ? -0.4 : 0.4);
+      if (this.game.sound.playKartHit) this.game.sound.playKartHit();
+      if (this.rams >= 3) {
+        this.outcome = 'caught';
+        return 'caught';
+      }
+    }
+
+    // Finish Line Check
+    if (this.playerDist >= this.trackLength || this.menaceDist >= this.trackLength) {
+      if (this.playerDist >= this.menaceDist) {
+        this.outcome = 'survived';
+        return 'survived';
+      } else {
+        this.outcome = 'caught';
+        return 'caught';
+      }
+    }
+
+    return null;
+  }
+
+  draw(ctx, time) {
+    const W = this.W, H = this.H;
+    const midX = W / 2;
+    const horizonY = H * 0.42;
+
+    ctx.save();
+
+    // Screen Shake
+    if (this.screenShake > 0) {
+      const sx = (Math.random() - 0.5) * this.screenShake * 22;
+      const sy = (Math.random() - 0.5) * this.screenShake * 22;
+      ctx.translate(sx, sy);
+    }
+
+    // Sky gradient
+    const skyGrad = ctx.createLinearGradient(0, 0, 0, horizonY);
+    skyGrad.addColorStop(0, '#38bdf8');
+    skyGrad.addColorStop(0.6, '#93c5fd');
+    skyGrad.addColorStop(1, '#e0f2fe');
+    ctx.fillStyle = skyGrad;
+    ctx.fillRect(0, 0, W, horizonY);
+
+    // Distant mountain range
+    ctx.fillStyle = '#64748b';
+    ctx.beginPath();
+    ctx.moveTo(0, horizonY);
+    ctx.lineTo(40, horizonY - 45);
+    ctx.lineTo(95, horizonY - 20);
+    ctx.lineTo(160, horizonY - 60);
+    ctx.lineTo(240, horizonY - 30);
+    ctx.lineTo(320, horizonY - 55);
+    ctx.lineTo(400, horizonY - 25);
+    ctx.lineTo(W, horizonY - 50);
+    ctx.lineTo(W, horizonY);
+    ctx.closePath();
+    ctx.fill();
+
+    // Clouds
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+    [80, 260, 410].forEach((cx, idx) => {
+      const cy = 40 + idx * 25;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 22, 0, Math.PI * 2);
+      ctx.arc(cx + 20, cy - 6, 26, 0, Math.PI * 2);
+      ctx.arc(cx + 42, cy, 20, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    // Camera & Track Projection parameters
+    const camH = 780;
+    const W_road = 1450;
+    const fov = 240 + (this.boostTimer > 0 ? 45 : 0);
+    const startSeg = Math.floor(this.playerDist / this.segLen);
+    const segOffset = (this.playerDist % this.segLen) / this.segLen;
+    const drawDist = 65;
+
+    // Segment Screen Coordinates Cache
+    const screenSegs = [];
+    let accumCurve = 0;
+
+    for (let n = 0; n < drawDist; n++) {
+      const idx = (startSeg + n) % this.numSegs;
+      const seg = this.segments[idx];
+      const z = (n - segOffset) * this.segLen;
+      if (z <= 5) continue;
+
+      accumCurve += seg.curve * 0.45;
+      const scale = fov / z;
+      const camX = this.playerX * W_road * 0.5;
+      const projX = midX + (accumCurve * 15 - camX) * scale;
+      const projY = horizonY + (camH - seg.pitch * 10) * scale;
+      const projW = W_road * scale;
+
+      screenSegs.push({
+        n,
+        idx,
+        z,
+        scale,
+        x: projX,
+        y: projY,
+        w: projW,
+        boost: seg.boost,
+        grandstand: seg.grandstand
+      });
+    }
+
+    // Render Track Segments (Back to Front)
+    for (let i = screenSegs.length - 1; i > 0; i--) {
+      const s0 = screenSegs[i];
+      const s1 = screenSegs[i - 1];
+
+      // Grass on both sides
+      ctx.fillStyle = (s0.idx % 2 === 0) ? '#16a34a' : '#15803d';
+      ctx.fillRect(0, s1.y, W, Math.max(1, s0.y - s1.y));
+
+      // Rumble strips (curbs)
+      const curbW0 = s0.w * 1.18;
+      const curbW1 = s1.w * 1.18;
+      ctx.fillStyle = (s0.idx % 2 === 0) ? '#ef4444' : '#ffffff';
+      ctx.beginPath();
+      ctx.moveTo(s0.x - curbW0, s0.y);
+      ctx.lineTo(s0.x + curbW0, s0.y);
+      ctx.lineTo(s1.x + curbW1, s1.y);
+      ctx.lineTo(s1.x - curbW1, s1.y);
+      ctx.closePath();
+      ctx.fill();
+
+      // Asphalt Road
+      ctx.fillStyle = (s0.idx % 2 === 0) ? '#374151' : '#1f2937';
+      ctx.beginPath();
+      ctx.moveTo(s0.x - s0.w, s0.y);
+      ctx.lineTo(s0.x + s0.w, s0.y);
+      ctx.lineTo(s1.x + s1.w, s1.y);
+      ctx.lineTo(s1.x - s1.w, s1.y);
+      ctx.closePath();
+      ctx.fill();
+
+      // Center Lane Stripe
+      if (s0.idx % 3 === 0) {
+        const cw0 = s0.w * 0.04;
+        const cw1 = s1.w * 0.04;
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.moveTo(s0.x - cw0, s0.y);
+        ctx.lineTo(s0.x + cw0, s0.y);
+        ctx.lineTo(s1.x + cw1, s1.y);
+        ctx.lineTo(s1.x - cw1, s1.y);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      // Boost Pad Surface Chevron
+      if (s0.boost) {
+        ctx.fillStyle = '#38bdf8';
+        ctx.shadowColor = '#38bdf8';
+        ctx.shadowBlur = 8;
+        const bw = s0.w * 0.55;
+        ctx.beginPath();
+        ctx.moveTo(s0.x - bw, s0.y);
+        ctx.lineTo(s0.x, s0.y - (s0.y - s1.y) * 1.8);
+        ctx.lineTo(s0.x + bw, s0.y);
+        ctx.closePath();
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+
+      // Grandstands along straightaways
+      if (s0.grandstand && s0.idx % 4 === 0) {
+        // Left Grandstand
+        const gL = s0.x - s0.w * 1.5;
+        const gW = s0.w * 0.6;
+        const gH = 35 * s0.scale;
+        ctx.fillStyle = '#475569';
+        ctx.fillRect(gL - gW, s0.y - gH, gW, gH);
+
+        // Cheering bobbing crowd heads
+        const bob = Math.sin(time * 12 + s0.idx) * 2;
+        const crowdColors = ['#f43f5e', '#3b82f6', '#eab308', '#10b981', '#ec4899'];
+        for (let c = 0; c < 5; c++) {
+          ctx.fillStyle = crowdColors[c % crowdColors.length];
+          ctx.beginPath();
+          ctx.arc(gL - gW + (c + 0.5) * (gW / 5), s0.y - gH + 5 + bob, Math.max(1, 3.5 * s0.scale), 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        // Right Grandstand
+        const gR = s0.x + s0.w * 1.5;
+        ctx.fillStyle = '#475569';
+        ctx.fillRect(gR, s0.y - gH, gW, gH);
+        for (let c = 0; c < 5; c++) {
+          ctx.fillStyle = crowdColors[(c + 2) % crowdColors.length];
+          ctx.beginPath();
+          ctx.arc(gR + (c + 0.5) * (gW / 5), s0.y - gH + 5 - bob, Math.max(1, 3.5 * s0.scale), 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      // Checkered Start / Finish Arch (at segment 0 or 190)
+      if (s0.idx === 0 || s0.idx === 190) {
+        const archW = s0.w * 1.35;
+        const archH = 90 * s0.scale;
+        // Pylons
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(s0.x - archW, s0.y - archH, 12 * s0.scale, archH);
+        ctx.fillRect(s0.x + archW - 12 * s0.scale, s0.y - archH, 12 * s0.scale, archH);
+
+        // Checkered Crossbeam
+        const beamH = 24 * s0.scale;
+        ctx.fillStyle = '#1e293b';
+        ctx.fillRect(s0.x - archW, s0.y - archH, archW * 2, beamH);
+
+        // Checkers on beam
+        const checkCount = 14;
+        const cw = (archW * 2) / checkCount;
+        for (let k = 0; k < checkCount; k++) {
+          ctx.fillStyle = k % 2 === 0 ? '#ffffff' : '#000000';
+          ctx.fillRect(s0.x - archW + k * cw, s0.y - archH, cw, beamH / 2);
+          ctx.fillStyle = k % 2 === 1 ? '#ffffff' : '#000000';
+          ctx.fillRect(s0.x - archW + k * cw, s0.y - archH + beamH / 2, cw, beamH / 2);
+        }
+
+        // Arch Banner Label
+        ctx.save();
+        ctx.fillStyle = '#ffd32a';
+        ctx.font = `900 ${Math.max(10, Math.floor(18 * s0.scale))}px system-ui, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.fillText(s0.idx === 0 ? 'START' : 'FINISH', s0.x, s0.y - archH - 6);
+        ctx.restore();
+      }
+    }
+
+    // --- Draw Pellet Bombs on Track ---
+    for (const b of this.bombs) {
+      const relDist = b.dist - this.playerDist;
+      if (relDist > 10 && relDist < 2400) {
+        const scale = fov / relDist;
+        const camX = this.playerX * W_road * 0.5;
+        const bx = midX + (b.x * W_road * 0.5 - camX) * scale;
+        const by = horizonY + camH * scale;
+        const br = Math.max(3, 14 * scale);
+
+        ctx.save();
+        ctx.translate(bx, by);
+        // Bomb black body with red hazard band
+        ctx.fillStyle = '#0f172a';
+        ctx.beginPath();
+        ctx.arc(0, 0, br, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#ef4444';
+        ctx.fillRect(-br * 0.7, -br * 0.25, br * 1.4, br * 0.5);
+
+        // Glowing fuse
+        ctx.fillStyle = '#fde047';
+        ctx.shadowColor = '#f97316';
+        ctx.shadowBlur = 8;
+        ctx.beginPath();
+        ctx.arc(0, -br * 1.1, Math.max(1, 3 * scale), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+
+    // --- Draw The Menace in his Monster Kart (Ahead on Track) ---
+    const menaceRelDist = this.menaceDist - this.playerDist;
+    if (menaceRelDist > 20 && menaceRelDist < 2500) {
+      const mScale = fov / menaceRelDist;
+      const camX = this.playerX * W_road * 0.5;
+      const mx = midX + (this.menaceX * W_road * 0.5 - camX) * mScale;
+      const my = horizonY + camH * mScale;
+      const kw = Math.max(14, 110 * mScale);
+      const kh = Math.max(10, 85 * mScale);
+
+      ctx.save();
+      ctx.translate(mx, my);
+
+      // Kart shadow
+      ctx.fillStyle = 'rgba(0,0,0,0.4)';
+      ctx.beginPath();
+      ctx.ellipse(0, kh * 0.35, kw * 0.6, kh * 0.2, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Rear massive tires
+      ctx.fillStyle = '#020617';
+      ctx.fillRect(-kw * 0.58, kh * 0.05, kw * 0.22, kh * 0.4);
+      ctx.fillRect(kw * 0.36, kh * 0.05, kw * 0.22, kh * 0.4);
+
+      // Yellow Monster Roadster Chassis
+      const mKartGrad = ctx.createLinearGradient(0, -kh * 0.2, 0, kh * 0.35);
+      mKartGrad.addColorStop(0, '#fde047');
+      mKartGrad.addColorStop(0.7, '#eab308');
+      mKartGrad.addColorStop(1, '#b45309');
+      ctx.fillStyle = mKartGrad;
+      ctx.beginPath();
+      ctx.moveTo(-kw * 0.45, kh * 0.3);
+      ctx.lineTo(-kw * 0.35, -kh * 0.2);
+      ctx.lineTo(kw * 0.35, -kh * 0.2);
+      ctx.lineTo(kw * 0.45, kh * 0.3);
+      ctx.closePath();
+      ctx.fill();
+
+      // Chrome rear exhaust with flames
+      ctx.fillStyle = '#f97316';
+      ctx.beginPath();
+      ctx.arc(-kw * 0.25, kh * 0.38, Math.max(2, 6 * mScale), 0, Math.PI * 2);
+      ctx.arc(kw * 0.25, kh * 0.38, Math.max(2, 6 * mScale), 0, Math.PI * 2);
+      ctx.fill();
+
+      // Menace sphere head laughing at wheel
+      ctx.fillStyle = '#ffd32a';
+      ctx.beginPath();
+      ctx.arc(0, -kh * 0.25, kw * 0.3, 0, Math.PI * 2);
+      ctx.fill();
+      // Grinning face
+      ctx.fillStyle = '#0f172a';
+      ctx.beginPath();
+      ctx.arc(-kw * 0.1, -kh * 0.3, kw * 0.06, 0, Math.PI * 2);
+      ctx.arc(kw * 0.1, -kh * 0.3, kw * 0.06, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(0, -kh * 0.18, kw * 0.16, kw * 0.08, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore();
+    }
+
+    // --- Speed Lines during Boost ---
+    if (this.boostTimer > 0) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
+      ctx.lineWidth = 2;
+      for (let i = 0; i < 18; i++) {
+        const ang = (i / 18) * Math.PI * 2;
+        const r1 = 60 + Math.random() * 40;
+        const r2 = 280 + Math.random() * 100;
+        ctx.beginPath();
+        ctx.moveTo(midX + Math.cos(ang) * r1, horizonY + Math.sin(ang) * r1);
+        ctx.lineTo(midX + Math.cos(ang) * r2, horizonY + Math.sin(ang) * r2);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    // --- Draw Confetti ---
+    this.confetti.forEach(c => {
+      ctx.save();
+      ctx.translate(c.x, c.y);
+      ctx.rotate(c.rot);
+      ctx.fillStyle = c.color;
+      ctx.fillRect(-c.size / 2, -c.size / 2, c.size, c.size * 1.5);
+      ctx.restore();
+    });
+
+    // --- Draw Ghost Kart in Foreground ---
+    const ghostRef = this.game.ghosts[this.ghostIndex];
+    const ghostColor = ghostRef ? ghostRef.color : '#ec4899';
+    const kartX = midX + this.playerX * 50;
+    const kartY = H - 65;
+
+    ctx.save();
+    ctx.translate(kartX, kartY);
+
+    // Steering Lean & Spin
+    if (this.spinTimer > 0) {
+      ctx.rotate(time * 24);
+    } else {
+      ctx.rotate(this.steerLean * 0.12);
+    }
+
+    // Kart Shadow
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+    ctx.beginPath();
+    ctx.ellipse(0, 42, 60, 16, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Rear Racing Slick Tires
+    ctx.fillStyle = '#090d16';
+    ctx.fillRect(-62, 8, 22, 36);
+    ctx.fillRect(40, 8, 22, 36);
+    // Silver wheel rims
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillRect(-58, 14, 14, 24);
+    ctx.fillRect(44, 14, 14, 24);
+
+    // Front Tires
+    ctx.fillStyle = '#090d16';
+    ctx.fillRect(-52, -26, 16, 26);
+    ctx.fillRect(36, -26, 16, 26);
+
+    // Kart Aerodynamic Body Chassis (Ghost's Squad Color)
+    const kartGrad = ctx.createLinearGradient(0, -35, 0, 35);
+    kartGrad.addColorStop(0, '#f8fafc');
+    kartGrad.addColorStop(0.25, ghostColor);
+    kartGrad.addColorStop(1, '#0f172a');
+    ctx.fillStyle = kartGrad;
+
+    ctx.beginPath();
+    ctx.moveTo(0, -42); // Front nose cone
+    ctx.lineTo(28, -14);
+    ctx.lineTo(44, 18);
+    ctx.lineTo(40, 38);
+    ctx.lineTo(-40, 38);
+    ctx.lineTo(-44, 18);
+    ctx.lineTo(-28, -14);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Rear Wing / Spoiler
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(-48, 28, 96, 12);
+    ctx.fillStyle = ghostColor;
+    ctx.fillRect(-46, 26, 92, 6);
+
+    // Twin Chrome Exhausts
+    ctx.fillStyle = '#cbd5e1';
+    ctx.fillRect(-22, 36, 10, 12);
+    ctx.fillRect(12, 36, 10, 12);
+
+    // Exhaust smoke puffs
+    this.exhaustPuffs.forEach(ep => {
+      ctx.fillStyle = `rgba(241, 245, 249, ${ep.alpha})`;
+      ctx.beginPath();
+      ctx.arc(ep.x - 17, ep.y + 42, ep.r, 0, Math.PI * 2);
+      ctx.arc(ep.x + 17, ep.y + 42, ep.r, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    // Drift Sparks shooting from tires
+    this.driftSparks.forEach(sp => {
+      ctx.fillStyle = sp.color;
+      ctx.shadowColor = sp.color;
+      ctx.shadowBlur = 8;
+      ctx.beginPath();
+      ctx.arc(sp.x, sp.y + 20, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    });
+
+    // Driver: The Ghost at the Steering Wheel!
+    ctx.save();
+    ctx.translate(0, -2);
+
+    // Ghost body / head
+    ctx.fillStyle = ghostColor;
+    ctx.beginPath();
+    ctx.arc(0, -14, 18, Math.PI, 0, false);
+    ctx.lineTo(18, 6);
+    ctx.lineTo(12, 2);
+    ctx.lineTo(6, 6);
+    ctx.lineTo(0, 2);
+    ctx.lineTo(-6, 6);
+    ctx.lineTo(-12, 2);
+    ctx.lineTo(-18, 6);
+    ctx.closePath();
+    ctx.fill();
+
+    // Racing Helmet Bandana / Stripe
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(-16, -20, 32, 6);
+
+    // Driver Eyes
+    const lookX = this.steerLean * 3;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(-7 + lookX, -12, 4.5, 0, Math.PI * 2);
+    ctx.arc(7 + lookX, -12, 4.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#0f172a';
+    ctx.beginPath();
+    ctx.arc(-7 + lookX * 1.4, -12, 2.2, 0, Math.PI * 2);
+    ctx.arc(7 + lookX * 1.4, -12, 2.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Steering Wheel & Hands
+    ctx.fillStyle = '#020617';
+    ctx.beginPath();
+    ctx.arc(0, 8, 12, Math.PI, 0, false);
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = '#334155';
+    ctx.stroke();
+
+    // Ghost hands on wheel
+    ctx.fillStyle = ghostColor;
+    ctx.beginPath();
+    ctx.arc(-11, 4, 4.5, 0, Math.PI * 2);
+    ctx.arc(11, 4, 4.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore(); // Undo driver translate
+    ctx.restore(); // Undo kart translate/rotate
+
+    ctx.restore(); // Undo screen shake
+
+    // --- HUD & POSITION BADGE ---
+    const isFirst = (this.playerDist >= this.menaceDist);
+
+    // Position Plaque (Top-Left)
+    ctx.save();
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+    ctx.beginPath();
+    ctx.roundRect(14, 48, 86, 52, 8);
+    ctx.fill();
+    ctx.strokeStyle = isFirst ? '#ffd32a' : '#94a3b8';
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+
+    ctx.font = '900 32px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = isFirst ? '#fde047' : '#cbd5e1';
+    ctx.shadowColor = isFirst ? '#fde047' : '#000000';
+    ctx.shadowBlur = isFirst ? 12 : 0;
+    ctx.fillText(isFirst ? '1st' : '2nd', 57, 74);
+    ctx.restore();
+
+    // Lap Progress Tracker (Top-Center)
+    ctx.save();
+    const mapW = 160;
+    const mapX = midX - mapW / 2;
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.75)';
+    ctx.fillRect(mapX, 52, mapW, 16);
+    ctx.strokeStyle = '#334155';
+    ctx.strokeRect(mapX, 52, mapW, 16);
+
+    // Checkered finish line marker at end
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(mapX + mapW - 12, 53, 10, 14);
+
+    // Ghost icon on tracker
+    const pProg = this.progress();
+    ctx.fillStyle = ghostColor;
+    ctx.beginPath();
+    ctx.arc(mapX + pProg * (mapW - 16) + 8, 60, 6, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Menace icon on tracker
+    const mProg = this.menaceProgress();
+    ctx.fillStyle = '#ffd32a';
+    ctx.beginPath();
+    ctx.arc(mapX + mProg * (mapW - 16) + 8, 60, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // Speedometer (Bottom-Right)
+    ctx.save();
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.75)';
+    ctx.fillRect(W - 128, H - 46, 114, 32);
+    ctx.strokeStyle = this.boostTimer > 0 ? '#38bdf8' : '#334155';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(W - 128, H - 46, 114, 32);
+
+    ctx.font = '900 14px monospace, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = this.boostTimer > 0 ? '#38bdf8' : '#f8fafc';
+    const dispSpeed = Math.floor(this.speed * 0.7);
+    ctx.fillText(this.boostTimer > 0 ? `${dispSpeed} BOOST!` : `${dispSpeed} MPH`, W - 71, H - 25);
+    ctx.restore();
+
+    // Ram Hazard Warning
+    if (this.rams > 0) {
+      ctx.save();
+      ctx.font = '800 12px system-ui, sans-serif';
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#ef4444';
+      ctx.fillText(`RAMS ${this.rams}/3`, W - 18, 60);
+      ctx.restore();
     }
   }
 }
@@ -5767,6 +8223,8 @@ window.addEventListener('DOMContentLoaded', () => {
     flipJump: () => game.flipJump(),
     flipJumpRelease: () => game.flipJumpRelease(),
     flipFastFall: () => game.flipFastFall(),
+    flipSteer: (dir) => game.flipSteer(dir),
+    flipSteerRelease: (dir) => game.flipSteerRelease(dir),
     // Soundtrack + villain hooks
     getMusicState: () => game.music.getState(),
     getLastTaunt: () => game.lastTaunt,

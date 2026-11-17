@@ -33,7 +33,7 @@ async function runAcceptanceTests() {
 
   const indexPath = `file://${path.resolve(__dirname, '../index.html')}`;
   let passedCount = 0;
-  let totalCount = 15;
+  let totalCount = 19;
 
   // Screenshot directory
   const screenshotDir = path.resolve(__dirname, '../screenshots');
@@ -43,7 +43,7 @@ async function runAcceptanceTests() {
 
   try {
     // Check 1: Page loads with zero console errors
-    console.log('[Check 1/15] Loading game page...');
+    console.log('[Check 1/19] Loading game page...');
     await page.goto(indexPath, { waitUntil: 'load' });
     await page.waitForTimeout(500);
 
@@ -59,7 +59,7 @@ async function runAcceptanceTests() {
     console.log('  📸 Captured screenshot: screenshots/title.png');
 
     // Check 2: Game starts from PLAY
-    console.log('\n[Check 2/15] Starting game from PLAY button...');
+    console.log('\n[Check 2/19] Starting game from PLAY button...');
     await page.click('#btn-play');
     await page.waitForTimeout(400);
 
@@ -76,7 +76,7 @@ async function runAcceptanceTests() {
     console.log('  📸 Captured screenshot: screenshots/gameplay.png');
 
     // Check 3: Menace eats pellets autonomously
-    console.log('\n[Check 3/15] Testing autonomous Menace pellet eating...');
+    console.log('\n[Check 3/19] Testing autonomous Menace pellet eating...');
     const initialPellets = await page.evaluate(() => window.__RM_GAME__.getPellets().remaining);
     // Let Menace move and eat for 2 seconds
     await page.waitForTimeout(2000);
@@ -89,7 +89,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 4: Possession switching works for all four ghosts (1-4 and squad bar clicks)
-    console.log('\n[Check 4/15] Testing possession switching across all 4 squad ghosts...');
+    console.log('\n[Check 4/19] Testing possession switching across all 4 squad ghosts...');
     const ghostNames = ['Ember', 'Rosé', 'Tide', 'Goldie'];
     for (let i = 0; i < 4; i++) {
       // Test key press
@@ -110,7 +110,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 5: Touch input moves the possessed ghost
-    console.log('\n[Check 5/15] Testing touch input steering...');
+    console.log('\n[Check 5/19] Testing touch input steering...');
     // Ensure ghost 0 is possessed and positioned at open corridor (5, 5)
     await page.evaluate(() => {
       window.__RM_GAME__.possess(0);
@@ -130,7 +130,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 6: A catch registers when a ghost is steered onto Menace
-    console.log('\n[Check 6/15] Testing ghost catch detection...');
+    console.log('\n[Check 6/19] Testing ghost catch detection...');
     // The hunting squad may have caught him by chance during checks 3–5; a catch (or a flip
     // return) grants him 1s of flashing immunity during which collisions are ignored. Wait it
     // out so the staged catch below is judged on its own merits.
@@ -167,7 +167,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 7: Fright mode flips on power pellet and ghost can be eaten & benched
-    console.log('\n[Check 7/15] Testing Fright Mode & ghost benching...');
+    console.log('\n[Check 7/19] Testing Fright Mode & ghost benching...');
     await page.evaluate(() => window.__RM_GAME__.triggerFright(5.0));
     await page.waitForTimeout(200);
 
@@ -194,7 +194,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 8: Win / Maze Clear screen reachable
-    console.log('\n[Check 8/15] Testing Win / Maze Clear screen...');
+    console.log('\n[Check 8/19] Testing Win / Maze Clear screen...');
     await page.evaluate(() => window.__RM_GAME__.forceWin());
     await page.waitForTimeout(300);
 
@@ -210,7 +210,7 @@ async function runAcceptanceTests() {
     console.log('  📸 Captured screenshot: screenshots/win.png');
 
     // Check 9: Lose screen reachable
-    console.log('\n[Check 9/15] Testing Game Over screen...');
+    console.log('\n[Check 9/19] Testing Game Over screen...');
     await page.evaluate(() => window.__RM_GAME__.forceLose());
     await page.waitForTimeout(300);
 
@@ -226,7 +226,7 @@ async function runAcceptanceTests() {
     console.log('  📸 Captured screenshot: screenshots/gameover.png');
 
     // Check 10: Squad exits the house and hunts (regression: ghosts once looped in the house pocket)
-    console.log('\n[Check 10/15] Testing squad house exit and hunting range...');
+    console.log('\n[Check 10/19] Testing squad house exit and hunting range...');
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(400);
     await page.click('#btn-play');
@@ -307,7 +307,7 @@ async function runAcceptanceTests() {
     // ===== Round 2 checks: the Green Valley Flip and the soundtrack =====
 
     // Check 11: Flip triggers on a real power-pellet pickup; forced survival returns to playing unbenched
-    console.log('\n[Check 11/15] Testing the Green Valley Flip on a real power-pellet pickup...');
+    console.log('\n[Check 11/19] Testing the Green Valley Flip on a real power-pellet pickup...');
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(400);
     const musicBeforeGesture = await page.evaluate(() => window.__RM_GAME__.getMusicState());
@@ -378,7 +378,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 12: Flip caught path benches that ghost and returns to playing
-    console.log('\n[Check 12/15] Testing the flip caught path (bench + return to maze)...');
+    console.log('\n[Check 12/19] Testing the flip caught path (bench + return to maze)...');
     await page.evaluate(() => window.__RM_GAME__.triggerFlip());
     await page.waitForTimeout(300);
     const freshFlipState = await page.evaluate(() => window.__RM_GAME__.getState());
@@ -402,7 +402,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 13: Soundtrack states + zero console errors across the whole battery
-    console.log('\n[Check 13/15] Testing soundtrack states and console cleanliness...');
+    console.log('\n[Check 13/19] Testing soundtrack states and console cleanliness...');
     if (musicBeforeGesture !== 'off') throw new Error(`Music should be off before the first gesture, got "${musicBeforeGesture}"`);
     if (musicAfterPlay !== 'maze') throw new Error(`Music should read "maze" after PLAY, got "${musicAfterPlay}"`);
     if (musicDuringFlip !== 'valley') throw new Error(`Music should read "valley" during the flip, got "${musicDuringFlip}"`);
@@ -434,7 +434,7 @@ async function runAcceptanceTests() {
 
     // Check 14: The top-right pellet routes to Block Kingdom; forced survival returns to playing unbenched with the bonus;
     // the music reads "kingdom" during the segment.
-    console.log('\n[Check 14/15] Testing flip routing (top-right pellet → Block Kingdom) and kingdom survival...');
+    console.log('\n[Check 14/19] Testing flip routing (top-right pellet → Block Kingdom) and kingdom survival...');
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(400);
     await page.click('#btn-play');
@@ -447,8 +447,8 @@ async function runAcceptanceTests() {
     if (routeTable.tl.kind !== 'valley' || routeTable.tr.kind !== 'kingdom') {
       throw new Error(`Routing table wrong: top-left → ${routeTable.tl.kind}, top-right → ${routeTable.tr.kind}`);
     }
-    if (routeTable.bl.requested !== 'gloom' || routeTable.bl.kind !== 'valley' || routeTable.br.requested !== 'grandprix' || routeTable.br.kind !== 'valley') {
-      throw new Error(`Bottom pellets should request gloom / grandprix and fall back to the valley this round (got ${JSON.stringify(routeTable)})`);
+    if (routeTable.bl.requested !== 'gloom' || (routeTable.bl.kind !== 'valley' && routeTable.bl.kind !== 'gloom') || routeTable.br.requested !== 'grandprix' || (routeTable.br.kind !== 'valley' && routeTable.br.kind !== 'grandprix')) {
+      throw new Error(`Bottom pellets should request gloom / grandprix (got ${JSON.stringify(routeTable)})`);
     }
 
     const kGhost = await page.evaluate(() => window.__RM_GAME__.getSquad().findIndex(g => g.isPossessed));
@@ -513,7 +513,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 15: Kingdom caught path benches that ghost and returns to playing
-    console.log('\n[Check 15/15] Testing the Block Kingdom caught path (bench + return to maze)...');
+    console.log('\n[Check 15/19] Testing the Block Kingdom caught path (bench + return to maze)...');
     await page.evaluate(() => window.__RM_GAME__.triggerFlip('kingdom'));
     await page.waitForTimeout(300);
     const freshKingdom = await page.evaluate(() => window.__RM_GAME__.getFlip());
@@ -536,9 +536,185 @@ async function runAcceptanceTests() {
     const kMusicAfterCatch = await page.evaluate(() => window.__RM_GAME__.getMusicState());
     if (kMusicAfterCatch !== 'maze') throw new Error(`Music should return to "maze" after the kingdom catch, got "${kMusicAfterCatch}"`);
 
+    console.log(`  ✓ PASS: Caught in Block Kingdom: ${ghostNames[kCaughtGhost]} benched through the bench flow ("ONE DOWN."), game back to playing.`);
+    passedCount++;
+
+    // ===== Round 4 checks: GLOOM corridor shooter flip & Phantom Grand Prix kart racer flip =====
+
+    // Check 16: GLOOM routing and survival (bottom-left pellet)
+    console.log('\n[Check 16/19] Testing GLOOM routing and survival (bottom-left pellet)...');
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForTimeout(400);
+    await page.click('#btn-play');
+    await page.waitForTimeout(300);
+
+    const blGhost = await page.evaluate(() => window.__RM_GAME__.getSquad().findIndex(g => g.isPossessed));
+    const scoreBeforeGloom = await page.evaluate(() => window.__RM_GAME__.getScore());
+    const blPelletPresent = await page.evaluate(() => window.__game.grid[19][1] === 'o');
+    if (!blPelletPresent) throw new Error('Bottom-left power pellet (1,19) missing at maze start');
+
+    // Steer the Menace onto the bottom-left pellet through position hook: (2, 19) heading left
+    await page.evaluate(() => window.__RM_GAME__.setMenacePos(2, 19, -1, 0));
+    let gState = null;
+    let gWaited = 0;
+    while (gWaited < 1000) {
+      await page.waitForTimeout(50);
+      gWaited += 50;
+      gState = await page.evaluate(() => window.__RM_GAME__.getState());
+      if (gState === 'flip') break;
+    }
+    if (gState !== 'flip') throw new Error(`Flip did not start within 1s of the bottom-left pickup (state: ${gState})`);
+    const gFlip = await page.evaluate(() => window.__RM_GAME__.getFlip());
+    if (gFlip.kind !== 'gloom') throw new Error(`Bottom-left pellet should open GLOOM, got flip kind "${gFlip.kind}"`);
+    if (!gFlip.active || gFlip.ghostIndex !== blGhost) throw new Error(`GLOOM flip did not lock onto the possessed ghost (expected ${blGhost}, got ${gFlip.ghostIndex})`);
+    const blPelletSpent = await page.evaluate(() => window.__game.grid[19][1] === ' ');
+    if (!blPelletSpent) throw new Error('Power pellet at (1,19) was not consumed by the pickup');
+
+    await page.waitForTimeout(500);
+    const musicDuringGloom = await page.evaluate(() => window.__RM_GAME__.getMusicState());
+    if (musicDuringGloom !== 'gloom') throw new Error(`Music should read "gloom" during the GLOOM segment, got "${musicDuringGloom}"`);
+
+    // Let corridor run: strafe left, fire a shot, capture screenshot mid-corridor
+    await page.evaluate(() => window.__RM_GAME__.flipSteer(-1));
+    await page.waitForTimeout(200);
+    await page.evaluate(() => window.__RM_GAME__.flipJump());
+    await page.waitForTimeout(1400);
+
+    const gRun = await page.evaluate(() => window.__RM_GAME__.getFlip());
+    if (gRun.phase !== 'run' || gRun.progress <= 0) throw new Error(`GLOOM run did not advance (phase ${gRun.phase}, progress ${gRun.progress})`);
+    await page.screenshot({ path: path.join(screenshotDir, 'gloom.png') });
+    console.log('  📸 Captured screenshot: screenshots/gloom.png');
+
+    // Force survival
+    await page.evaluate(() => window.__RM_GAME__.forceFlipSurvive());
+    await page.waitForTimeout(250);
+    const gStateAfter = await page.evaluate(() => window.__RM_GAME__.getState());
+    const gSquadAfter = await page.evaluate(() => window.__RM_GAME__.getSquad());
+    const gScoreAfter = await page.evaluate(() => window.__RM_GAME__.getScore());
+    const gFlipAfter = await page.evaluate(() => window.__RM_GAME__.getFlip());
+    const gMusicAfter = await page.evaluate(() => window.__RM_GAME__.getMusicState());
+    if (gStateAfter !== 'playing') throw new Error(`Forced gloom survival did not return to playing (state: ${gStateAfter})`);
+    if (gSquadAfter[blGhost].isBenched) throw new Error(`${ghostNames[blGhost]} was benched after surviving GLOOM`);
+    if (!gSquadAfter[blGhost].isPossessed) throw new Error(`${ghostNames[blGhost]} lost possession across the gloom flip`);
+    if (gScoreAfter < scoreBeforeGloom + 200) throw new Error(`GLOOM survival bonus missing (score ${scoreBeforeGloom} -> ${gScoreAfter})`);
+    if (gFlipAfter.active) throw new Error('GLOOM flip state lingered after survival');
+    if (gMusicAfter !== 'maze') throw new Error(`Music should return to "maze" after gloom, got "${gMusicAfter}"`);
+
+    console.log(`  ✓ PASS: Bottom-left pellet routed to GLOOM in ${gWaited}ms with ${ghostNames[blGhost]} (music "gloom"); forced survival returned to playing, unbenched, +200.`);
+    passedCount++;
+
+    // Check 17: GLOOM caught path
+    console.log('\n[Check 17/19] Testing GLOOM caught path (bench + return to maze)...');
+    await page.evaluate(() => window.__RM_GAME__.triggerFlip('gloom'));
+    await page.waitForTimeout(300);
+    const freshGloom = await page.evaluate(() => window.__RM_GAME__.getFlip());
+    const freshGloomState = await page.evaluate(() => window.__RM_GAME__.getState());
+    if (freshGloomState !== 'flip' || freshGloom.kind !== 'gloom') throw new Error(`Fresh gloom flip did not start (state ${freshGloomState}, kind ${freshGloom.kind})`);
+    const gCaughtGhost = freshGloom.ghostIndex;
+
+    await page.evaluate(() => window.__RM_GAME__.forceFlipCatch());
+    await page.waitForTimeout(250);
+    const gStateAfterCatch = await page.evaluate(() => window.__RM_GAME__.getState());
+    const gSquadAfterCatch = await page.evaluate(() => window.__RM_GAME__.getSquad());
+    const gCaughtUIBenched = await page.$eval(`.squad-btn[data-ghost="${gCaughtGhost}"]`, el => el.classList.contains('benched'));
+    const gCatchTaunt = await page.evaluate(() => window.__RM_GAME__.getLastTaunt());
+    if (gStateAfterCatch !== 'playing') throw new Error(`Forced gloom catch did not return to playing (state: ${gStateAfterCatch})`);
+    if (!gSquadAfterCatch[gCaughtGhost].isBenched || !gCaughtUIBenched) throw new Error(`${ghostNames[gCaughtGhost]} was not benched after being caught in GLOOM`);
+    if (gSquadAfterCatch[gCaughtGhost].isPossessed) throw new Error('Possession stayed on the benched ghost');
+    if (gCatchTaunt !== 'ONE DOWN.') throw new Error(`Expected the "ONE DOWN." taunt on benching, got "${gCatchTaunt}"`);
+    const gMusicAfterCatch = await page.evaluate(() => window.__RM_GAME__.getMusicState());
+    if (gMusicAfterCatch !== 'maze') throw new Error(`Music should return to "maze" after the gloom catch, got "${gMusicAfterCatch}"`);
+
+    console.log(`  ✓ PASS: Caught in GLOOM: ${ghostNames[gCaughtGhost]} benched through the bench flow ("ONE DOWN."), game back to playing.`);
+    passedCount++;
+
+    // Check 18: Phantom Grand Prix routing and survival (bottom-right pellet)
+    console.log('\n[Check 18/19] Testing Phantom Grand Prix routing and survival (bottom-right pellet)...');
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForTimeout(400);
+    await page.click('#btn-play');
+    await page.waitForTimeout(300);
+
+    const brGhost = await page.evaluate(() => window.__RM_GAME__.getSquad().findIndex(g => g.isPossessed));
+    const scoreBeforeGP = await page.evaluate(() => window.__RM_GAME__.getScore());
+    const brPelletPresent = await page.evaluate(() => window.__game.grid[19][17] === 'o');
+    if (!brPelletPresent) throw new Error('Bottom-right power pellet (17,19) missing at maze start');
+
+    // Steer Menace onto bottom-right pellet (17, 19): (16, 19) heading right
+    await page.evaluate(() => window.__RM_GAME__.setMenacePos(16, 19, 1, 0));
+    let gpState = null;
+    let gpWaited = 0;
+    while (gpWaited < 1000) {
+      await page.waitForTimeout(50);
+      gpWaited += 50;
+      gpState = await page.evaluate(() => window.__RM_GAME__.getState());
+      if (gpState === 'flip') break;
+    }
+    if (gpState !== 'flip') throw new Error(`Flip did not start within 1s of the bottom-right pickup (state: ${gpState})`);
+    const gpFlip = await page.evaluate(() => window.__RM_GAME__.getFlip());
+    if (gpFlip.kind !== 'grandprix') throw new Error(`Bottom-right pellet should open Phantom Grand Prix, got flip kind "${gpFlip.kind}"`);
+    if (!gpFlip.active || gpFlip.ghostIndex !== brGhost) throw new Error(`Grand Prix flip did not lock onto the possessed ghost (expected ${brGhost}, got ${gpFlip.ghostIndex})`);
+    const brPelletSpent = await page.evaluate(() => window.__game.grid[19][17] === ' ');
+    if (!brPelletSpent) throw new Error('Power pellet at (17,19) was not consumed by the pickup');
+
+    await page.waitForTimeout(500);
+    const musicDuringGP = await page.evaluate(() => window.__RM_GAME__.getMusicState());
+    if (musicDuringGP !== 'grandprix') throw new Error(`Music should read "grandprix" during the Grand Prix segment, got "${musicDuringGP}"`);
+
+    // Let the race run: steer, wait for mid-race frame with both karts
+    await page.evaluate(() => window.__RM_GAME__.flipSteer(1));
+    await page.waitForTimeout(500);
+    await page.evaluate(() => window.__RM_GAME__.flipSteerRelease(1));
+    await page.waitForTimeout(1100);
+
+    const gpRun = await page.evaluate(() => window.__RM_GAME__.getFlip());
+    if (gpRun.phase !== 'run' || gpRun.progress <= 0) throw new Error(`Grand Prix run did not advance (phase ${gpRun.phase}, progress ${gpRun.progress})`);
+    await page.screenshot({ path: path.join(screenshotDir, 'grandprix.png') });
+    console.log('  📸 Captured screenshot: screenshots/grandprix.png');
+
+    // Force survival
+    await page.evaluate(() => window.__RM_GAME__.forceFlipSurvive());
+    await page.waitForTimeout(250);
+    const gpStateAfter = await page.evaluate(() => window.__RM_GAME__.getState());
+    const gpSquadAfter = await page.evaluate(() => window.__RM_GAME__.getSquad());
+    const gpScoreAfter = await page.evaluate(() => window.__RM_GAME__.getScore());
+    const gpFlipAfter = await page.evaluate(() => window.__RM_GAME__.getFlip());
+    const gpMusicAfter = await page.evaluate(() => window.__RM_GAME__.getMusicState());
+    if (gpStateAfter !== 'playing') throw new Error(`Forced Grand Prix survival did not return to playing (state: ${gpStateAfter})`);
+    if (gpSquadAfter[brGhost].isBenched) throw new Error(`${ghostNames[brGhost]} was benched after surviving Grand Prix`);
+    if (!gpSquadAfter[brGhost].isPossessed) throw new Error(`${ghostNames[brGhost]} lost possession across the Grand Prix flip`);
+    if (gpScoreAfter < scoreBeforeGP + 200) throw new Error(`Grand Prix survival bonus missing (score ${scoreBeforeGP} -> ${gpScoreAfter})`);
+    if (gpFlipAfter.active) throw new Error('Grand Prix flip state lingered after survival');
+    if (gpMusicAfter !== 'maze') throw new Error(`Music should return to "maze" after Grand Prix, got "${gpMusicAfter}"`);
+
+    console.log(`  ✓ PASS: Bottom-right pellet routed to Phantom Grand Prix in ${gpWaited}ms with ${ghostNames[brGhost]} (music "grandprix"); forced survival returned to playing, unbenched, +200.`);
+    passedCount++;
+
+    // Check 19: Grand Prix caught path
+    console.log('\n[Check 19/19] Testing Phantom Grand Prix caught path (bench + return to maze)...');
+    await page.evaluate(() => window.__RM_GAME__.triggerFlip('grandprix'));
+    await page.waitForTimeout(300);
+    const freshGP = await page.evaluate(() => window.__RM_GAME__.getFlip());
+    const freshGPState = await page.evaluate(() => window.__RM_GAME__.getState());
+    if (freshGPState !== 'flip' || freshGP.kind !== 'grandprix') throw new Error(`Fresh Grand Prix flip did not start (state ${freshGPState}, kind ${freshGP.kind})`);
+    const gpCaughtGhost = freshGP.ghostIndex;
+
+    await page.evaluate(() => window.__RM_GAME__.forceFlipCatch());
+    await page.waitForTimeout(250);
+    const gpStateAfterCatch = await page.evaluate(() => window.__RM_GAME__.getState());
+    const gpSquadAfterCatch = await page.evaluate(() => window.__RM_GAME__.getSquad());
+    const gpCaughtUIBenched = await page.$eval(`.squad-btn[data-ghost="${gpCaughtGhost}"]`, el => el.classList.contains('benched'));
+    const gpCatchTaunt = await page.evaluate(() => window.__RM_GAME__.getLastTaunt());
+    if (gpStateAfterCatch !== 'playing') throw new Error(`Forced Grand Prix catch did not return to playing (state: ${gpStateAfterCatch})`);
+    if (!gpSquadAfterCatch[gpCaughtGhost].isBenched || !gpCaughtUIBenched) throw new Error(`${ghostNames[gpCaughtGhost]} was not benched after being caught in Grand Prix`);
+    if (gpSquadAfterCatch[gpCaughtGhost].isPossessed) throw new Error('Possession stayed on the benched ghost');
+    if (gpCatchTaunt !== 'ONE DOWN.') throw new Error(`Expected the "ONE DOWN." taunt on benching, got "${gpCatchTaunt}"`);
+    const gpMusicAfterCatch = await page.evaluate(() => window.__RM_GAME__.getMusicState());
+    if (gpMusicAfterCatch !== 'maze') throw new Error(`Music should return to "maze" after the Grand Prix catch, got "${gpMusicAfterCatch}"`);
+
     if (consoleErrors.length > 0) throw new Error(`Console errors during the battery: ${consoleErrors.join(' | ')}`);
 
-    console.log(`  ✓ PASS: Caught in Block Kingdom: ${ghostNames[kCaughtGhost]} benched through the bench flow ("ONE DOWN."), game back to playing; 0 console errors across all 15 checks.`);
+    console.log(`  ✓ PASS: Caught in Phantom Grand Prix: ${ghostNames[gpCaughtGhost]} benched through the bench flow ("ONE DOWN."), game back to playing; 0 console errors across all 19 checks.`);
     passedCount++;
 
   } catch (err) {
