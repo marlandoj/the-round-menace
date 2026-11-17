@@ -627,10 +627,10 @@
     </div>
   </div>
 
-  <!-- Green Valley Flip Banner / Gate Progress -->
+  <!-- Flip Banner / Gate Progress (label is set by the active flip module) -->
   <div id="fright-bar-container">
     <div class="fright-header">
-      <span>⚠️ Hunt Flipped — Run to the Maze Gate</span>
+      <span id="fright-header-label">⚠️ Hunt Flipped — Run to the Maze Gate</span>
       <span id="fright-timer-text">22.0s</span>
     </div>
     <div class="fright-progress-track">
@@ -1563,9 +1563,10 @@ class Game {
     this.pelletsRemaining = 0;
     this.pelletsEatenByMenace = 0;
 
-    // The Green Valley Flip (replaces the in-maze fright mode)
+    // The Flip (replaces the in-maze fright mode). Each power pellet routes to its own flip module.
     this.isFrightMode = false;     // true while the hunt is flipped (kept for the HUD/test contract)
-    this.flip = null;              // ValleyRun instance while state === 'flip'
+    this.flip = null;              // Active flip module (ValleyRun / KingdomRun) while state === 'flip'
+    this.flipRequestedKind = null; // Kind the pellet asked for (may differ from flip.kind when it fell back)
     this.transition = null;        // Tear / gate effect drawn over whichever scene is active
     this.ghostsEatenInFright = 0;  // Keepers benched by the Menace this maze
     this.lastTaunt = '';
@@ -1711,8 +1712,14 @@ class Game {
         }
         this.steerPossessed(d);
       };
+      const handleRelease = () => {
+        if (btn.dataset.dir === 'up') this.flipJumpRelease();
+      };
       btn.addEventListener('touchstart', handleDir, { passive: false });
       btn.addEventListener('mousedown', handleDir);
+      btn.addEventListener('touchend', handleRelease);
+      btn.addEventListener('touchcancel', handleRelease);
+      btn.addEventListener('mouseup', handleRelease);
     });
   }
 
@@ -1726,11 +1733,11 @@ class Game {
         return;
       }
 
-      // Green Valley controls: jump (Space / Up / W), fast-fall (Down / S). P still pauses.
+      // Flip controls: jump (Space / Up / W, hold to rise where the module supports it), fast-fall (Down / S). P still pauses.
       if (this.state === 'flip') {
         if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') {
           e.preventDefault();
-          this.flipJump();
+          if (!e.repeat) this.flipJump();
           return;
         }
         if (e.code === 'ArrowDown' || e.code === 'KeyS') {
@@ -1774,6 +1781,11 @@ class Game {
       }
     });
 
+    // Releasing the jump key ends a held jump (variable height in Block Kingdom; a no-op in the valley)
+    window.addEventListener('keyup', (e) => {
+      if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') this.flipJumpRelease();
+    });
+
     // Touch swipe steering on canvas
     let touchStartX = 0;
     let touchStartY = 0;
@@ -1782,7 +1794,11 @@ class Game {
       if (e.touches.length === 1) {
         touchStartX = e.touches[0].clientX;
         touchStartY = e.touches[0].clientY;
-        if (this.state === 'flip') return;
+        if (this.state === 'flip') {
+          // Hold-to-rise modules jump on the press so the hold length can shape the jump
+          if (this.flip && this.flip.pressToJump) this.flipJump();
+          return;
+        }
 
         // Check if tapping directly on a ghost
         const rect = this.canvas.getBoundingClientRect();
@@ -1800,9 +1816,15 @@ class Game {
       const dx = e.changedTouches[0].clientX - touchStartX;
       const dy = e.changedTouches[0].clientY - touchStartY;
       if (this.state === 'flip') {
-        // Valley: swipe down = fast-fall, anything else (a tap) = jump
-        if (dy > 30 && Math.abs(dy) > Math.abs(dx)) this.flipFastFall();
-        else this.flipJump();
+        // Swipe down = fast-fall. Otherwise a tap is a jump (valley) or the end of a held jump (kingdom).
+        if (dy > 30 && Math.abs(dy) > Math.abs(dx)) {
+          this.flipJumpRelease();
+          this.flipFastFall();
+        } else if (this.flip && this.flip.pressToJump) {
+          this.flipJumpRelease();
+        } else {
+          this.flipJump();
+        }
         return;
       }
       if (this.state === 'playing') {
@@ -1810,7 +1832,7 @@ class Game {
       }
     }, { passive: true });
 
-    // Mouse click on canvas to select ghost (or jump, in the valley)
+    // Mouse click on canvas to select ghost (or jump, in a flip)
     this.canvas.addEventListener('mousedown', (e) => {
       this.sound.init();
       if (this.state === 'flip') {
@@ -1824,6 +1846,7 @@ class Game {
       const clickY = (e.clientY - rect.top) * scaleY;
       this.checkGhostClick(clickX, clickY);
     });
+    window.addEventListener('mouseup', () => this.flipJumpRelease());
   }
 
   touchSteer(dx, dy) {
@@ -1880,7 +1903,7 @@ class Game {
     let mode = 'off';
     if (this.state === 'title') mode = 'title';
     else if (this.state === 'playing') mode = 'maze';
-    else if (this.state === 'flip') mode = 'valley';
+    else if (this.state === 'flip') mode = this.flip ? this.flip.musicMode : 'valley';
     // paused / maze_clear / game_over / victory: silent (the jingles own those moments)
     this.music.setMode(mode);
   }
@@ -2070,25 +2093,29 @@ class Game {
     }
   }
 
-  // ===== THE GREEN VALLEY FLIP =====
-  // The Menace eats a power pellet: the maze tears open and the possessed ghost is thrown into
-  // Green Valley with the Menace rolling after it. Maze time pauses; the rest of the squad waits frozen.
-  startFlip() {
+  // ===== THE FLIP (routed by power pellet) =====
+  // The Menace eats a power pellet: the maze tears open and the possessed ghost is thrown into the
+  // mini-game that pellet routes to (see FLIP_ROUTES / FLIP_MODULES). Maze time pauses; the rest of
+  // the squad waits frozen. Every flip module honours the same contract (see FLIP_MODULES).
+  // `kind` is the module to run; `requestedKind` is what the pellet asked for before any fallback.
+  startFlip(kind = 'valley', requestedKind = kind) {
     if (this.state !== 'playing' || this.flip) return;
+    const module = FLIP_MODULES[kind] && FLIP_MODULES[kind].built ? FLIP_MODULES[kind] : FLIP_MODULES.valley;
     let ghostIndex = this.possessedIndex;
     if (!this.ghosts[ghostIndex] || this.ghosts[ghostIndex].isBenched) {
       ghostIndex = this.ghosts.findIndex(g => !g.isBenched);
-      if (ghostIndex === -1) return; // Nobody left to throw into the valley
+      if (ghostIndex === -1) return; // Nobody left to throw into the flip
       this.possessedIndex = ghostIndex;
       this.updateSquadBarUI();
     }
 
     this.snapshotCanvas();
-    this.flip = new ValleyRun(this, ghostIndex);
+    this.flip = module.create(this, ghostIndex);
+    this.flipRequestedKind = requestedKind;
     this.isFrightMode = true;
     this.state = 'flip';
     this.transition = { mode: 'in', t: 0, dur: 0.7 };
-    this.banner = { text: 'THE HUNT FLIPS — RUN!', t: 0, dur: 1.7, color: '#ff3344' };
+    this.banner = { text: this.flip.openingBanner, t: 0, dur: 1.7, color: this.flip.bannerColor };
     this.shakeDuration = 0.3;
     this.shakeIntensity = 10;
 
@@ -2097,12 +2124,13 @@ class Game {
 
     const bar = document.getElementById('fright-bar-container');
     bar.classList.add('active');
+    document.getElementById('fright-header-label').textContent = this.flip.hudLabel;
     document.getElementById('fright-progress-fill').style.width = '0%';
     document.getElementById('fright-timer-text').textContent = `${this.flip.duration.toFixed(1)}s`;
     this.syncMusic();
   }
 
-  // outcome: 'survived' (gate reached, +200, ghost bursts back into the maze) or 'caught' (benched)
+  // outcome: 'survived' (goal reached, +200, ghost bursts back into the maze) or 'caught' (benched)
   endFlip(outcome) {
     if (!this.flip) return;
     const run = this.flip;
@@ -2110,12 +2138,13 @@ class Game {
 
     this.snapshotCanvas();
     this.flip = null;
+    this.flipRequestedKind = null;
     this.isFrightMode = false;
     document.getElementById('fright-bar-container').classList.remove('active');
     this.state = 'playing';
     this.menace.immuneTimer = 1.0; // Flashing re-entry: the return is never an instant catch
     this.transition = { mode: 'out', t: 0, dur: 0.6 };
-    this.banner = { text: 'BACK THROUGH THE GATE', t: 0, dur: 1.5, color: '#a3e635' };
+    this.banner = { text: run.exitBanner, t: 0, dur: 1.5, color: '#a3e635' };
     this.sound.playGateBurst();
 
     const g = this.ghosts[ghostIndex];
@@ -2123,7 +2152,7 @@ class Game {
       this.score += 200;
       this.updateHUD();
       for (let i = 0; i < 22; i++) this.particles.push(new Particle(g.x, g.y, g.color));
-      this.showNotification("Gate reached! Survival +200");
+      this.showNotification(run.surviveText);
     } else {
       // Caught: the existing bench flow (eyes float home, possession moves on, squad wipe = game over)
       this.handleGhostEatenByMenace(ghostIndex);
@@ -2134,6 +2163,7 @@ class Game {
   // Silent cleanup used by every screen change that leaves the flip behind
   abortFlip() {
     this.flip = null;
+    this.flipRequestedKind = null;
     this.isFrightMode = false;
     this.transition = null;
     this.banner = null;
@@ -2146,6 +2176,12 @@ class Game {
     if (this.flip.jump()) this.sound.playJump();
   }
 
+  // Letting go of the jump control ends a held (variable-height) jump where the module supports it
+  flipJumpRelease() {
+    if (!this.flip) return;
+    this.flip.jumpRelease();
+  }
+
   flipFastFall() {
     if (this.state !== 'flip' || !this.flip) return;
     this.flip.fastFall();
@@ -2155,26 +2191,27 @@ class Game {
     const run = this.flip;
     if (!run) return;
     const outcome = run.update(dt);
-    const g = run.ghost;
-    const pct = Math.max(0, Math.min(100, (g.x / run.gateX) * 100));
+    const pct = Math.max(0, Math.min(100, run.progress() * 100));
     document.getElementById('fright-progress-fill').style.width = `${pct}%`;
-    const remaining = Math.max(0, (run.gateX - g.x) / run.runSpeed);
-    document.getElementById('fright-timer-text').textContent = `${remaining.toFixed(1)}s`;
+    document.getElementById('fright-timer-text').textContent = `${run.remainingSeconds().toFixed(1)}s`;
     if (outcome) this.endFlip(outcome);
   }
 
   getFlipInfo() {
     const run = this.flip;
-    if (!run) return { active: false, ghostIndex: -1, phase: 'none', elapsed: 0, progress: 0, menaceProgress: 0, pellets: 0, surges: 0 };
+    if (!run) return { active: false, kind: 'none', requestedKind: 'none', ghostIndex: -1, phase: 'none', elapsed: 0, progress: 0, menaceProgress: 0, pellets: 0, surges: 0 };
     return {
       active: true,
+      kind: run.kind,
+      requestedKind: this.flipRequestedKind || run.kind,
       ghostIndex: run.ghostIndex,
       phase: run.phase,
       elapsed: run.elapsed,
-      progress: run.ghost.x / run.gateX,
-      menaceProgress: run.menace.x / run.gateX,
+      progress: run.progress(),
+      menaceProgress: run.menaceProgress(),
       pellets: run.collected,
-      surges: run.surges
+      surges: run.surges,
+      extra: run.extraInfo ? run.extraInfo() : {}
     };
   }
 
@@ -2601,8 +2638,9 @@ class Game {
       this.sound.playChomp();
       this.updateHUD();
 
-      // The power pellet tears the maze open: Green Valley Flip
-      this.startFlip();
+      // The power pellet tears the maze open: each corner pellet routes to its own flip
+      const route = routeFlip(c, r);
+      this.startFlip(route.kind, route.requested);
     }
   }
 
@@ -2623,7 +2661,7 @@ class Game {
     // Active (non-benched) ghosts
     const activeGhosts = this.ghosts.filter(g => !g.isBenched && g.state !== 'HOUSE');
 
-    // 1. (The in-maze fright chase is gone: the power pellet now triggers the Green Valley Flip.)
+    // 1. (The in-maze fright chase is gone: the power pellet now triggers a routed flip.)
 
     // 2. Power-pellet grab: ghost <= 4 tiles AND power pellet <= 6 tiles
     let ghostNear = false;
@@ -2857,7 +2895,7 @@ class Game {
     }
 
     if (this.flip && (this.state === 'flip' || (this.state === 'paused' && this.pausedFrom === 'flip'))) {
-      // Green Valley scene
+      // The active flip module owns the whole scene
       this.flip.draw(this.ctx, performance.now() / 1000);
     } else {
       // 1. Draw Maze
@@ -3403,7 +3441,46 @@ class Game {
   }
 }
 
-// 3b. GREEN VALLEY — the side-scrolling chase the flip throws the possessed ghost into.
+// 3a. FLIP ROUTING — which mini-game each power pellet opens, by maze position.
+// Marlando's ruling: four flips, one per pellet, each an instantly recognisable genre homage in original dress.
+//   top-left (1,1)      Green Valley          rolling-hills chase      (Round 2)
+//   top-right (17,1)    Block Kingdom         bright platformer        (Round 3)
+//   bottom-left (1,19)  GLOOM                 first-person corridor    (next round — falls back to the valley)
+//   bottom-right (17,19) Phantom Grand Prix   kart racer               (next round — falls back to the valley)
+//
+// Flip module contract (ValleyRun and KingdomRun both honour it):
+//   constructor(game, ghostIndex)             enter with the possessed ghost
+//   kind, musicMode, hudLabel, openingBanner, bannerColor, exitBanner, surviveText, duration, pressToJump
+//   ghostIndex, phase, elapsed, collected, surges
+//   update(dt) -> null | 'survived' | 'caught'   the exit: survived (unbenched, +200) or caught (benched)
+//   draw(ctx, time)                           owns the whole frame while the flip is active
+//   jump() -> bool, jumpRelease(), fastFall()  player input
+//   progress() -> 0..1, menaceProgress() -> 0..1, remainingSeconds()   HUD meter
+const FLIP_ROUTES = {
+  '1,1': 'valley',
+  '17,1': 'kingdom',
+  '1,19': 'gloom',
+  '17,19': 'grandprix'
+};
+
+const FLIP_MODULES = {
+  valley:    { name: 'Green Valley',       built: true,  create: (game, gi) => new ValleyRun(game, gi) },
+  kingdom:   { name: 'Block Kingdom',      built: true,  create: (game, gi) => new KingdomRun(game, gi) },
+  gloom:     { name: 'GLOOM',              built: false, fallback: 'valley' },
+  grandprix: { name: 'Phantom Grand Prix', built: false, fallback: 'valley' }
+};
+
+// Resolve a pellet position to the flip that runs. Unbuilt flips fall back along their chain.
+function routeFlip(col, row) {
+  const requested = FLIP_ROUTES[`${col},${row}`] || 'valley';
+  let kind = requested;
+  let guard = 0;
+  while (FLIP_MODULES[kind] && !FLIP_MODULES[kind].built && guard++ < 4) kind = FLIP_MODULES[kind].fallback || 'valley';
+  if (!FLIP_MODULES[kind] || !FLIP_MODULES[kind].built) kind = 'valley';
+  return { requested, kind, fellBack: kind !== requested };
+}
+
+// 3b. GREEN VALLEY — the side-scrolling chase the top-left power pellet throws the possessed ghost into.
 // Original canvas art only: layered parallax hills, grass, flowers, simple trees, rocks and logs.
 // The ghost auto-runs right; the Menace pursues from the left curled into a rolling ball.
 class ValleyRun {
@@ -3413,6 +3490,16 @@ class ValleyRun {
     this.W = game.width;
     this.H = game.height;
     const cfg = MAZE_CONFIGS[game.mazeIndex];
+
+    // Flip module contract
+    this.kind = 'valley';
+    this.musicMode = 'valley';
+    this.hudLabel = '⚠️ Hunt Flipped — Run to the Maze Gate';
+    this.openingBanner = 'THE HUNT FLIPS — RUN!';
+    this.bannerColor = '#ff3344';
+    this.exitBanner = 'BACK THROUGH THE GATE';
+    this.surviveText = 'Gate reached! Survival +200';
+    this.pressToJump = false;               // Valley jumps are a fixed height: tap = jump
 
     this.runSpeed = 170;                    // Ghost auto-run (logical px / s)
     this.duration = 22;                     // Seconds of clean running to the MAZE GATE
@@ -3531,12 +3618,19 @@ class ValleyRun {
     return true;
   }
 
+  jumpRelease() { /* fixed-height jump: nothing to release */ }
+
   fastFall() {
     if (this.phase !== 'run' || this.ghost.grounded) return false;
     this.ghost.fastFall = true;
     this.ghost.vy = Math.max(this.ghost.vy, 220);
     return true;
   }
+
+  // HUD meter contract
+  progress() { return Math.max(0, Math.min(1, this.ghost.x / this.gateX)); }
+  menaceProgress() { return Math.max(0, Math.min(1, this.menace.x / this.gateX)); }
+  remainingSeconds() { return Math.max(0, (this.gateX - this.ghost.x) / this.runSpeed); }
 
   surge() {
     const m = this.menace;
@@ -4425,12 +4519,14 @@ window.addEventListener('DOMContentLoaded', () => {
         game.menace.facing = { x: dirX, y: dirY };
       }
     },
-    // Green Valley Flip hooks
+    // Flip hooks (getFlip().kind reports the active module: valley / kingdom / ...)
     getFlip: () => game.getFlipInfo(),
-    triggerFlip: () => game.startFlip(),
+    getFlipRoute: (c, r) => routeFlip(c, r),
+    triggerFlip: (kind) => (typeof kind === 'string' ? game.startFlip(kind) : game.startFlip()),
     forceFlipSurvive: () => game.endFlip('survived'),
     forceFlipCatch: () => game.endFlip('caught'),
     flipJump: () => game.flipJump(),
+    flipJumpRelease: () => game.flipJumpRelease(),
     flipFastFall: () => game.flipFastFall(),
     // Soundtrack + villain hooks
     getMusicState: () => game.music.getState(),
