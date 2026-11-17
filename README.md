@@ -56,10 +56,10 @@ The flip set is **four** mini-games, one per power pellet, each an instantly rec
 
 | Pellet | Flip | Genre | Status |
 | --- | --- | --- | --- |
-| top-left (1,1) | **Green Valley** | rolling-hills chase | built (Round 2, Gauntlet fixes Round 4) |
-| top-right (17,1) | **Block Kingdom** | bright platformer | built (Round 3, Gauntlet fixes Round 4) |
+| top-left (1,1) | **Green Valley** | rolling-hills chase | built (Round 2, Gauntlet fixes Round 4, full fix round 6) |
+| top-right (17,1) | **Block Kingdom** | bright platformer | built (Round 3, Gauntlet fixes Round 4, full fix round 6) |
 | bottom-left (1,19) | **GLOOM** | first-person corridor | built (Round 4, renderer rebuilt Round 5) |
-| bottom-right (17,19) | **Phantom Grand Prix** | kart racer | built (Round 4) |
+| bottom-right (17,19) | **Phantom Grand Prix** | kart racer | built (Round 4, rebuilt as a two-kart race Round 6) |
 
 Every flip is a named module behind one contract (enter with the possessed ghost; exit `survived` → back unbenched with +200, or `caught` → the normal bench flow). Maze time freezes during any flip.
 
@@ -98,6 +98,30 @@ Operator inspection of the Round 4 delivery found GLOOM's game state correct but
 - The only opaque full-playfield fill is the dark base tone `#06080d`. Every overlay (lights, haze, muzzle flash, low-NERVE red pulse) is translucent; the red pulse stays an edge vignette.
 - The blaster and the status bar are byte-for-byte the Round 4 code.
 - The renderer reports where it drew the Menace (`getFlip().extra.menaceScreen`) so the battery can check the figure, not just the state.
+
+## Round 6 — Full Gauntlet fix rounds: Phantom Grand Prix, Green Valley, Block Kingdom
+
+Marlando's ruling ("full fix rounds for all three flips, whatever it takes") replaced the one-bounded-fix economy for these three. The Gauntlet judges score from captured frames, so every change here is one a single mid-action still can show: both characters in shot, motion cues visible, a dense world. GLOOM, the maze, the soundtrack and the flip contract are untouched; all 21 checks keep passing.
+
+### Phantom Grand Prix (Round 2 median 14 — wit 2, AAA feel 2, game feel 2)
+Rebuilt as a real two-kart race seen from a chase camera that sits behind the ghost's kart, so a rival up to ~110 units behind her still projects inside the frame (bigger and lower — looming) while a rival ahead shrinks up the road.
+- **The race in the frame.** The Menace lines up **beside** the ghost on the grid under the start arch and his monster kart stays in shot for the whole lap: a rubber band holds him between 110 units behind and 600 ahead, the band snaps him back the moment the renderer reports his kart outside the frame (round a bend, past an edge), the camera slides to the midpoint of the two karts when they run level, and a rear-view mirror shows his grin when he is on her tail. Both karts are drawn properly from behind: fat slick tyres with rims and tread, turning front wheels, a shaded body shell with a highlight, numbered tail plate, spoiler with end plates, twin exhausts, a visible driver (the ghost in a helmet band with hands on the wheel; the Menace in pushed-up goggles grinning back over his shoulder), steering lean, bank roll, exhaust puffs, drift smoke and sparks off the rear tyres.
+- **The track world.** A curving circuit — sweeping bend, boost straight, banked hairpin, hill crest and dip, S-chicane, second boost straight, final curve — with real quadratic bends, banking that tilts the road slice and rolls the karts, a road shaded across its width and textured by alternating slices, tyre marks, edge lines and a dashed centre line, red/white curbs, grandstands with a three-row crowd bobbing in squad colours under striped roofs and pennant lines, waving flags, billboards (`PHANTOM GP`, `PELLET CO.`, `SQUAD TYRES`, `GHOST FUEL`), gantries (`BOOST`, `HALFWAY`), chevron boards on the outside of bends, round trees and flowering bushes, distance haze, and a sky of two cloud layers, hot-air balloons, snow-capped mountains, sun-lit layered hills with a lighthouse and a turning windmill.
+- **Signature props and feedback.** Floating pellet cubes on the racing line (+25, `+25` pop, sparkle burst; five in a row is a **PELLET RUSH** surge that spins the Menace out — and the glutton eats any cube on his own line), boost pads that fire an FOV kick (the camera's focal length drops), white flash and radial speed lines, pellet bombs the Menace visibly cocks and throws (arm animation) that arc over the road and burst into a splat of pellet shards you must steer around, `OVERTAKE!` / `HE PASSES YOU!` flashes on every lead change, `CLOSE!` near-miss flashes, `RAMMED! n/3` with a swerve-away, a live position plaque with the gap in metres, a loop-shaped lap tracker carrying both karts, and confetti cannons on the finish arch that fire as the karts arrive.
+- **The finish is a race to the line.** Whoever crosses the arch first takes it; a short finish phase coasts both karts through the confetti before the result stands (`1ST — CHECKERED FLAG!` or `HE TAKES THE FLAG!`). Hands-off he wins; steer the bends, take the boost pads and the cubes, avoid the bombs and you take the flag.
+
+### Green Valley (Round 2 median 17 — game feel 2)
+- **Motion made visible.** A run cycle (bob, forward lean, alternating stride squash-and-stretch), rising stretch / landing squash, tan dust puffs kicked up by every stride and every landing (both characters), four-point-star sparkle bursts and `+25` pops on pickup, speed lines streaking behind her at full pace and filling the screen on a surge, fading afterimages behind both runners, a motion-blur tail on the rolling Menace, and a near-catch vignette that throbs as he closes.
+- **Density toward the reference.** A thick saturated grass cap with a lighter lip, a topsoil band over the checkered earth, a deeper textured sea with three rows of moving wave stripes and animated glints, sunflowers that sway, carved wooden marker posts with cut faces and star caps, bushes along the run and on the mid hills, more trees, birds, high wisps and big clouds, a more saturated palette, and soft shadows under both characters (the ghost's shrinks as she jumps) and every prop.
+- **Signature terrain, playable.** Two real slope sections (a long climb-and-drop and a short ramp): the grade changes speed for real — climbs slow her, drops speed her up, and the rolling ball gains more downhill. The loop silhouettes stay as backdrop dressing. Both characters are scaled up (ghost 1.8×, Menace radius 22) and the camera keeps the Menace whole in frame at the left (never cropped) while he visibly gains; the maximum gap is 280 px.
+
+### Block Kingdom (Round 2 median 17 — AAA feel 2)
+- **True parallax depth.** Three cloud layers (high far clouds, low wisps above the hill line, near puffy clouds) filling the sky, taller distant pale spotted hills with more spots and a sun-lit rim, the mid-ground hill band with highlights, mid bushes, foreground bushes and stemmed flowers hugging the terrain line, grass tufts, a shaded dirt stratum with tile seams, speckles and strata lines that follow the slope, pit shading, and soft drop shadows under the ghost, the Menace, minions, blocks and chimneys.
+- **Juice made visible.** Tan running dust and landing dust for both runners, a run cycle with stride squash-and-stretch and afterimages at pace, landing squash, four-point-star sparkle bursts with `+25` pops on pickup, the star-block bounce, speed lines and a subtle shake as the Menace closes, and a throbbing red vignette when he is right behind her.
+- **Staging and scale.** The ghost at 1.7× and the Menace drawn at radius 20, the camera keeping him whole in frame at the left (maximum gap 240 px), taller chimneys (up to four tiles), larger block clusters at varied heights (up to seven tiles up), a **sloped terrain section** (tiles 61–75: a climb, a plateau carrying a chimney, a drop — the ground-height function runs through the physics, so landings, running, the Menace's hops and the sprout patrols all follow it), the banner pole standing in-world at the goal, and the in-art gag twice over: the Menace waves his tiny captured squad flag as he runs and stomps any sprout minion in his way flat, leaving the flattened disc behind him.
+
+### Battery
+`test/acceptance.js` changed in screenshot timing only: the Grand Prix capture (check 18) now steers for 0.3 s and waits 1.5 s so the frame is a mid-race moment with both karts whole in shot. The `npm test` command is byte-identical. The Grand Prix module reports both kart rects and `bothInFrame` through `getFlip().extra`; Block Kingdom reports the ghost/Menace positions and `bothInFrame` too.
 
 ## The Soundtrack (Rounds 2–4)
 
@@ -179,7 +203,7 @@ The test suite automatically validates:
 20. GLOOM render sanity (the battery gets eyes): enters GLOOM through the bottom-left pellet, strafes and fires, and at ~4s of live corridor play reads the canvas pixels of the playfield (the view above GLOOM's status bar) in-page: at least 40 distinct colours (quantised to 32 levels per channel), no single colour over 55% of the region, the Menace's body yellow measurably present in the central corridor area (≥ 80 px) but never over 45% of it, the renderer's reported Menace rect inside the central area with body yellow, eye white and grin dark all present inside it (a figure, not a disc). A second sample ~5s later must pass the same thresholds with a strictly larger figure, and that frame is kept as `screenshots/gloom.png`. On the Round 4 build this check fails: the Menace was a frame-filling disc (yellow far over 45% of the central area) and the renderer reported no figure.
 21. Render sanity for the other three flips: the same distinct-colour and dominance thresholds applied to a ~4s mid-play frame of Green Valley, Block Kingdom and Phantom Grand Prix; zero console errors across all 21 checks.
 
-Screenshots of title, gameplay, the flip transition, Green Valley, Block Kingdom (banner and mid-level), GLOOM mid-corridor, Phantom Grand Prix mid-race, maze clear, and game over screens are saved into `screenshots/`.
+Screenshots of title, gameplay, the flip transition, Green Valley, Block Kingdom (banner and mid-level), GLOOM mid-corridor, Phantom Grand Prix mid-race, maze clear, and game over screens are saved into `screenshots/`. Since Round 6 the three fixed flips' frames (`valley.png`, `kingdom.png`, `grandprix.png`) are peak-action captures with both the ghost and the Menace in shot.
 
 ---
 

@@ -661,11 +661,11 @@ async function runAcceptanceTests() {
     const musicDuringGP = await page.evaluate(() => window.__RM_GAME__.getMusicState());
     if (musicDuringGP !== 'grandprix') throw new Error(`Music should read "grandprix" during the Grand Prix segment, got "${musicDuringGP}"`);
 
-    // Let the race run: steer, wait for mid-race frame with both karts
+    // Let the race run: a short steer off the grid, then a mid-race frame with both karts in shot
     await page.evaluate(() => window.__RM_GAME__.flipSteer(1));
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(300);
     await page.evaluate(() => window.__RM_GAME__.flipSteerRelease(1));
-    await page.waitForTimeout(1100);
+    await page.waitForTimeout(1500);
 
     const gpRun = await page.evaluate(() => window.__RM_GAME__.getFlip());
     if (gpRun.phase !== 'run' || gpRun.progress <= 0) throw new Error(`Grand Prix run did not advance (phase ${gpRun.phase}, progress ${gpRun.progress})`);
