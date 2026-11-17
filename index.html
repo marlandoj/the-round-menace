@@ -721,7 +721,7 @@
       </div>
       <div class="info-rule">
         <span class="info-rule-bullet">4.</span>
-        <span><strong>The Green Valley Flip.</strong> When he grabs a power pellet the maze tears open and your ghost is thrown into Green Valley with the Menace rolling after you. <strong>Jump</strong> (Space / ↑ / W / tap) and <strong>fast-fall</strong> (↓ / S / swipe down) over rocks and logs. Reach the Maze Gate (+200) or get benched.</span>
+        <span><strong>The Flips.</strong> When he grabs a power pellet the maze tears open and your ghost is thrown into that corner's mini-game with the Menace right behind you. Top-left: <strong>Green Valley</strong> (rocks and logs, he rolls). Top-right: <strong>Block Kingdom</strong> (gaps, star blocks and chimneys; he runs — <strong>hold</strong> to jump higher, land on a sprout to bounce for +50, two falls and he has you). <strong>Jump</strong> (Space / ↑ / W / tap) and <strong>fast-fall</strong> (↓ / S / swipe down). Reach the gate or the banner pole (+200) or get benched.</span>
       </div>
 
       <div class="squad-info-grid">
@@ -1027,6 +1027,74 @@ class SoundEngine {
     this.noiseBurst(now, 0.2, 0.12, 'lowpass', 900);
   }
 
+  // Block Kingdom: the stomp — a soft thump, then a springy rising blip for the bounce
+  playStomp() {
+    if (this.muted || !this.ctx) return;
+    this.init();
+    const now = this.ctx.currentTime;
+    this.noiseBurst(now, 0.08, 0.1, 'lowpass', 700);
+    const thump = this.ctx.createOscillator();
+    const tg = this.ctx.createGain();
+    thump.type = 'square';
+    thump.frequency.setValueAtTime(420, now);
+    thump.frequency.exponentialRampToValueAtTime(140, now + 0.08);
+    tg.gain.setValueAtTime(0.07, now);
+    tg.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
+    thump.connect(tg);
+    tg.connect(this.ctx.destination);
+    thump.start(now);
+    thump.stop(now + 0.1);
+    const boing = this.ctx.createOscillator();
+    const bg = this.ctx.createGain();
+    boing.type = 'square';
+    boing.frequency.setValueAtTime(380, now + 0.07);
+    boing.frequency.exponentialRampToValueAtTime(1100, now + 0.2);
+    bg.gain.setValueAtTime(0.0001, now);
+    bg.gain.setValueAtTime(0.05, now + 0.07);
+    bg.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+    boing.connect(bg);
+    bg.connect(this.ctx.destination);
+    boing.start(now + 0.07);
+    boing.stop(now + 0.23);
+  }
+
+  // Block Kingdom: head or shoulder against a block / chimney
+  playBonk() {
+    if (this.muted || !this.ctx) return;
+    this.init();
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(190, now);
+    osc.frequency.exponentialRampToValueAtTime(95, now + 0.1);
+    gain.gain.setValueAtTime(0.09, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.13);
+  }
+
+  // Block Kingdom: tumbling into a gap — a long downward slide
+  playFall() {
+    if (this.muted || !this.ctx) return;
+    this.init();
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(620, now);
+    osc.frequency.exponentialRampToValueAtTime(110, now + 0.55);
+    gain.gain.setValueAtTime(0.05, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.62);
+    this.duck(0.4, 0.8);
+  }
+
   playValleyPellet(count) {
     if (this.muted || !this.ctx) return;
     this.init();
@@ -1203,9 +1271,23 @@ class SoundEngine {
 }
 
 // 1b. Original Soundtrack — a small lookahead-scheduled music engine on the same AudioContext.
-// Three states: 'title' (sparse, moody), 'maze' (104 BPM night-shift groove in A minor),
-// 'valley' (140 BPM, brighter voicing, driving arpeggio). Every note is synthesized; nothing is sampled.
+// Four states: 'title' (sparse, moody), 'maze' (104 BPM night-shift groove in A minor),
+// 'valley' (140 BPM, brighter voicing, driving arpeggio), 'kingdom' (152 BPM, bouncy major-key
+// square-wave lead over a skipping bass). Every note is synthesized; nothing is sampled.
 const NOTE = (semitonesFromA4) => 440 * Math.pow(2, semitonesFromA4 / 12);
+
+// Block Kingdom lead: a 4-bar square-wave tune in C major over C · F · G · C, one entry per sixteenth
+// (semitones from A4, null = rest). Original composition.
+const KINGDOM_LEAD = [
+  // Bar 1 (C): a bright skipping call
+  7, null, 10, null, 7, null, 3, null, 10, null, null, null, 7, null, 10, null,
+  // Bar 2 (F): answer a step up
+  12, null, 8, null, 12, null, 15, null, 12, null, null, null, 8, null, 12, null,
+  // Bar 3 (G): the tumble down
+  14, null, 10, null, 5, null, 14, null, 10, null, null, null, 5, null, 2, null,
+  // Bar 4 (C): land on the tonic, breathe
+  15, null, 7, null, 10, null, 3, null, 7, null, 10, null, 15, null, null, null
+];
 
 const MUSIC_MODES = {
   title: {
@@ -1246,13 +1328,26 @@ const MUSIC_MODES = {
     pad: { octave: -12, type: 'sawtooth', gain: 0.018, lp: 1400, detune: 7 },
     hat: { steps: [2, 6, 10, 14], gain: 0.03, dur: 0.04 },
     bells: null
+  },
+  kingdom: {
+    bpm: 152,
+    bars: 4,
+    // C · F · G · C — plain major, the platformer's sunshine
+    chords: [[3, 7, 10], [-4, 0, 3], [-2, 2, 5], [3, 7, 10]],
+    // Skipping bass: root on the beat, fifth on the dotted off-beat (steps 0 3 6 8 11 14)
+    bass: { steps: 'skip', pattern: [0, 3, 6, 8, 11, 14], fifthOn: [3, 11], octaveLow: -24, octaveHigh: -12, type: 'square', gain: 0.085, decay: 0.11, lp: 520 },
+    lead: { notes: KINGDOM_LEAD, octave: 0, type: 'square', gain: 0.03, decay: 0.13, lp: 3400 },
+    arp: null,
+    pad: null,
+    hat: { steps: [4, 12], gain: 0.028, dur: 0.035 },
+    bells: null
   }
 };
 
 class MusicEngine {
   constructor(sound) {
     this.sound = sound;
-    this.mode = 'off';      // Logical state requested by the game: off / title / maze / valley
+    this.mode = 'off';      // Logical state requested by the game: off / title / maze / valley / kingdom
     this.running = null;    // Mode currently sounding (null when silent)
     this.spec = null;
     this.timer = null;
@@ -1298,7 +1393,7 @@ class MusicEngine {
     this.duckGain.connect(ctx.destination);
 
     this.running = mode;
-    this.spec = MUSIC_MODES[mode];
+    this.spec = MUSIC_MODES[mode] || MUSIC_MODES.valley; // Unknown flip music falls back to the valley track
     this.stepDur = 60 / this.spec.bpm / 4; // sixteenth notes
     this.step = 0;
     this.nextTime = now + 0.06;
@@ -1356,9 +1451,24 @@ class MusicEngine {
           while (freq < 48) freq *= 2;
           this.tone(freq, t, s.bass);
         }
+      } else if (s.bass.steps === 'skip') {
+        if (s.bass.pattern.includes(i)) {
+          // Skipping bass: the root hops between octaves, the dotted off-beats land on the fifth
+          const fifth = s.bass.fifthOn.includes(i);
+          const semi = fifth ? chord[2] : chord[0];
+          const high = (i % 8 >= 4);
+          let freq = NOTE(semi + (high ? s.bass.octaveHigh : s.bass.octaveLow));
+          while (freq < 48) freq *= 2;
+          this.tone(freq, t, s.bass);
+        }
       } else if (s.bass.steps.includes(i)) {
         this.tone(NOTE(s.bass.octave), t, s.bass);
       }
+    }
+
+    if (s.lead) {
+      const n = s.lead.notes[step % s.lead.notes.length];
+      if (n !== null && n !== undefined) this.tone(NOTE(n + s.lead.octave), t, s.lead);
     }
 
     if (s.arp && s.arp.mask[i]) {
@@ -1502,7 +1612,9 @@ const MAZE_CONFIGS = [
     wallGlow: "rgba(99, 102, 241, 0.4)",
     menaceSpeedMultiplier: 1.0,
     ghostSpeedMultiplier: 1.0,
-    valleyMenaceGain: 2.4   // px/s gained per second by the rolling Menace in Green Valley
+    valleyMenaceGain: 2.4,  // px/s gained per second by the rolling Menace in Green Valley
+    kingdomMenaceGain: 1.2, // px/s gained per second by the Menace on foot in Block Kingdom
+    kingdomHopCost: 0.4     // seconds he hesitates before hopping a gap (the catch-up tuning knob)
   },
   {
     name: "Maze 2",
@@ -1511,7 +1623,9 @@ const MAZE_CONFIGS = [
     wallGlow: "rgba(217, 70, 239, 0.4)",
     menaceSpeedMultiplier: 1.07,
     ghostSpeedMultiplier: 1.02,
-    valleyMenaceGain: 2.7
+    valleyMenaceGain: 2.7,
+    kingdomMenaceGain: 1.5,
+    kingdomHopCost: 0.33
   },
   {
     name: "Maze 3",
@@ -1520,7 +1634,9 @@ const MAZE_CONFIGS = [
     wallGlow: "rgba(244, 63, 94, 0.45)",
     menaceSpeedMultiplier: 1.14,
     ghostSpeedMultiplier: 1.04,
-    valleyMenaceGain: 3.0
+    valleyMenaceGain: 3.0,
+    kingdomMenaceGain: 1.8,
+    kingdomHopCost: 0.26
   }
 ];
 
@@ -3239,7 +3355,56 @@ class Game {
     ctx.arc(0, 0, r - 1, 0, Math.PI * 2);
     ctx.stroke();
 
-    // Face stays upright: two narrowed eyes and a huge grin
+    this.drawMenaceFace(ctx, r);
+    ctx.restore();
+  }
+
+  // The Menace on foot (Block Kingdom): the same round glutton on two stubby legs, mid-stride.
+  // (x, feetY) is where his feet touch; `stride` animates the legs; `airborne` tucks them for a hop.
+  drawMenaceRunner(ctx, x, feetY, r, stride, airborne, squash) {
+    const legLen = 7;
+    ctx.save();
+    ctx.translate(x, feetY - r - legLen);
+    ctx.scale(1 + squash, 1 - squash);
+
+    // Legs + feet
+    ctx.strokeStyle = '#7c2d12';
+    ctx.lineWidth = 3.5;
+    ctx.lineCap = 'round';
+    ctx.fillStyle = '#7c2d12';
+    for (let i = 0; i < 2; i++) {
+      const phase = stride + i * Math.PI;
+      const fx = airborne ? (i ? 6 : -6) : Math.sin(phase) * 8;
+      const fy = airborne ? r + 3 : r + legLen - Math.max(0, Math.cos(phase)) * 4;
+      ctx.beginPath();
+      ctx.moveTo(i ? 5 : -5, r - 4);
+      ctx.lineTo(fx, fy);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.ellipse(fx + 2, fy, 5, 2.6, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Body with the hunter's red glow
+    ctx.shadowColor = 'rgba(255, 51, 68, 0.95)';
+    ctx.shadowBlur = 24;
+    ctx.fillStyle = '#fbc531';
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = 'rgba(255, 51, 68, 0.8)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, r - 1, 0, Math.PI * 2);
+    ctx.stroke();
+
+    this.drawMenaceFace(ctx, r);
+    ctx.restore();
+  }
+
+  // Shared by the ball and the runner: two narrowed eyes, a slanted brow and a huge grin, facing right
+  drawMenaceFace(ctx, r) {
     ctx.fillStyle = '#ffffff';
     ctx.beginPath();
     ctx.ellipse(2, -r * 0.35, 4, 3, 0, 0, Math.PI * 2);
@@ -3264,8 +3429,6 @@ class Game {
     ctx.fill();
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(4 - r * 0.58, r * 0.12, r * 1.16, 3);
-
-    ctx.restore();
   }
 
   drawGhosts() {
@@ -4196,6 +4359,1080 @@ class ValleyRun {
     // Red vignette when he is right behind you
     if (gap < 120) {
       const danger = Math.min(1, (120 - gap) / 120);
+      const vg = ctx.createRadialGradient(W / 2, H / 2, H * 0.35, W / 2, H / 2, H * 0.8);
+      vg.addColorStop(0, 'rgba(255, 51, 68, 0)');
+      vg.addColorStop(1, `rgba(255, 51, 68, ${0.45 * danger})`);
+      ctx.fillStyle = vg;
+      ctx.fillRect(0, 0, W, H);
+    }
+  }
+}
+
+// 3c. BLOCK KINGDOM — the bright platformer the top-right power pellet throws the possessed ghost into.
+// Original canvas art only: blue sky, puffy clouds, green hills, rows of floating star-emblem cube blocks,
+// striped chimneys, round sprout minions and a banner-pole finish. The ghost auto-runs right with
+// platformer jump feel (hold to rise, coyote time, a jump buffer, fast-fall); the Menace gives chase on
+// foot behind her, hopping gaps a beat slower. Falling into a gap costs a 1 s stumble; the second fall is the catch.
+class KingdomRun {
+  constructor(game, ghostIndex) {
+    this.game = game;
+    this.ghostIndex = ghostIndex;
+    this.W = game.width;
+    this.H = game.height;
+    const cfg = MAZE_CONFIGS[game.mazeIndex];
+
+    // Flip module contract
+    this.kind = 'kingdom';
+    this.musicMode = 'kingdom';
+    this.hudLabel = '⚠️ Hunt Flipped — Run to the Banner Pole';
+    this.openingBanner = 'BLOCK KINGDOM — RUN!';
+    this.bannerColor = '#f6a623';
+    this.exitBanner = 'BACK TO THE MAZE';
+    this.surviveText = 'Banner pole reached! Survival +200';
+    this.pressToJump = true;                 // Hold to rise: jump on the press, release ends the rise
+
+    // Tuning
+    this.T = 24;                             // Tile size (same as the maze tile)
+    this.runSpeed = 110;                     // Auto-run (px/s), ~4.6 tiles/s
+    this.groundTop = this.H - 72;            // Three rows of ground tiles
+    this.cameraLead = 190;                   // Ghost's screen x
+    this.gravityHold = 800;                  // While the jump is held and still rising
+    this.gravity = 1600;                     // Released / falling
+    this.jumpV = 420;                        // Held jump ~110 px / ~100 px of reach (clears a 3-tile gap, reaches the low block row); tap ~55 px
+    this.maxHold = 0.32;
+    this.coyoteTime = 0.1;
+    this.jumpBuffer = 0.12;
+    this.tearInDuration = 0.7;
+
+    this.phase = 'tear_in';                  // tear_in -> run -> survived | caught
+    this.phaseT = 0;
+    this.elapsed = 0;
+    this.outcome = null;
+
+    this.buildLevel();
+    this.gateX = this.poleX;
+    this.duration = this.gateX / this.runSpeed;   // Clean-run seconds to the pole (HUD estimate)
+
+    this.ghost = {
+      x: 0, y: this.groundTop, vy: 0, w: 24, h: 31, grounded: true, prevFeet: this.groundTop, feetBefore: this.groundTop,
+      jumpHeld: false, holdT: 0, coyote: 0, buffer: 0, fastFall: false,
+      stumbleTimer: 0, dazeTimer: 0, hitCooldown: 0, bonkCooldown: 0,
+      lastSafeX: 0, dust: 0, falls: 0, stomps: 0
+    };
+    this.menace = {
+      x: -180, y: this.groundTop, r: 16,
+      speed: this.runSpeed * 0.98,           // Starts a touch slower than the ghost...
+      gain: cfg.kingdomMenaceGain,           // ...and gains steadily
+      hopCost: cfg.kingdomHopCost,           // Seconds he hesitates at every gap edge (the tuning knob)
+      slowTimer: 0, stride: 0, state: 'run', hop: null, waitT: 0, hopT: 0, hopDur: 0, hopX0: 0, hopX1: 0, hopH: 0, squash: 0
+    };
+    this.camX = this.ghost.x - this.cameraLead;
+
+    this.collected = 0;
+    this.chain = 0;
+    this.surges = 0;
+    this.surgeFx = 0;
+    this.fallFx = 0;
+    this.particles = [];
+    this.pops = [];                          // Floating "+50" score pops
+    this.rng = ValleyRun.makeRng(4099 + game.mazeIndex * 97);
+    this.buildScenery();
+  }
+
+  // ===== Level (fixed, authored in 24 px tiles) =====
+  buildLevel() {
+    const T = this.T;
+    // Ground stretches as [firstTile, lastTile] inclusive; everything between stretches is a gap
+    // (three 2-tile gaps and one 3-tile gap; hazards are spaced at least five tiles apart so each reads on its own)
+    const ground = [[-12, 20], [23, 36], [39, 56], [60, 77], [80, 112]];
+    this.segments = ground.map(([a, b]) => ({ x0: a * T, x1: (b + 1) * T }));
+    this.gaps = [];
+    for (let i = 1; i < this.segments.length; i++) {
+      this.gaps.push({ x0: this.segments[i - 1].x1, x1: this.segments[i].x0 });
+    }
+
+    // Floating star blocks at two heights: low = 3 tiles up (reachable from the ground), high = 5 tiles up (via a low row)
+    const lowY = this.groundTop - 3 * T;
+    const highY = this.groundTop - 5 * T;
+    const blockRows = [
+      [8, 10, lowY], [26, 28, lowY], [45, 47, lowY], [49, 52, highY],
+      [72, 74, lowY], [86, 88, lowY], [90, 93, highY]
+    ];
+    this.blocks = [];
+    blockRows.forEach(([a, b, y]) => {
+      for (let t = a; t <= b; t++) this.blocks.push({ x: t * T, y, w: T, h: T, kind: 'block', bump: 0 });
+    });
+
+    // Striped chimneys: one tile wide, two tall, standing on the ground. Solid — hop them or get pinned.
+    this.chimneys = [15, 31, 42, 68, 83].map(t => ({ x: t * T, y: this.groundTop - 2 * T, w: T, h: 2 * T, kind: 'chimney' }));
+    this.solids = this.blocks.concat(this.chimneys);
+
+    // Everything the Menace has to hop: gaps and chimneys, in course order
+    this.hops = this.gaps.map(g => ({ from: g.x0, to: g.x1, kind: 'gap' }))
+      .concat(this.chimneys.map(c => ({ from: c.x, to: c.x + c.w, kind: 'chimney' })))
+      .sort((a, b) => a.from - b.from);
+
+    // Sprout minions patrol a stretch of ground: [fromTile, toTile]
+    this.sprouts = [[12, 15], [33, 35], [62, 66], [95, 99]].map(([a, b], i) => ({
+      x: (a + b + 1) * T / 2, x0: a * T + 8, x1: (b + 1) * T - 8,
+      dir: i % 2 ? -1 : 1, speed: 38, r: 9, alive: true, squashT: 0, wobble: i * 1.7
+    }));
+
+    this.poleX = 101 * T;                    // 2424 px of level to the banner pole (~22 s clean at 110 px/s)
+    this.levelEnd = this.segments[this.segments.length - 1].x1;
+
+    // Pellets strung along the ideal line: head height on ground runs, arcs over gaps and chimneys, a row atop each block run
+    this.pellets = [];
+    const add = (x, y) => this.pellets.push({ x, y, taken: false });
+    for (const seg of this.segments) {
+      for (let x = Math.max(seg.x0, 2 * T) + T / 2; x < Math.min(seg.x1, this.poleX - T); x += T) {
+        const nearChimney = this.chimneys.some(c => x > c.x - T * 1.5 && x < c.x + c.w + T * 0.5);
+        const underBlock = this.blocks.some(b => x > b.x - 4 && x < b.x + b.w + 4);
+        if (nearChimney || underBlock) continue;
+        if (Math.floor(x / T) % 2 === 0) add(x, this.groundTop - 34);
+      }
+    }
+    for (const gap of this.gaps) {
+      const mid = (gap.x0 + gap.x1) / 2;
+      const span = gap.x1 - gap.x0 + T;
+      for (let k = 0; k < 5; k++) {
+        const f = k / 4;
+        add(mid - span / 2 + f * span, this.groundTop - 50 - Math.sin(f * Math.PI) * 50);
+      }
+    }
+    for (const c of this.chimneys) {
+      const cx = c.x + c.w / 2;
+      for (let k = 0; k < 3; k++) {
+        const f = k / 2;
+        add(cx - T + f * 2 * T, c.y - 22 - Math.sin(f * Math.PI) * 26);
+      }
+    }
+    blockRows.forEach(([a, b, y]) => {
+      for (let t = a; t <= b; t++) add((t + 0.5) * T, y - 18);
+    });
+  }
+
+  buildScenery() {
+    this.clouds = [];
+    for (let i = 0; i < 8; i++) {
+      this.clouds.push({ x: i * 210 + this.rng() * 100, y: 44 + this.rng() * 90, s: 0.8 + this.rng() * 0.8 });
+    }
+    this.farHills = [];
+    for (let x = -300; x < this.levelEnd * 0.35 + 700; x += 110 + this.rng() * 90) {
+      this.farHills.push({ x, r: 60 + this.rng() * 50 });
+    }
+    this.bushes = [];
+    for (let x = -300; x < this.levelEnd * 0.6 + 700; x += 70 + this.rng() * 120) {
+      this.bushes.push({ x, r: 16 + this.rng() * 14, lobes: 2 + Math.floor(this.rng() * 2) });
+    }
+  }
+
+  puff(x, y, n, color) {
+    for (let i = 0; i < n; i++) this.particles.push(new Particle(x, y, color));
+  }
+
+  pop(x, y, text, color) {
+    this.pops.push({ x, y, text, color, t: 0 });
+  }
+
+  // ===== Player input =====
+  jump() {
+    if (this.phase !== 'run') return false;
+    const g = this.ghost;
+    g.jumpHeld = true;
+    if (g.dazeTimer > 0) return false;
+    if (g.grounded || g.coyote > 0) {
+      this.doJump();
+      return true;
+    }
+    g.buffer = this.jumpBuffer;              // Pressed just before landing: jump the moment the feet touch
+    return false;
+  }
+
+  doJump() {
+    const g = this.ghost;
+    g.vy = -this.jumpV;
+    g.grounded = false;
+    g.coyote = 0;
+    g.holdT = 0;
+    g.buffer = 0;
+    g.fastFall = false;
+    this.puff(g.x, g.y, 5, '#ffffff');
+  }
+
+  jumpRelease() {
+    this.ghost.jumpHeld = false;
+  }
+
+  fastFall() {
+    const g = this.ghost;
+    if (this.phase !== 'run' || g.grounded) return false;
+    g.fastFall = true;
+    g.jumpHeld = false;
+    g.vy = Math.max(g.vy, 260);
+    return true;
+  }
+
+  // ===== HUD meter contract =====
+  progress() { return Math.max(0, Math.min(1, this.ghost.x / this.gateX)); }
+  menaceProgress() { return Math.max(0, Math.min(1, this.menace.x / this.gateX)); }
+  remainingSeconds() { return Math.max(0, (this.gateX - this.ghost.x) / this.runSpeed); }
+  extraInfo() { return { falls: this.ghost.falls, stomps: this.ghost.stomps, menaceState: this.menace.state }; }
+
+  // ===== Geometry helpers =====
+  groundAt(x) {
+    return this.segments.some(s => x >= s.x0 && x < s.x1);
+  }
+
+  // The surface directly under feet at height y (ground or a solid top), if any
+  surfaceAt(fl, fr, y) {
+    if (Math.abs(y - this.groundTop) < 0.5 && (this.groundAt(fl) || this.groundAt(fr))) return { y: this.groundTop, kind: 'ground' };
+    for (const s of this.solids) {
+      if (Math.abs(y - s.y) < 0.5 && fr > s.x && fl < s.x + s.w) return { y: s.y, kind: s.kind, solid: s };
+    }
+    return null;
+  }
+
+  // Highest surface whose top the feet crossed between yPrev and yNow
+  landingSurface(fl, fr, yPrev, yNow) {
+    let best = null;
+    if (yPrev <= this.groundTop + 0.01 && yNow >= this.groundTop && (this.groundAt(fl) || this.groundAt(fr))) {
+      best = { y: this.groundTop, kind: 'ground' };
+    }
+    for (const s of this.solids) {
+      if (yPrev <= s.y + 0.01 && yNow >= s.y && fr > s.x && fl < s.x + s.w) {
+        if (!best || s.y < best.y) best = { y: s.y, kind: s.kind, solid: s };
+      }
+    }
+    return best;
+  }
+
+  // Lowest solid whose underside the head crossed between yPrev and yNow (moving up)
+  ceilingSurface(fl, fr, yPrev, yNow) {
+    let best = null;
+    for (const s of this.solids) {
+      const under = s.y + s.h;
+      if (yPrev >= under - 0.01 && yNow <= under && fr > s.x && fl < s.x + s.w) {
+        if (!best || under > best.y) best = { y: under, kind: s.kind, solid: s };
+      }
+    }
+    return best;
+  }
+
+  hopSpanAt(x) {
+    return this.hops.find(h => x > h.from && x < h.to) || null;
+  }
+
+  // ===== Simulation =====
+  surge() {
+    const m = this.menace;
+    this.surges++;
+    m.x -= 110;
+    if (m.state !== 'run') {                  // A hop in progress is cut short: he lands back where he was pushed
+      m.state = 'run';
+      m.y = this.groundTop;
+    }
+    const span = this.hopSpanAt(m.x);
+    if (span) m.x = span.from - m.r;
+    m.slowTimer = Math.max(m.slowTimer, 0.8);
+    this.surgeFx = 0.7;
+    this.game.sound.playSurge();
+    this.game.showNotification('SURGE! The Menace is pushed back!');
+    this.game.shakeDuration = 0.12;
+    this.game.shakeIntensity = 5;
+  }
+
+  wallBonk(g) {
+    if (g.bonkCooldown > 0) return;
+    g.bonkCooldown = 0.5;
+    this.game.sound.playBonk();
+    this.puff(g.x + g.w / 2, g.y - g.h / 2, 5, '#f8fafc');
+    this.game.shakeDuration = 0.06;
+    this.game.shakeIntensity = 3;
+  }
+
+  fall() {
+    const g = this.ghost;
+    g.falls++;
+    this.game.sound.playFall();
+    if (g.falls >= 2) {
+      // Two falls in one run: he catches up (the second fall is the catch)
+      this.outcome = 'caught';
+      this.phase = 'caught';
+      return;
+    }
+    // Respawn on the last ground, dazed for a second while the Menace gains
+    g.x = g.lastSafeX;
+    g.y = this.groundTop;
+    g.prevFeet = g.y;
+    g.vy = 0;
+    g.grounded = true;
+    g.fastFall = false;
+    g.jumpHeld = false;
+    g.holdT = 0;
+    g.buffer = 0;
+    g.dazeTimer = 1.0;
+    g.hitCooldown = 1.2;
+    this.fallFx = 0.45;
+    this.game.showNotification('Into the gap! Back on your feet — he gains…');
+    this.game.shakeDuration = 0.2;
+    this.game.shakeIntensity = 6;
+  }
+
+  update(dt) {
+    if (this.outcome) return this.outcome;
+    this.phaseT += dt;
+
+    // Particles and pops always animate
+    for (let i = this.particles.length - 1; i >= 0; i--) {
+      this.particles[i].update(dt);
+      if (this.particles[i].life <= 0) this.particles.splice(i, 1);
+    }
+    for (let i = this.pops.length - 1; i >= 0; i--) {
+      this.pops[i].t += dt;
+      if (this.pops[i].t > 0.8) this.pops.splice(i, 1);
+    }
+    if (this.surgeFx > 0) this.surgeFx -= dt;
+    if (this.fallFx > 0) this.fallFx -= dt;
+
+    if (this.phase === 'tear_in') {
+      if (this.phaseT >= this.tearInDuration) {
+        this.phase = 'run';
+        this.phaseT = 0;
+      }
+      return null;
+    }
+
+    this.elapsed += dt;
+    this.updateGhost(dt);
+    if (this.outcome) return this.outcome;
+    this.updateSprouts(dt);
+    this.updatePellets();
+    this.updateMenace(dt);
+
+    const g = this.ghost, m = this.menace;
+
+    // Caught: he touches the ghost
+    if (m.x + m.r >= g.x - g.w / 2 + 4) {
+      this.outcome = 'caught';
+      this.phase = 'caught';
+      return this.outcome;
+    }
+
+    // Banner pole reached
+    if (g.x >= this.gateX) {
+      this.outcome = 'survived';
+      this.phase = 'survived';
+      return this.outcome;
+    }
+
+    this.camX = g.x - this.cameraLead;
+    return null;
+  }
+
+  updateGhost(dt) {
+    const g = this.ghost;
+    if (g.stumbleTimer > 0) g.stumbleTimer -= dt;
+    if (g.dazeTimer > 0) g.dazeTimer -= dt;
+    if (g.hitCooldown > 0) g.hitCooldown -= dt;
+    if (g.bonkCooldown > 0) g.bonkCooldown -= dt;
+    if (g.coyote > 0) g.coyote -= dt;
+    if (g.buffer > 0) g.buffer -= dt;
+    if (g.dust > 0) g.dust -= dt;
+    g.feetBefore = g.y;                      // Feet at the previous frame (the stomp test reads this after a landing)
+
+    // --- Horizontal: auto-run right (a stumble slows 30%; dazed after a fall: stands still) ---
+    const speed = g.dazeTimer > 0 ? 0 : this.runSpeed * (g.stumbleTimer > 0 ? 0.7 : 1);
+    g.x += speed * dt;
+
+    // Shoulder against a solid's side: pinned until she jumps clear (landings and head-bonks are handled vertically)
+    const bodyTop = g.y - g.h, bodyBottom = g.y;
+    for (const s of this.solids) {
+      const overlapX = g.x + g.w / 2 > s.x && g.x - g.w / 2 < s.x + s.w;
+      const overlapY = bodyBottom > s.y + 2 && bodyTop < s.y + s.h - 2;
+      if (!overlapX || !overlapY) continue;
+      const wasAbove = g.prevFeet <= s.y + 4;
+      const wasBelow = g.prevFeet - g.h >= s.y + s.h - 4;
+      if (wasAbove || wasBelow) continue;
+      if (g.x < s.x + s.w / 2) {
+        g.x = s.x - g.w / 2;
+        this.wallBonk(g);
+      }
+    }
+
+    // --- Vertical: variable-height jump, fast-fall, landings and head bonks ---
+    const feetPrev = g.y;
+    const fl = g.x - g.w / 2 + 5, fr = g.x + g.w / 2 - 5;   // Forgiving foot span
+    if (g.grounded) {
+      if (!this.surfaceAt(fl, fr, g.y)) {
+        // Walked off an edge: a short coyote window still allows the jump
+        g.grounded = false;
+        g.coyote = this.coyoteTime;
+        g.vy = 0;
+      }
+    }
+    if (!g.grounded) {
+      const rising = g.vy < 0;
+      let grav = this.gravity;
+      if (rising && g.jumpHeld && g.holdT < this.maxHold) grav = this.gravityHold;
+      if (g.fastFall) grav = this.gravity * 2.2;
+      if (g.jumpHeld) g.holdT += dt;
+      g.vy += grav * dt;
+      g.y += g.vy * dt;
+
+      if (g.vy > 0) {
+        let land = this.landingSurface(fl, fr, feetPrev, g.y);
+        // Ledge forgiveness: feet dipped a few px below ground level just as the body crossed onto a ledge
+        if (!land && g.y > this.groundTop && g.y < this.groundTop + 12 && (this.groundAt(fl) || this.groundAt(fr))) {
+          land = { y: this.groundTop, kind: 'ground' };
+        }
+        // Deeper than that she is in the pit: the far wall stops her so she never clips into the ground
+        if (!land && g.y >= this.groundTop + 12) {
+          const gap = this.gaps.find(gp => g.x + g.w / 2 > gp.x0 && g.x - g.w / 2 < gp.x1 + g.w);
+          if (gap) g.x = Math.min(g.x, gap.x1 - g.w / 2 + 5);
+        }
+        if (land) {
+          g.y = land.y;
+          g.vy = 0;
+          g.grounded = true;
+          g.fastFall = false;
+          g.holdT = 0;
+          g.dust = 0.15;
+          this.puff(g.x, g.y, 4, land.kind === 'ground' ? '#bbf7d0' : '#fde68a');
+          if (g.buffer > 0) {
+            this.doJump();
+            this.game.sound.playJump();
+          }
+        }
+      } else if (g.vy < 0) {
+        const hit = this.ceilingSurface(fl, fr, feetPrev - g.h, g.y - g.h);
+        if (hit) {
+          g.y = hit.y + g.h;
+          g.vy = 0;
+          g.jumpHeld = false;
+          if (hit.solid && hit.kind === 'block') hit.solid.bump = 0.25;
+          this.game.sound.playBonk();
+          this.puff(g.x, g.y - g.h, 5, '#fde68a');
+        }
+      }
+    }
+    g.prevFeet = g.y;
+
+    // Remember the last comfortable spot on real ground (used for the gap respawn)
+    if (g.grounded && Math.abs(g.y - this.groundTop) < 0.5 && this.groundAt(g.x - 30) && this.groundAt(g.x + 30)) {
+      g.lastSafeX = g.x;
+    }
+
+    // Tumbled out of the kingdom
+    if (g.y - g.h > this.H + 10) this.fall();
+  }
+
+  updateSprouts(dt) {
+    const g = this.ghost, m = this.menace;
+    for (const sp of this.sprouts) {
+      if (!sp.alive) {
+        if (sp.squashT > 0) sp.squashT -= dt;
+        continue;
+      }
+      sp.x += sp.dir * sp.speed * dt;
+      if (sp.x < sp.x0) { sp.x = sp.x0; sp.dir = 1; }
+      if (sp.x > sp.x1) { sp.x = sp.x1; sp.dir = -1; }
+      sp.wobble += dt * 9;
+
+      const spTop = this.groundTop - sp.r * 2;
+      if (Math.abs(sp.x - g.x) < sp.r + g.w / 2 - 4) {
+        // Came down onto it this frame (even if the feet already met the ground): that's a stomp
+        const crossedTop = g.feetBefore <= spTop + 8 && g.y >= spTop - 10 && g.y >= g.feetBefore;
+        if (crossedTop) {
+          // THE STOMP: squash, bounce, +50
+          sp.alive = false;
+          sp.squashT = 0.35;
+          g.stomps++;
+          g.y = spTop;
+          g.prevFeet = g.y;
+          g.vy = -330;
+          g.grounded = false;
+          g.holdT = 0;
+          g.fastFall = false;
+          this.game.score += 50;
+          this.game.updateHUD();
+          this.game.sound.playStomp();
+          this.puff(sp.x, spTop, 10, '#86efac');
+          this.pop(sp.x, spTop - 14, '+50', '#fef08a');
+          this.game.shakeDuration = 0.08;
+          this.game.shakeIntensity = 3;
+        } else if (g.y > spTop + 8 && g.hitCooldown <= 0) {
+          // Ran into one: a stumble, and the sprout scurries the other way
+          g.stumbleTimer = 1.0;
+          g.hitCooldown = 1.2;
+          sp.dir = -sp.dir;
+          this.game.sound.playStumble();
+          this.puff(g.x, g.y - 12, 8, '#94a3b8');
+          this.game.shakeDuration = 0.1;
+          this.game.shakeIntensity = 4;
+        }
+      }
+
+      // The Menace simply eats whatever sprout is in his way
+      if (sp.alive && m.state !== 'hop' && Math.abs(sp.x - m.x) < m.r + sp.r - 4) {
+        sp.alive = false;
+        sp.squashT = 0;
+        this.puff(sp.x, spTop + sp.r, 8, '#86efac');
+        this.game.sound.playChomp();
+      }
+    }
+  }
+
+  updatePellets() {
+    const g = this.ghost;
+    const gcy = g.y - g.h / 2;
+    for (const p of this.pellets) {
+      if (p.taken) continue;
+      if (Math.abs(p.x - g.x) < 20 && Math.abs(p.y - gcy) < 26) {
+        p.taken = true;
+        this.collected++;
+        this.chain++;
+        this.game.score += 25;
+        this.game.updateHUD();
+        this.game.sound.playValleyPellet(this.chain);
+        this.puff(p.x, p.y, 4, '#fde047');
+        if (this.chain >= 10) {
+          this.chain = 0;
+          this.surge();
+        }
+      }
+    }
+  }
+
+  updateMenace(dt) {
+    const m = this.menace, g = this.ghost;
+    if (m.slowTimer > 0) m.slowTimer -= dt;
+    m.speed += m.gain * dt;
+    const ms = m.speed * (m.slowTimer > 0 ? 0.75 : 1);
+
+    if (m.state === 'run') {
+      const front = m.x + m.r;
+      const next = this.hops.find(h => h.from >= front - 1);
+      if (next && next.from - front <= ms * dt + 0.5) {
+        // At the edge: a beat of hesitation before the hop (gaps cost the full beat, chimneys half)
+        m.x = next.from - m.r;
+        m.state = 'wait';
+        m.waitT = next.kind === 'gap' ? m.hopCost : m.hopCost * 0.5;
+        m.hop = next;
+        m.squash = 0.2;
+      } else {
+        m.x += ms * dt;
+        m.stride += ms * dt / 9;
+      }
+      m.y = this.groundTop;
+      if (g.x - m.x > 460) {                 // Never so far back that he stops being a threat
+        m.x = g.x - 460;
+        const span = this.hopSpanAt(m.x);
+        if (span) m.x = span.to + m.r;
+      }
+    } else if (m.state === 'wait') {
+      m.waitT -= dt;
+      if (m.waitT <= 0) {
+        m.state = 'hop';
+        m.hopT = 0;
+        m.hopX0 = m.x;
+        m.hopX1 = m.hop.to + m.r;
+        m.hopDur = Math.max(0.3, (m.hopX1 - m.hopX0) / ms);
+        m.hopH = m.hop.kind === 'gap' ? 64 : 78;
+        this.puff(m.x, this.groundTop, 5, 'rgba(120, 90, 50, 0.6)');
+      }
+    } else if (m.state === 'hop') {
+      m.hopT += dt;
+      const f = Math.min(1, m.hopT / m.hopDur);
+      m.x = m.hopX0 + (m.hopX1 - m.hopX0) * f;
+      m.y = this.groundTop - Math.sin(f * Math.PI) * m.hopH;
+      if (f >= 1) {
+        m.state = 'run';
+        m.y = this.groundTop;
+        m.squash = 0.15;
+        this.puff(m.x, this.groundTop, 5, 'rgba(120, 90, 50, 0.6)');
+      }
+    }
+    if (m.squash > 0) m.squash = Math.max(0, m.squash - dt * 0.8);
+  }
+
+  // ===== Rendering =====
+  drawStar(ctx, cx, cy, r, color) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    for (let i = 0; i < 10; i++) {
+      const a = -Math.PI / 2 + i * Math.PI / 5;
+      const rr = i % 2 === 0 ? r : r * 0.45;
+      const px = cx + Math.cos(a) * rr, py = cy + Math.sin(a) * rr;
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  drawCloud(ctx, x, y, s) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(s, s);
+    ctx.fillStyle = '#ffffff';
+    ctx.strokeStyle = 'rgba(120, 170, 220, 0.6)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(-22, 4, 14, 0, Math.PI * 2);
+    ctx.arc(-4, -6, 18, 0, Math.PI * 2);
+    ctx.arc(16, 0, 15, 0, Math.PI * 2);
+    ctx.arc(30, 6, 11, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(-30, 4, 68, 12);
+    ctx.restore();
+  }
+
+  drawBlock(ctx, b, sx) {
+    const lift = b.bump > 0 ? -Math.sin((b.bump / 0.25) * Math.PI) * 6 : 0;
+    const x = sx, y = b.y + lift, w = b.w, h = b.h;
+    ctx.fillStyle = '#f5a623';
+    ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = '#ffd56a';
+    ctx.fillRect(x + 2, y + 2, w - 4, 3);
+    ctx.fillRect(x + 2, y + 2, 3, h - 4);
+    ctx.fillStyle = '#b86e12';
+    ctx.fillRect(x + 2, y + h - 5, w - 4, 3);
+    ctx.fillRect(x + w - 5, y + 2, 3, h - 4);
+    ctx.strokeStyle = '#6b3b0b';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+    this.drawStar(ctx, x + w / 2, y + h / 2 + 0.5, 7, '#fff6d5');
+  }
+
+  drawChimney(ctx, c, sx, time) {
+    const x = sx, y = c.y, w = c.w, h = c.h;
+    for (let i = 0; i < 4; i++) {
+      ctx.fillStyle = i % 2 === 0 ? '#e5484d' : '#f8f4ef';
+      ctx.fillRect(x, y + i * (h / 4), w, h / 4);
+    }
+    ctx.strokeStyle = '#5a1d1d';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+    ctx.fillStyle = '#3d2a2a';
+    ctx.fillRect(x - 3, y - 8, w + 6, 9);
+    // Lazy smoke
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    for (let i = 0; i < 2; i++) {
+      const ph = (time * 0.6 + i * 0.5 + c.x * 0.001) % 1;
+      ctx.globalAlpha = 0.6 * (1 - ph);
+      ctx.beginPath();
+      ctx.arc(x + w / 2 + Math.sin(ph * 6) * 4, y - 14 - ph * 26, 4 + ph * 5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  drawPole(ctx, sx, time) {
+    const gy = this.groundTop;
+    const top = gy - 170;
+    ctx.save();
+    // Stone base
+    ctx.fillStyle = '#9ca3af';
+    ctx.strokeStyle = '#4b5563';
+    ctx.lineWidth = 2;
+    ctx.fillRect(sx - 12, gy - 10, 24, 10);
+    ctx.strokeRect(sx - 12, gy - 10, 24, 10);
+    // Pole
+    ctx.fillStyle = '#e9edf5';
+    ctx.fillRect(sx - 3, top, 6, gy - 10 - top);
+    ctx.strokeRect(sx - 3, top, 6, gy - 10 - top);
+    // Finial
+    ctx.fillStyle = '#ffd43b';
+    ctx.beginPath();
+    ctx.arc(sx, top - 2, 7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    // Tall banner, flapping
+    const wave = Math.sin(time * 4) * 5;
+    ctx.fillStyle = '#7c3aed';
+    ctx.beginPath();
+    ctx.moveTo(sx + 3, top + 8);
+    ctx.quadraticCurveTo(sx + 30, top + 18 + wave, sx + 52, top + 30 + wave);
+    ctx.lineTo(sx + 3, top + 52);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    this.drawStar(ctx, sx + 18, top + 30, 7, '#ffd43b');
+    // Ground pennant strip
+    ctx.fillStyle = '#7c3aed';
+    ctx.fillRect(sx - 3, top + 62, 6, 30);
+    ctx.restore();
+  }
+
+  drawSprout(ctx, sp, sx) {
+    const gy = this.groundTop;
+    ctx.save();
+    ctx.translate(sx, gy);
+    if (!sp.alive) {
+      // Freshly stomped: a flattened disc with crossed eyes
+      ctx.fillStyle = '#7bd04a';
+      ctx.strokeStyle = '#2f6b1f';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.ellipse(0, -3, 14, 3.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+      return;
+    }
+    const r = sp.r;
+    const bob = Math.abs(Math.sin(sp.wobble)) * 1.5;
+    // Feet
+    ctx.fillStyle = '#2f6b1f';
+    ctx.beginPath();
+    ctx.ellipse(-4 + Math.sin(sp.wobble) * 3, -1, 4, 2, 0, 0, Math.PI * 2);
+    ctx.ellipse(4 - Math.sin(sp.wobble) * 3, -1, 4, 2, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Body
+    ctx.fillStyle = '#7bd04a';
+    ctx.strokeStyle = '#2f6b1f';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, -r - 2 - bob, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    // Two leaves
+    ctx.fillStyle = '#3fa34d';
+    [[-1, -0.6], [1, 0.6]].forEach(([side, rot]) => {
+      ctx.save();
+      ctx.translate(side * 3, -2 * r - 3 - bob);
+      ctx.rotate(rot);
+      ctx.beginPath();
+      ctx.ellipse(0, -4, 3, 6, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    });
+    // Eyes looking the way it walks
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(-3, -r - 3 - bob, 2.6, 0, Math.PI * 2);
+    ctx.arc(3, -r - 3 - bob, 2.6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#0f172a';
+    ctx.beginPath();
+    ctx.arc(-3 + sp.dir * 1.2, -r - 3 - bob, 1.3, 0, Math.PI * 2);
+    ctx.arc(3 + sp.dir * 1.2, -r - 3 - bob, 1.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#2f6b1f';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.arc(0, -r + 1 - bob, 2.2, 0.2, Math.PI - 0.2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  drawGroundTiles(ctx, cam) {
+    const T = this.T, W = this.W, H = this.H, gy = this.groundTop;
+    for (const seg of this.segments) {
+      const sx0 = Math.max(seg.x0, cam - T), sx1 = Math.min(seg.x1, cam + W + T);
+      if (sx1 <= sx0) continue;
+      const startTile = Math.floor(sx0 / T);
+      for (let t = startTile; t * T < sx1; t++) {
+        const x = t * T - cam;
+        // Grass cap
+        ctx.fillStyle = '#6ccf4e';
+        ctx.fillRect(x, gy, T, T);
+        ctx.fillStyle = '#a6ef7c';
+        ctx.fillRect(x, gy, T, 5);
+        ctx.strokeStyle = '#2d6a2f';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x + 1, gy + 1, T - 2, T - 2);
+        // Brick rows
+        for (let r = 1; r < 3; r++) {
+          const y = gy + r * T;
+          ctx.fillStyle = '#c67a4a';
+          ctx.fillRect(x, y, T, T);
+          ctx.strokeStyle = '#8e4f2a';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(x + 1, y + 1, T - 2, T - 2);
+          ctx.beginPath();
+          ctx.moveTo(x, y + T / 2);
+          ctx.lineTo(x + T, y + T / 2);
+          ctx.moveTo(x + (r % 2 ? T / 2 : T / 4), y);
+          ctx.lineTo(x + (r % 2 ? T / 2 : T / 4), y + T / 2);
+          ctx.moveTo(x + (r % 2 ? T / 4 : T * 0.75), y + T / 2);
+          ctx.lineTo(x + (r % 2 ? T / 4 : T * 0.75), y + T);
+          ctx.stroke();
+        }
+      }
+    }
+    // Pit shading inside the gaps
+    for (const gap of this.gaps) {
+      const x0 = gap.x0 - cam, x1 = gap.x1 - cam;
+      if (x1 < 0 || x0 > W) continue;
+      const grd = ctx.createLinearGradient(0, gy, 0, H);
+      grd.addColorStop(0, 'rgba(10, 30, 70, 0)');
+      grd.addColorStop(1, 'rgba(10, 30, 70, 0.55)');
+      ctx.fillStyle = grd;
+      ctx.fillRect(x0, gy, x1 - x0, H - gy);
+    }
+  }
+
+  drawMeter(ctx) {
+    const W = this.W;
+    const x0 = 44, x1 = W - 96, y = 26;
+    const pg = this.progress(), pm = this.menaceProgress();
+    ctx.save();
+    ctx.fillStyle = 'rgba(40, 20, 70, 0.6)';
+    ctx.beginPath();
+    ctx.roundRect ? ctx.roundRect(x0 - 30, y - 16, (x1 - x0) + 96, 32, 10) : ctx.rect(x0 - 30, y - 16, (x1 - x0) + 96, 32);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    ctx.lineWidth = 4;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x0, y);
+    ctx.lineTo(x1, y);
+    ctx.stroke();
+    ctx.strokeStyle = '#f6a623';
+    ctx.beginPath();
+    ctx.moveTo(x0, y);
+    ctx.lineTo(x0 + (x1 - x0) * pg, y);
+    ctx.stroke();
+    // Pole marker + label
+    ctx.fillStyle = '#e9edf5';
+    ctx.fillRect(x1 - 1, y - 11, 3, 22);
+    ctx.fillStyle = '#7c3aed';
+    ctx.beginPath();
+    ctx.moveTo(x1 + 2, y - 11);
+    ctx.lineTo(x1 + 11, y - 7);
+    ctx.lineTo(x1 + 2, y - 3);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#ffd43b';
+    ctx.font = '900 9px system-ui, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('BANNER POLE', x1 + 14, y);
+    // Menace icon
+    const mx = x0 + (x1 - x0) * pm;
+    ctx.save();
+    ctx.translate(mx, y);
+    ctx.shadowColor = 'rgba(255,51,68,0.9)';
+    ctx.shadowBlur = 8;
+    ctx.fillStyle = '#fbc531';
+    ctx.beginPath();
+    ctx.arc(0, 0, 7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#3b0a0a';
+    ctx.beginPath();
+    ctx.arc(1, 1, 4, 0.1, Math.PI - 0.1);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+    // Ghost icon
+    const g = this.game.ghosts[this.ghostIndex];
+    ctx.save();
+    ctx.translate(x0 + (x1 - x0) * pg, y);
+    ctx.scale(0.55, 0.55);
+    this.game.drawGhostBody(ctx, g, 0, { x: 1, y: 0 }, false);
+    ctx.restore();
+    ctx.restore();
+  }
+
+  draw(ctx, time) {
+    const W = this.W, H = this.H;
+    const cam = this.camX;
+    const gy = this.groundTop;
+
+    // Sky
+    const sky = ctx.createLinearGradient(0, 0, 0, gy);
+    sky.addColorStop(0, '#3aa7f0');
+    sky.addColorStop(0.65, '#8fd3ff');
+    sky.addColorStop(1, '#d9f3ff');
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, W, H);
+
+    // Clouds (slow layer)
+    this.clouds.forEach(c => {
+      let sx = ((c.x - cam * 0.1) % (W + 260));
+      if (sx < -130) sx += W + 260;
+      this.drawCloud(ctx, sx, c.y, c.s);
+    });
+
+    // Far hills
+    ctx.fillStyle = '#8fdc7a';
+    ctx.strokeStyle = '#5fb35a';
+    ctx.lineWidth = 3;
+    this.farHills.forEach(h => {
+      const sx = h.x - cam * 0.25;
+      if (sx < -h.r - 10 || sx > W + h.r + 10) return;
+      ctx.beginPath();
+      ctx.arc(sx, gy + 6, h.r, Math.PI, 0);
+      ctx.fill();
+      ctx.stroke();
+    });
+    // Bushes
+    ctx.fillStyle = '#43b649';
+    ctx.strokeStyle = '#2f7d32';
+    ctx.lineWidth = 2.5;
+    this.bushes.forEach(b => {
+      const sx = b.x - cam * 0.5;
+      if (sx < -b.r * 3 || sx > W + b.r * 3) return;
+      ctx.beginPath();
+      for (let i = 0; i < b.lobes; i++) ctx.arc(sx + (i - (b.lobes - 1) / 2) * b.r * 1.1, gy + 2, b.r, Math.PI, 0);
+      ctx.fill();
+      ctx.stroke();
+    });
+
+    // Ground, gaps
+    this.drawGroundTiles(ctx, cam);
+
+    // Banner pole
+    const poleSx = this.poleX - cam;
+    if (poleSx > -80 && poleSx < W + 80) this.drawPole(ctx, poleSx, time);
+
+    // Chimneys and blocks
+    this.chimneys.forEach(c => {
+      const sx = c.x - cam;
+      if (sx < -40 || sx > W + 40) return;
+      this.drawChimney(ctx, c, sx, time);
+    });
+    this.blocks.forEach(b => {
+      if (b.bump > 0) b.bump -= 1 / 60;
+      const sx = b.x - cam;
+      if (sx < -30 || sx > W + 30) return;
+      this.drawBlock(ctx, b, sx);
+    });
+
+    // Pellets
+    this.pellets.forEach(p => {
+      if (p.taken) return;
+      const sx = p.x - cam;
+      if (sx < -10 || sx > W + 10) return;
+      const py = p.y + Math.sin(time * 5 + p.x * 0.05) * 2;
+      ctx.fillStyle = '#ffd32a';
+      ctx.shadowColor = 'rgba(255, 211, 42, 0.7)';
+      ctx.shadowBlur = 8;
+      ctx.beginPath();
+      ctx.arc(sx, py, 4.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#fff7cc';
+      ctx.beginPath();
+      ctx.arc(sx - 1.2, py - 1.2, 1.6, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    // Sprouts
+    this.sprouts.forEach(sp => {
+      if (!sp.alive && sp.squashT <= 0) return;
+      const sx = sp.x - cam;
+      if (sx < -30 || sx > W + 30) return;
+      this.drawSprout(ctx, sp, sx);
+    });
+
+    // Surge shockwave
+    if (this.surgeFx > 0) {
+      const p = 1 - this.surgeFx / 0.7;
+      ctx.save();
+      ctx.globalAlpha = 1 - p;
+      ctx.strokeStyle = '#f6a623';
+      ctx.lineWidth = 5;
+      ctx.shadowColor = '#f6a623';
+      ctx.shadowBlur = 16;
+      ctx.beginPath();
+      ctx.arc(this.ghost.x - cam, this.ghost.y - 15, 10 + p * 160, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // The Menace on foot
+    const m = this.menace;
+    const msx = m.x - cam;
+    if (msx > -60 && msx < W + 60) {
+      if (m.state === 'run') {
+        ctx.fillStyle = 'rgba(120, 90, 50, 0.25)';
+        for (let i = 0; i < 3; i++) {
+          ctx.beginPath();
+          ctx.arc(msx - 18 - i * 12, gy - 4 - i * 2, 6 - i, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      const crouch = m.state === 'wait' ? 0.12 : 0;
+      this.game.drawMenaceRunner(ctx, msx, m.y, m.r, m.stride, m.state === 'hop', m.squash + crouch);
+    }
+
+    // The ghost
+    const g = this.ghost;
+    const gsx = g.x - cam;
+    const gap = g.x - m.x;
+    ctx.save();
+    ctx.translate(gsx, g.y - g.h / 2);
+    ctx.scale(1.3, 1.3);
+    if (g.dust > 0) ctx.scale(1.1, 0.9);
+    if (g.dazeTimer > 0) ctx.rotate(Math.sin(g.dazeTimer * 22) * 0.2);
+    else if (g.stumbleTimer > 0) ctx.rotate(Math.sin(g.stumbleTimer * 28) * 0.28);
+    else if (!g.grounded) ctx.rotate(Math.max(-0.22, Math.min(0.22, g.vy / 2600)));
+    const ghostRef = this.game.ghosts[this.ghostIndex];
+    this.game.drawGhostBody(ctx, ghostRef, time, { x: 1, y: 0 }, gap < 170 || g.dazeTimer > 0);
+    ctx.restore();
+    if (g.dazeTimer > 0) {
+      // Little stars circling a dazed head
+      for (let i = 0; i < 3; i++) {
+        const a = time * 6 + i * 2.1;
+        this.drawStar(ctx, gsx + Math.cos(a) * 16, g.y - g.h - 8 + Math.sin(a) * 5, 4, '#fef08a');
+      }
+    }
+
+    // Particles and pops (world space)
+    ctx.save();
+    ctx.translate(-cam, 0);
+    this.particles.forEach(p => p.draw(ctx));
+    ctx.font = '900 14px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    this.pops.forEach(p => {
+      ctx.globalAlpha = 1 - p.t / 0.8;
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = 'rgba(8, 9, 20, 0.8)';
+      ctx.strokeText(p.text, p.x, p.y - p.t * 40);
+      ctx.fillStyle = p.color;
+      ctx.fillText(p.text, p.x, p.y - p.t * 40);
+    });
+    ctx.restore();
+
+    // Progress meter
+    this.drawMeter(ctx);
+
+    // Pellet chain readout + fall pips
+    ctx.save();
+    ctx.font = '800 11px system-ui, sans-serif';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = 'rgba(40, 20, 70, 0.6)';
+    ctx.fillRect(W - 112, 50, 104, 18);
+    ctx.fillStyle = '#fde047';
+    ctx.fillText(`SURGE ${this.chain}/10  ·  ${this.collected}`, W - 14, 53);
+    ctx.fillStyle = 'rgba(40, 20, 70, 0.6)';
+    ctx.fillRect(W - 112, 72, 104, 18);
+    ctx.fillStyle = '#f8fafc';
+    ctx.fillText('FALLS', W - 44, 75);
+    for (let i = 0; i < 2; i++) {
+      ctx.fillStyle = i < g.falls ? '#ff3344' : 'rgba(255,255,255,0.35)';
+      ctx.beginPath();
+      ctx.arc(W - 30 + i * 12, 81, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+
+    // White flash on a fall
+    if (this.fallFx > 0) {
+      ctx.fillStyle = `rgba(255,255,255,${Math.min(0.8, this.fallFx * 1.6)})`;
+      ctx.fillRect(0, 0, W, H);
+    }
+
+    // Red vignette when he is right behind you
+    if (gap < 140) {
+      const danger = Math.min(1, (140 - gap) / 140);
       const vg = ctx.createRadialGradient(W / 2, H / 2, H * 0.35, W / 2, H / 2, H * 0.8);
       vg.addColorStop(0, 'rgba(255, 51, 68, 0)');
       vg.addColorStop(1, `rgba(255, 51, 68, ${0.45 * danger})`);
