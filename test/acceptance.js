@@ -131,6 +131,13 @@ async function runAcceptanceTests() {
 
     // Check 6: A catch registers when a ghost is steered onto Menace
     console.log('\n[Check 6/15] Testing ghost catch detection...');
+    // The hunting squad may have caught him by chance during checks 3–5; a catch (or a flip
+    // return) grants him 1s of flashing immunity during which collisions are ignored. Wait it
+    // out so the staged catch below is judged on its own merits.
+    await page.waitForFunction(
+      () => window.__RM_GAME__.getState() === 'playing' && window.__RM_GAME__.getMenace().immuneTimer <= 0,
+      { timeout: 4000 }
+    );
     const initialLives = await page.evaluate(() => window.__RM_GAME__.getMenace().lives);
     const initialScore = await page.evaluate(() => window.__RM_GAME__.getScore());
 
@@ -139,12 +146,17 @@ async function runAcceptanceTests() {
       window.__RM_GAME__.setMenacePos(9, 13);
       window.__RM_GAME__.setGhostPos(0, 9, 13);
     });
-    await page.waitForTimeout(300);
+    // The collision pass runs on the next game tick; give it up to 2s (normally < 100ms)
+    const catchRegistered = await page.waitForFunction(
+      (before) => window.__RM_GAME__.getMenace().lives < before,
+      initialLives,
+      { timeout: 2000 }
+    ).then(() => true).catch(() => false);
 
     const livesAfterCatch = await page.evaluate(() => window.__RM_GAME__.getMenace().lives);
     const scoreAfterCatch = await page.evaluate(() => window.__RM_GAME__.getScore());
 
-    if (livesAfterCatch !== initialLives - 1) {
+    if (!catchRegistered || livesAfterCatch !== initialLives - 1) {
       throw new Error(`Catch failed: expected lives ${initialLives - 1}, got ${livesAfterCatch}`);
     }
     if (scoreAfterCatch < initialScore + 300) {

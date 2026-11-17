@@ -5740,7 +5740,9 @@ window.addEventListener('DOMContentLoaded', () => {
       lives: game.menace.lives,
       isFrightMode: game.isFrightMode,
       speed: game.menace.speed,
-      grin: game.menaceGrin()
+      grin: game.menaceGrin(),
+      // Post-catch / post-flip flashing immunity (seconds left); catches are ignored while > 0
+      immuneTimer: Math.max(0, game.menace.immuneTimer)
     }),
     steer: (dir) => game.steerPossessed(dir),
     touchSteer: (dx, dy) => game.touchSteer(dx, dy),
