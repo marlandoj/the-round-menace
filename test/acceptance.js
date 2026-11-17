@@ -33,7 +33,7 @@ async function runAcceptanceTests() {
 
   const indexPath = `file://${path.resolve(__dirname, '../index.html')}`;
   let passedCount = 0;
-  let totalCount = 19;
+  let totalCount = 21;
 
   // Screenshot directory
   const screenshotDir = path.resolve(__dirname, '../screenshots');
@@ -43,7 +43,7 @@ async function runAcceptanceTests() {
 
   try {
     // Check 1: Page loads with zero console errors
-    console.log('[Check 1/19] Loading game page...');
+    console.log('[Check 1/21] Loading game page...');
     await page.goto(indexPath, { waitUntil: 'load' });
     await page.waitForTimeout(500);
 
@@ -59,7 +59,7 @@ async function runAcceptanceTests() {
     console.log('  📸 Captured screenshot: screenshots/title.png');
 
     // Check 2: Game starts from PLAY
-    console.log('\n[Check 2/19] Starting game from PLAY button...');
+    console.log('\n[Check 2/21] Starting game from PLAY button...');
     await page.click('#btn-play');
     await page.waitForTimeout(400);
 
@@ -76,7 +76,7 @@ async function runAcceptanceTests() {
     console.log('  📸 Captured screenshot: screenshots/gameplay.png');
 
     // Check 3: Menace eats pellets autonomously
-    console.log('\n[Check 3/19] Testing autonomous Menace pellet eating...');
+    console.log('\n[Check 3/21] Testing autonomous Menace pellet eating...');
     const initialPellets = await page.evaluate(() => window.__RM_GAME__.getPellets().remaining);
     // Let Menace move and eat for 2 seconds
     await page.waitForTimeout(2000);
@@ -89,7 +89,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 4: Possession switching works for all four ghosts (1-4 and squad bar clicks)
-    console.log('\n[Check 4/19] Testing possession switching across all 4 squad ghosts...');
+    console.log('\n[Check 4/21] Testing possession switching across all 4 squad ghosts...');
     const ghostNames = ['Ember', 'Rosé', 'Tide', 'Goldie'];
     for (let i = 0; i < 4; i++) {
       // Test key press
@@ -110,7 +110,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 5: Touch input moves the possessed ghost
-    console.log('\n[Check 5/19] Testing touch input steering...');
+    console.log('\n[Check 5/21] Testing touch input steering...');
     // Ensure ghost 0 is possessed and positioned at open corridor (5, 5)
     await page.evaluate(() => {
       window.__RM_GAME__.possess(0);
@@ -130,7 +130,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 6: A catch registers when a ghost is steered onto Menace
-    console.log('\n[Check 6/19] Testing ghost catch detection...');
+    console.log('\n[Check 6/21] Testing ghost catch detection...');
     // The hunting squad may have caught him by chance during checks 3–5; a catch (or a flip
     // return) grants him 1s of flashing immunity during which collisions are ignored. Wait it
     // out so the staged catch below is judged on its own merits.
@@ -167,7 +167,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 7: Fright mode flips on power pellet and ghost can be eaten & benched
-    console.log('\n[Check 7/19] Testing Fright Mode & ghost benching...');
+    console.log('\n[Check 7/21] Testing Fright Mode & ghost benching...');
     await page.evaluate(() => window.__RM_GAME__.triggerFright(5.0));
     await page.waitForTimeout(200);
 
@@ -194,7 +194,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 8: Win / Maze Clear screen reachable
-    console.log('\n[Check 8/19] Testing Win / Maze Clear screen...');
+    console.log('\n[Check 8/21] Testing Win / Maze Clear screen...');
     await page.evaluate(() => window.__RM_GAME__.forceWin());
     await page.waitForTimeout(300);
 
@@ -210,7 +210,7 @@ async function runAcceptanceTests() {
     console.log('  📸 Captured screenshot: screenshots/win.png');
 
     // Check 9: Lose screen reachable
-    console.log('\n[Check 9/19] Testing Game Over screen...');
+    console.log('\n[Check 9/21] Testing Game Over screen...');
     await page.evaluate(() => window.__RM_GAME__.forceLose());
     await page.waitForTimeout(300);
 
@@ -226,7 +226,7 @@ async function runAcceptanceTests() {
     console.log('  📸 Captured screenshot: screenshots/gameover.png');
 
     // Check 10: Squad exits the house and hunts (regression: ghosts once looped in the house pocket)
-    console.log('\n[Check 10/19] Testing squad house exit and hunting range...');
+    console.log('\n[Check 10/21] Testing squad house exit and hunting range...');
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(400);
     await page.click('#btn-play');
@@ -307,7 +307,7 @@ async function runAcceptanceTests() {
     // ===== Round 2 checks: the Green Valley Flip and the soundtrack =====
 
     // Check 11: Flip triggers on a real power-pellet pickup; forced survival returns to playing unbenched
-    console.log('\n[Check 11/19] Testing the Green Valley Flip on a real power-pellet pickup...');
+    console.log('\n[Check 11/21] Testing the Green Valley Flip on a real power-pellet pickup...');
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(400);
     const musicBeforeGesture = await page.evaluate(() => window.__RM_GAME__.getMusicState());
@@ -378,7 +378,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 12: Flip caught path benches that ghost and returns to playing
-    console.log('\n[Check 12/19] Testing the flip caught path (bench + return to maze)...');
+    console.log('\n[Check 12/21] Testing the flip caught path (bench + return to maze)...');
     await page.evaluate(() => window.__RM_GAME__.triggerFlip());
     await page.waitForTimeout(300);
     const freshFlipState = await page.evaluate(() => window.__RM_GAME__.getState());
@@ -402,7 +402,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 13: Soundtrack states + zero console errors across the whole battery
-    console.log('\n[Check 13/19] Testing soundtrack states and console cleanliness...');
+    console.log('\n[Check 13/21] Testing soundtrack states and console cleanliness...');
     if (musicBeforeGesture !== 'off') throw new Error(`Music should be off before the first gesture, got "${musicBeforeGesture}"`);
     if (musicAfterPlay !== 'maze') throw new Error(`Music should read "maze" after PLAY, got "${musicAfterPlay}"`);
     if (musicDuringFlip !== 'valley') throw new Error(`Music should read "valley" during the flip, got "${musicDuringFlip}"`);
@@ -434,7 +434,7 @@ async function runAcceptanceTests() {
 
     // Check 14: The top-right pellet routes to Block Kingdom; forced survival returns to playing unbenched with the bonus;
     // the music reads "kingdom" during the segment.
-    console.log('\n[Check 14/19] Testing flip routing (top-right pellet → Block Kingdom) and kingdom survival...');
+    console.log('\n[Check 14/21] Testing flip routing (top-right pellet → Block Kingdom) and kingdom survival...');
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(400);
     await page.click('#btn-play');
@@ -513,7 +513,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 15: Kingdom caught path benches that ghost and returns to playing
-    console.log('\n[Check 15/19] Testing the Block Kingdom caught path (bench + return to maze)...');
+    console.log('\n[Check 15/21] Testing the Block Kingdom caught path (bench + return to maze)...');
     await page.evaluate(() => window.__RM_GAME__.triggerFlip('kingdom'));
     await page.waitForTimeout(300);
     const freshKingdom = await page.evaluate(() => window.__RM_GAME__.getFlip());
@@ -542,7 +542,7 @@ async function runAcceptanceTests() {
     // ===== Round 4 checks: GLOOM corridor shooter flip & Phantom Grand Prix kart racer flip =====
 
     // Check 16: GLOOM routing and survival (bottom-left pellet)
-    console.log('\n[Check 16/19] Testing GLOOM routing and survival (bottom-left pellet)...');
+    console.log('\n[Check 16/21] Testing GLOOM routing and survival (bottom-left pellet)...');
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(400);
     await page.click('#btn-play');
@@ -604,7 +604,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 17: GLOOM caught path
-    console.log('\n[Check 17/19] Testing GLOOM caught path (bench + return to maze)...');
+    console.log('\n[Check 17/21] Testing GLOOM caught path (bench + return to maze)...');
     await page.evaluate(() => window.__RM_GAME__.triggerFlip('gloom'));
     await page.waitForTimeout(300);
     const freshGloom = await page.evaluate(() => window.__RM_GAME__.getFlip());
@@ -629,7 +629,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 18: Phantom Grand Prix routing and survival (bottom-right pellet)
-    console.log('\n[Check 18/19] Testing Phantom Grand Prix routing and survival (bottom-right pellet)...');
+    console.log('\n[Check 18/21] Testing Phantom Grand Prix routing and survival (bottom-right pellet)...');
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(400);
     await page.click('#btn-play');
@@ -691,7 +691,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 19: Grand Prix caught path
-    console.log('\n[Check 19/19] Testing Phantom Grand Prix caught path (bench + return to maze)...');
+    console.log('\n[Check 19/21] Testing Phantom Grand Prix caught path (bench + return to maze)...');
     await page.evaluate(() => window.__RM_GAME__.triggerFlip('grandprix'));
     await page.waitForTimeout(300);
     const freshGP = await page.evaluate(() => window.__RM_GAME__.getFlip());
@@ -714,7 +714,175 @@ async function runAcceptanceTests() {
 
     if (consoleErrors.length > 0) throw new Error(`Console errors during the battery: ${consoleErrors.join(' | ')}`);
 
-    console.log(`  ✓ PASS: Caught in Phantom Grand Prix: ${ghostNames[gpCaughtGhost]} benched through the bench flow ("ONE DOWN."), game back to playing; 0 console errors across all 19 checks.`);
+    console.log(`  ✓ PASS: Caught in Phantom Grand Prix: ${ghostNames[gpCaughtGhost]} benched through the bench flow ("ONE DOWN."), game back to playing; 0 console errors across all 19 state checks.`);
+    passedCount++;
+
+    // ===== Round 5 checks: the battery gets eyes — pixel-level render sanity =====
+    //
+    // These read the canvas backing store (getImageData) in-page and judge the picture, not the state.
+    // Colours are quantised to 32 levels per channel (5 bits) before counting, so anti-aliasing blends
+    // along an edge do not pass for "distinct colours"; dominance is the share of the most common
+    // quantised colour. The Menace's body yellow (#fbc531, dimmed by distance fade at most to ~0.7)
+    // is classified by a tight band so the corridor's dim hazard bands and lane guides do not count.
+    const RENDER_MIN_DISTINCT = 40;
+    const RENDER_MAX_DOMINANCE = 0.55;
+    const MENACE_MIN_PIXELS = 80;       // a figure must leave a measurable footprint in the central area...
+    const MENACE_MAX_CENTRAL_SHARE = 0.45; // ...but never swallow the frame (the Round 4 defect)
+
+    // region / central / rect are in CSS px of the game canvas; null region = the whole canvas
+    const analysePlayfield = ({ region, central, rect }) => {
+      const canvas = document.getElementById('gameCanvas');
+      const dpr = window.__game.dpr || 1;
+      const img = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+      const CW = canvas.width;
+      const reg = region ? { x: region.x * dpr, y: region.y * dpr, w: region.w * dpr, h: region.h * dpr } : { x: 0, y: 0, w: canvas.width, h: canvas.height };
+      const cen = central ? { x: central.x * dpr, y: central.y * dpr, w: central.w * dpr, h: central.h * dpr } : null;
+      const rc = rect ? { x: (rect.x - rect.r) * dpr, y: (rect.y - rect.r) * dpr, w: rect.r * 2 * dpr, h: rect.r * 2.4 * dpr } : null;
+      const inside = (b, x, y) => b && x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h;
+      const isMenaceYellow = (r, g, b) => r >= 170 && g >= 130 && b <= 95 && r > g + 15 && g > b + 45;
+      const isEyeWhite = (r, g, b) => r >= 160 && g >= 160 && b >= 160 && Math.max(r, g, b) - Math.min(r, g, b) <= 35; // neutral light, allowing the distance fade
+      const isGrinDark = (r, g, b) => r <= 90 && g <= 40 && b <= 40 && r >= g;
+      const counts = new Map();
+      let total = 0, centralTotal = 0, centralYellow = 0;
+      const rectStats = { total: 0, yellow: 0, white: 0, dark: 0 };
+      for (let y = Math.floor(reg.y); y < reg.y + reg.h; y++) {
+        for (let x = Math.floor(reg.x); x < reg.x + reg.w; x++) {
+          const i = (y * CW + x) * 4;
+          const r = img[i], g = img[i + 1], b = img[i + 2];
+          const key = ((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3);
+          counts.set(key, (counts.get(key) || 0) + 1);
+          total++;
+          const yellow = isMenaceYellow(r, g, b);
+          if (inside(cen, x, y)) { centralTotal++; if (yellow) centralYellow++; }
+          if (inside(rc, x, y)) {
+            rectStats.total++;
+            if (yellow) rectStats.yellow++;
+            else if (isEyeWhite(r, g, b)) rectStats.white++;
+            else if (isGrinDark(r, g, b)) rectStats.dark++;
+          }
+        }
+      }
+      let top = 0, topKey = 0;
+      for (const [k, v] of counts) if (v > top) { top = v; topKey = k; }
+      const hex = n => n.toString(16).padStart(2, '0');
+      return {
+        pixels: total,
+        distinct: counts.size,
+        dominantShare: top / total,
+        dominantColour: '#' + hex(((topKey >> 10) & 31) << 3) + hex(((topKey >> 5) & 31) << 3) + hex((topKey & 31) << 3),
+        centralTotal, centralYellow,
+        centralYellowShare: centralTotal ? centralYellow / centralTotal : 0,
+        rect: rectStats
+      };
+    };
+    const describeFrame = s => `${s.distinct} distinct colours, dominant ${s.dominantColour} at ${(s.dominantShare * 100).toFixed(1)}%`;
+
+    // Check 20: GLOOM render sanity — a real frame of live corridor play shows a corridor and a Menace figure
+    console.log('\n[Check 20/21] GLOOM render sanity (pixel analysis of a live mid-corridor frame)...');
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForTimeout(400);
+    await page.click('#btn-play');
+    await page.waitForTimeout(300);
+    const dims = await page.evaluate(() => ({ w: window.__game.width, h: window.__game.height, dpr: window.__game.dpr }));
+    const gloomPlayfield = { x: 0, y: 0, w: dims.w, h: dims.h - 84 }; // the corridor view above GLOOM's own status bar
+    const gloomCentral = { x: dims.w * 0.25, y: gloomPlayfield.h * 0.2, w: dims.w * 0.5, h: gloomPlayfield.h * 0.6 };
+
+    // Enter GLOOM exactly as Check 16 does: the Menace eats the bottom-left pellet
+    await page.evaluate(() => window.__RM_GAME__.setMenacePos(2, 19, -1, 0));
+    await page.waitForFunction(() => window.__RM_GAME__.getState() === 'flip', { timeout: 2000 });
+    const rFlip = await page.evaluate(() => window.__RM_GAME__.getFlip());
+    if (rFlip.kind !== 'gloom') throw new Error(`Bottom-left pellet should open GLOOM, got "${rFlip.kind}"`);
+    // Strafe once and fire once early on, so the frame is honest live play with the juice in flight
+    await page.waitForTimeout(900);
+    await page.evaluate(() => { window.__RM_GAME__.flipSteer(-1); window.__RM_GAME__.flipJump(); });
+    // ~4 seconds into the flip: 0.7s tear-in + 3.3s of live corridor time
+    const reachedMid = await page.waitForFunction(() => {
+      const f = window.__RM_GAME__.getFlip();
+      return window.__RM_GAME__.getState() !== 'flip' || (f.phase === 'run' && f.elapsed >= 3.3);
+    }, { timeout: 7000 }).then(() => true).catch(() => false);
+    const rRun = await page.evaluate(() => window.__RM_GAME__.getFlip());
+    if (!reachedMid || !rRun.active || rRun.phase !== 'run') throw new Error(`GLOOM did not reach live mid-corridor play (active ${rRun.active}, phase ${rRun.phase}, elapsed ${rRun.elapsed})`);
+    const menaceRect = rRun.extra && rRun.extra.menaceScreen ? rRun.extra.menaceScreen : null;
+    const gStats = await page.evaluate(analysePlayfield, { region: gloomPlayfield, central: gloomCentral, rect: menaceRect });
+    console.log(`  · frame at ${rRun.elapsed.toFixed(2)}s of live play (Menace ${(rRun.extra.menaceDist || 0).toFixed(1)} units down the corridor), playfield ${gloomPlayfield.w}×${gloomPlayfield.h}: ${describeFrame(gStats)}`);
+    console.log(`  · central corridor area: Menace body-yellow pixels ${gStats.centralYellow} of ${gStats.centralTotal} (${(gStats.centralYellowShare * 100).toFixed(2)}%)`);
+    console.log(`  · Menace figure rect: ${menaceRect ? `centre (${menaceRect.x.toFixed(0)}, ${menaceRect.y.toFixed(0)}) r=${menaceRect.r.toFixed(1)}px → body ${gStats.rect.yellow}, eye-white ${gStats.rect.white}, grin-dark ${gStats.rect.dark} px of ${gStats.rect.total}` : 'NOT REPORTED by the renderer'}`);
+
+    if (gStats.distinct < RENDER_MIN_DISTINCT) throw new Error(`GLOOM frame is a void: only ${gStats.distinct} distinct colours (need ≥ ${RENDER_MIN_DISTINCT})`);
+    if (gStats.dominantShare > RENDER_MAX_DOMINANCE) throw new Error(`GLOOM frame is a flat field: ${gStats.dominantColour} covers ${(gStats.dominantShare * 100).toFixed(1)}% of the playfield (limit ${RENDER_MAX_DOMINANCE * 100}%)`);
+    if (gStats.centralYellow < MENACE_MIN_PIXELS) throw new Error(`No Menace in the central corridor area: ${gStats.centralYellow} body-yellow pixels (need ≥ ${MENACE_MIN_PIXELS})`);
+    if (gStats.centralYellowShare > MENACE_MAX_CENTRAL_SHARE) throw new Error(`Menace swallows the frame: body-yellow covers ${(gStats.centralYellowShare * 100).toFixed(1)}% of the central area (limit ${MENACE_MAX_CENTRAL_SHARE * 100}%)`);
+    if (!menaceRect) throw new Error('Renderer did not report where it drew the Menace figure (getFlip().extra.menaceScreen)');
+    const inCentral = menaceRect.x - menaceRect.r >= gloomCentral.x && menaceRect.x + menaceRect.r <= gloomCentral.x + gloomCentral.w
+      && menaceRect.y - menaceRect.r >= gloomCentral.y && menaceRect.y + menaceRect.r <= gloomCentral.y + gloomCentral.h;
+    if (!inCentral) throw new Error(`Menace figure (centre ${menaceRect.x.toFixed(0)},${menaceRect.y.toFixed(0)} r=${menaceRect.r.toFixed(0)}) is not inside the central corridor area`);
+    if (menaceRect.r > dims.w * 0.3) throw new Error(`Menace figure radius ${menaceRect.r.toFixed(0)}px exceeds the central-portion clamp`);
+    if (gStats.rect.yellow < Math.PI * menaceRect.r * menaceRect.r * dims.dpr * dims.dpr * 0.2) throw new Error(`Menace rect holds too little body yellow (${gStats.rect.yellow}px for r=${menaceRect.r.toFixed(0)})`);
+    if (gStats.rect.white < 2 || gStats.rect.dark < 2) throw new Error(`Menace is a plain disc, not a figure: eye-white ${gStats.rect.white}px, grin-dark ${gStats.rect.dark}px inside his rect`);
+
+    // Second sample ~5s later: he must have closed in and grown smoothly (still a figure, still clamped),
+    // and this deeper mid-corridor frame is the one kept as screenshots/gloom.png
+    const reachedLate = await page.waitForFunction(() => {
+      const f = window.__RM_GAME__.getFlip();
+      return window.__RM_GAME__.getState() !== 'flip' || (f.phase === 'run' && f.elapsed >= 8.3);
+    }, { timeout: 8000 }).then(() => true).catch(() => false);
+    const rLate = await page.evaluate(() => window.__RM_GAME__.getFlip());
+    if (!reachedLate || !rLate.active || rLate.phase !== 'run') throw new Error(`GLOOM did not stay in live play to the second sample (active ${rLate.active}, phase ${rLate.phase}, elapsed ${rLate.elapsed})`);
+    const lateRect = rLate.extra && rLate.extra.menaceScreen ? rLate.extra.menaceScreen : null;
+    const lStats = await page.evaluate(analysePlayfield, { region: gloomPlayfield, central: gloomCentral, rect: lateRect });
+    await page.screenshot({ path: path.join(screenshotDir, 'gloom.png') });
+    console.log(`  📸 Captured screenshot: screenshots/gloom.png (live play, ${rLate.elapsed.toFixed(2)}s into the corridor, Menace at ${(rLate.extra.menaceDist || 0).toFixed(1)} units)`);
+    console.log(`  · frame at ${rLate.elapsed.toFixed(2)}s: ${describeFrame(lStats)}; Menace figure r=${lateRect ? lateRect.r.toFixed(1) : '?'}px → body ${lStats.rect.yellow}, eye-white ${lStats.rect.white}, grin-dark ${lStats.rect.dark} px`);
+    if (lStats.distinct < RENDER_MIN_DISTINCT || lStats.dominantShare > RENDER_MAX_DOMINANCE) throw new Error(`Second GLOOM frame fails render sanity: ${describeFrame(lStats)}`);
+    if (!lateRect || lateRect.r <= menaceRect.r) throw new Error(`Menace did not grow as he closed in (r ${menaceRect.r.toFixed(1)} → ${lateRect ? lateRect.r.toFixed(1) : '?'}px)`);
+    if (lateRect.r > dims.w * 0.3 || lStats.centralYellowShare > MENACE_MAX_CENTRAL_SHARE) throw new Error(`Menace exceeds the central-portion clamp in the second frame (r=${lateRect.r.toFixed(0)}px, ${(lStats.centralYellowShare * 100).toFixed(1)}% of the central area)`);
+    if (lStats.rect.white < 2 || lStats.rect.dark < 2) throw new Error(`Menace is a plain disc in the second frame: eye-white ${lStats.rect.white}px, grin-dark ${lStats.rect.dark}px`);
+
+    await page.evaluate(() => window.__RM_GAME__.forceFlipSurvive());
+    await page.waitForTimeout(250);
+    if ((await page.evaluate(() => window.__RM_GAME__.getState())) !== 'playing') throw new Error('Did not return to playing after the render check');
+
+    console.log(`  ✓ PASS: GLOOM corridor frames render (${gStats.distinct} / ${lStats.distinct} colours, max ${(Math.max(gStats.dominantShare, lStats.dominantShare) * 100).toFixed(1)}% dominance) with the Menace as a figure in the central corridor (eyes + grin present), growing r=${menaceRect.r.toFixed(0)} → ${lateRect.r.toFixed(0)}px as he closes.`);
+    passedCount++;
+
+    // Check 21: Render sanity for the other three flips — a mid-play frame of each is a real picture
+    console.log('\n[Check 21/21] Render sanity for Green Valley, Block Kingdom and Phantom Grand Prix...');
+    const otherFlips = [
+      { kind: 'valley', name: 'Green Valley' },
+      { kind: 'kingdom', name: 'Block Kingdom' },
+      { kind: 'grandprix', name: 'Phantom Grand Prix' }
+    ];
+    const fullCanvas = { x: 0, y: 0, w: dims.w, h: dims.h };
+    const otherResults = [];
+    for (const fl of otherFlips) {
+      await page.waitForFunction(() => window.__RM_GAME__.getState() === 'playing', { timeout: 3000 });
+      await page.evaluate(k => window.__RM_GAME__.triggerFlip(k), fl.kind);
+      await page.waitForTimeout(200);
+      const started = await page.evaluate(() => window.__RM_GAME__.getFlip());
+      if (!started.active || started.kind !== fl.kind) throw new Error(`${fl.name} flip did not start (active ${started.active}, kind ${started.kind})`);
+      if (fl.kind === 'valley') {
+        // Clear the first rock the way a player would, so the frame is still live play at ~4s
+        await page.waitForTimeout(2100);
+        await page.evaluate(() => window.__RM_GAME__.flipJump());
+      }
+      const midReached = await page.waitForFunction(() => {
+        const f = window.__RM_GAME__.getFlip();
+        return window.__RM_GAME__.getState() !== 'flip' || (f.phase === 'run' && f.elapsed >= 3.3);
+      }, { timeout: 7000 }).then(() => true).catch(() => false);
+      const mid = await page.evaluate(() => window.__RM_GAME__.getFlip());
+      if (!midReached || !mid.active || mid.phase !== 'run') throw new Error(`${fl.name} did not reach a live mid-play frame (active ${mid.active}, phase ${mid.phase}, elapsed ${mid.elapsed})`);
+      const st = await page.evaluate(analysePlayfield, { region: fullCanvas, central: null, rect: null });
+      console.log(`  · ${fl.name} at ${mid.elapsed.toFixed(2)}s: ${describeFrame(st)}`);
+      if (st.distinct < RENDER_MIN_DISTINCT) throw new Error(`${fl.name} frame is a void: only ${st.distinct} distinct colours (need ≥ ${RENDER_MIN_DISTINCT})`);
+      if (st.dominantShare > RENDER_MAX_DOMINANCE) throw new Error(`${fl.name} frame is a flat field: ${st.dominantColour} covers ${(st.dominantShare * 100).toFixed(1)}% (limit ${RENDER_MAX_DOMINANCE * 100}%)`);
+      otherResults.push(`${fl.name} ${st.distinct}/${(st.dominantShare * 100).toFixed(1)}%`);
+      await page.evaluate(() => window.__RM_GAME__.forceFlipSurvive());
+      await page.waitForTimeout(250);
+    }
+
+    if (consoleErrors.length > 0) throw new Error(`Console errors during the battery: ${consoleErrors.join(' | ')}`);
+
+    console.log(`  ✓ PASS: All three flips render real mid-play frames (distinct colours / max dominance: ${otherResults.join(', ')}); 0 console errors across all 21 checks.`);
     passedCount++;
 
   } catch (err) {

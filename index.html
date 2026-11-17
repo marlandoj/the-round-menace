@@ -6385,12 +6385,135 @@ class GloomRun {
     return null;
   }
 
+  // Test / debug surface: where the Menace figure landed on screen in the last frame (CSS px)
+  extraInfo() {
+    return {
+      menaceDist: this.menaceDist,
+      menaceLaneX: this.menaceLaneX,
+      laneX: this.laneX,
+      nerve: this.nerve,
+      ammo: this.pellets,
+      menaceScreen: this.menaceScreen ? { x: this.menaceScreen.x, y: this.menaceScreen.y, r: this.menaceScreen.r } : null
+    };
+  }
+
+  // The Menace as a FIGURE, seen head-on down the corridor: the round yellow glutton on two stubby
+  // legs, running straight at the camera. Drawn centred on the origin in a unit space (body radius 1)
+  // so the caller scales it with the projection. `look` nudges the pupils toward the player's lane.
+  drawMenaceFigure(ctx, stride, chomp, look, hit) {
+    const legLen = 0.28;
+    // Legs + feet pumping toward the camera
+    ctx.strokeStyle = '#7c2d12';
+    ctx.fillStyle = '#7c2d12';
+    ctx.lineWidth = 0.17;
+    ctx.lineCap = 'round';
+    for (let i = 0; i < 2; i++) {
+      const phase = stride + i * Math.PI;
+      const lift = Math.max(0, Math.sin(phase)) * 0.16;
+      const fx = (i ? 0.42 : -0.42) + Math.cos(phase) * 0.05;
+      const fy = 1.0 + legLen - lift;
+      ctx.beginPath();
+      ctx.moveTo(i ? 0.3 : -0.3, 0.86);
+      ctx.lineTo(fx, fy);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.ellipse(fx, fy, 0.26, 0.11, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Body with the hunter's red glow and rim
+    ctx.shadowColor = 'rgba(255, 51, 68, 0.9)';
+    ctx.shadowBlur = 0.6;
+    ctx.fillStyle = '#fbc531';
+    ctx.beginPath();
+    ctx.arc(0, 0, 1, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = 'rgba(255, 51, 68, 0.8)';
+    ctx.lineWidth = 0.08;
+    ctx.beginPath();
+    ctx.arc(0, 0, 0.96, 0, Math.PI * 2);
+    ctx.stroke();
+    // Small gloss highlight (keeps the body a flat yellow elsewhere)
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.22)';
+    ctx.beginPath();
+    ctx.ellipse(-0.42, -0.5, 0.2, 0.12, -0.6, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Eyes: whites, pupils tracking the player, glints
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.ellipse(-0.36, -0.32, 0.25, 0.29, 0, 0, Math.PI * 2);
+    ctx.ellipse(0.36, -0.32, 0.25, 0.29, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#0f172a';
+    ctx.beginPath();
+    ctx.arc(-0.36 + look, -0.3, 0.12, 0, Math.PI * 2);
+    ctx.arc(0.36 + look, -0.3, 0.12, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(-0.4 + look, -0.35, 0.04, 0, Math.PI * 2);
+    ctx.arc(0.32 + look, -0.35, 0.04, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Angry brows slanting in
+    ctx.strokeStyle = '#7c2d12';
+    ctx.lineWidth = 0.11;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(-0.68, -0.78);
+    ctx.lineTo(-0.14, -0.6);
+    ctx.moveTo(0.68, -0.78);
+    ctx.lineTo(0.14, -0.6);
+    ctx.stroke();
+
+    // The grin: a wide dark mouth that chomps, white teeth strip, red tongue
+    ctx.save();
+    ctx.translate(0, 0.18);
+    ctx.scale(1, chomp);
+    ctx.fillStyle = '#3b0a0a';
+    ctx.beginPath();
+    ctx.arc(0, 0, 0.64, 0.05, Math.PI - 0.05);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = 'rgba(239, 68, 68, 0.85)';
+    ctx.beginPath();
+    ctx.ellipse(0, 0.4, 0.3, 0.16, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(-0.6, 0.18, 1.2, 0.11);
+    // Fangs
+    ctx.beginPath();
+    [-0.42, -0.14, 0.14, 0.42].forEach(tx => {
+      ctx.moveTo(tx - 0.07, 0.29);
+      ctx.lineTo(tx + 0.07, 0.29);
+      ctx.lineTo(tx, 0.29 + 0.12 * chomp);
+      ctx.closePath();
+    });
+    ctx.fill();
+
+    // Hit flash: a translucent white wash and a bright rim; the face stays readable
+    if (hit) {
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+      ctx.beginPath();
+      ctx.arc(0, 0, 1, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#fde047';
+      ctx.lineWidth = 0.12;
+      ctx.beginPath();
+      ctx.arc(0, 0, 1.04, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+
   draw(ctx, time) {
     const W = this.W, H = this.H;
     const viewH = H - 84; // Leave 84px for chunky status bar
     const midX = W / 2;
     const midY = viewH * 0.48;
-    const fov = 260;
+    const fov = 300;
 
     ctx.save();
 
@@ -6401,204 +6524,180 @@ class GloomRun {
       ctx.translate(sx, sy);
     }
 
-    // Background darkness
+    // Base tone: the one opaque fill, and it is dark. Everything else layers on top with alpha.
     ctx.fillStyle = '#06080d';
     ctx.fillRect(0, 0, W, viewH);
 
+    // Projection: `s` is PIXELS PER WORLD UNIT (fov / z, about 10 at the far end, 190 at the near
+    // clip). Every size below is a world size multiplied by s — never a pixel size times s.
     const camX = this.laneX * 0.7;
     const proj = (xw, yw, zw) => {
       const s = fov / Math.max(0.5, zw);
-      return {
-        x: midX + (xw - camX) * s,
-        y: midY + yw * s,
-        s: s
-      };
+      return { x: midX + (xw - camX) * s, y: midY + yw * s, s: s };
     };
+    const px = (worldSize, s, minPx) => Math.max(minPx, worldSize * s);
 
-    const Xw = 2.1;
-    const Yc = -1.6;
-    const Yf = 1.6;
-
-    // --- Render corridor segments back-to-front ---
-    const segLen = 2.0;
-    const scrollZ = (this.elapsed * 5.5) % segLen;
+    const Xw = 2.1;   // corridor half-width
+    const Yc = -1.6;  // ceiling height
+    const Yf = 1.6;   // floor depth
     const minZ = 1.6;
     const maxZ = 30.0;
+    const segLen = 2.0;
+    const travel = this.elapsed * 5.5;
+    const scrollZ = travel % segLen;
+    const baseSeg = Math.floor(travel / segLen);
 
-    for (let zFar = maxZ; zFar >= minZ; zFar -= segLen) {
-      const z1 = zFar - scrollZ;
-      const z2 = z1 - segLen;
-      if (z2 < minZ || z1 > maxZ) continue;
+    // Vanishing-point glow: a cold light at the far end of the corridor (translucent)
+    const vp = proj(0, 0, maxZ);
+    const vpGlow = ctx.createRadialGradient(vp.x, vp.y, 0, vp.x, vp.y, viewH * 0.22);
+    vpGlow.addColorStop(0, 'rgba(56, 189, 248, 0.28)');
+    vpGlow.addColorStop(1, 'rgba(56, 189, 248, 0)');
+    ctx.fillStyle = vpGlow;
+    ctx.fillRect(0, 0, W, viewH);
 
-      const pL1 = proj(-Xw, Yc, z1), pL2 = proj(-Xw, Yc, z2);
-      const pR1 = proj(Xw, Yc, z1), pR2 = proj(Xw, Yc, z2);
-      const bL1 = proj(-Xw, Yf, z1), bL2 = proj(-Xw, Yf, z2);
-      const bR1 = proj(Xw, Yf, z1), bR2 = proj(Xw, Yf, z2);
-
-      const depthShade = Math.max(0.08, Math.min(1, 1 - (z2 / maxZ)));
-      const segIndex = Math.floor((zFar + this.elapsed * 5.5) / segLen);
-
-      // Floor quad
-      ctx.fillStyle = segIndex % 2 === 0 ? `rgba(22, 27, 38, ${depthShade})` : `rgba(16, 20, 29, ${depthShade})`;
+    const quad = (a, b, c, d, fill) => {
+      ctx.fillStyle = fill;
       ctx.beginPath();
-      ctx.moveTo(bL1.x, bL1.y);
-      ctx.lineTo(bR1.x, bR1.y);
-      ctx.lineTo(bR2.x, bR2.y);
-      ctx.lineTo(bL2.x, bL2.y);
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.lineTo(c.x, c.y);
+      ctx.lineTo(d.x, d.y);
       ctx.closePath();
       ctx.fill();
+    };
+    const line = (a, b, stroke, width) => {
+      ctx.strokeStyle = stroke;
+      ctx.lineWidth = width;
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.stroke();
+    };
+    // A point on a wall: side -1 / +1, height fraction 0 (ceiling) .. 1 (floor), depth z, optional inset
+    const wallPt = (side, f, z, inset = 0) => proj(side * (Xw - inset), Yc + (Yf - Yc) * f, z);
+    const wallQuad = (side, f0, f1, zFar, zNear, fill, inset = 0) =>
+      quad(wallPt(side, f0, zFar, inset), wallPt(side, f0, zNear, inset), wallPt(side, f1, zNear, inset), wallPt(side, f1, zFar, inset), fill);
 
-      // Lane guides on floor
+    // --- Corridor segments, back to front ---
+    const segCount = Math.ceil((maxZ - minZ) / segLen) + 1;
+    for (let i = segCount; i >= 0; i--) {
+      const zFarRaw = minZ + (i + 1) * segLen - scrollZ;
+      const zNearRaw = zFarRaw - segLen;
+      const zFar = Math.min(zFarRaw, maxZ);
+      const zNear = Math.max(zNearRaw, minZ);
+      if (zNear >= zFar) continue;
+      const segIndex = baseSeg + i;
+      const depth = Math.pow(Math.max(0.06, Math.min(1, 1 - zNear / maxZ)), 0.85);
+      const sNear = fov / zNear;
+      const sFar = fov / zFar;
+
+      const TL1 = proj(-Xw, Yc, zFar), TL2 = proj(-Xw, Yc, zNear);
+      const TR1 = proj(Xw, Yc, zFar), TR2 = proj(Xw, Yc, zNear);
+      const BL1 = proj(-Xw, Yf, zFar), BL2 = proj(-Xw, Yf, zNear);
+      const BR1 = proj(Xw, Yf, zFar), BR2 = proj(Xw, Yf, zNear);
+
+      // Floor: alternating deck plating with a seam at each segment edge and three lane guides
+      quad(BL1, BR1, BR2, BL2, segIndex % 2 === 0 ? `rgba(30, 37, 52, ${depth})` : `rgba(23, 29, 42, ${depth})`);
+      line(BL2, BR2, `rgba(71, 85, 105, ${0.7 * depth})`, px(0.025, sNear, 1));
       [-1.1, 0, 1.1].forEach(lx => {
-        const pt1 = proj(lx, Yf, z1);
-        const pt2 = proj(lx, Yf, z2);
-        ctx.strokeStyle = `rgba(234, 179, 8, ${0.25 * depthShade})`;
-        ctx.lineWidth = Math.max(1, 2.5 * pt2.s);
-        ctx.beginPath();
-        ctx.moveTo(pt1.x, pt1.y);
-        ctx.lineTo(pt2.x, pt2.y);
-        ctx.stroke();
+        line(proj(lx, Yf, zFar), proj(lx, Yf, zNear), `rgba(234, 179, 8, ${0.28 * depth})`, px(0.02, sNear, 1));
       });
 
-      // Ceiling quad
-      ctx.fillStyle = `rgba(13, 17, 24, ${depthShade})`;
-      ctx.beginPath();
-      ctx.moveTo(pL1.x, pL1.y);
-      ctx.lineTo(pR1.x, pR1.y);
-      ctx.lineTo(pR2.x, pR2.y);
-      ctx.lineTo(pL2.x, pL2.y);
-      ctx.closePath();
-      ctx.fill();
-
-      // Left Wall
-      const wallGradL = ctx.createLinearGradient(pL1.x, 0, pL2.x, 0);
-      wallGradL.addColorStop(0, `rgba(30, 41, 59, ${depthShade})`);
-      wallGradL.addColorStop(1, `rgba(15, 23, 42, ${depthShade})`);
-      ctx.fillStyle = wallGradL;
-      ctx.beginPath();
-      ctx.moveTo(pL1.x, pL1.y);
-      ctx.lineTo(pL2.x, pL2.y);
-      ctx.lineTo(bL2.x, bL2.y);
-      ctx.lineTo(bL1.x, bL1.y);
-      ctx.closePath();
-      ctx.fill();
-
-      // Hazard strip on base of left wall
-      const hL1 = { x: pL1.x + (bL1.x - pL1.x) * 0.82, y: pL1.y + (bL1.y - pL1.y) * 0.82 };
-      const hL2 = { x: pL2.x + (bL2.x - pL2.x) * 0.82, y: pL2.y + (bL2.y - pL2.y) * 0.82 };
-      ctx.fillStyle = (segIndex % 2 === 0) ? `rgba(234, 179, 8, ${0.65 * depthShade})` : `rgba(15, 23, 42, ${0.9 * depthShade})`;
-      ctx.beginPath();
-      ctx.moveTo(hL1.x, hL1.y);
-      ctx.lineTo(hL2.x, hL2.y);
-      ctx.lineTo(bL2.x, bL2.y);
-      ctx.lineTo(bL1.x, bL1.y);
-      ctx.closePath();
-      ctx.fill();
-
-      // Right Wall
-      const wallGradR = ctx.createLinearGradient(pR2.x, 0, pR1.x, 0);
-      wallGradR.addColorStop(0, `rgba(15, 23, 42, ${depthShade})`);
-      wallGradR.addColorStop(1, `rgba(30, 41, 59, ${depthShade})`);
-      ctx.fillStyle = wallGradR;
-      ctx.beginPath();
-      ctx.moveTo(pR1.x, pR1.y);
-      ctx.lineTo(pR2.x, pR2.y);
-      ctx.lineTo(bR2.x, bR2.y);
-      ctx.lineTo(bR1.x, bR1.y);
-      ctx.closePath();
-      ctx.fill();
-
-      // Hazard strip on base of right wall
-      const hR1 = { x: pR1.x + (bR1.x - pR1.x) * 0.82, y: pR1.y + (bR1.y - pR1.y) * 0.82 };
-      const hR2 = { x: pR2.x + (bR2.x - pR2.x) * 0.82, y: pR2.y + (bR2.y - pR2.y) * 0.82 };
-      ctx.fillStyle = (segIndex % 2 === 0) ? `rgba(234, 179, 8, ${0.65 * depthShade})` : `rgba(15, 23, 42, ${0.9 * depthShade})`;
-      ctx.beginPath();
-      ctx.moveTo(hR1.x, hR1.y);
-      ctx.lineTo(hR2.x, hR2.y);
-      ctx.lineTo(bR2.x, bR2.y);
-      ctx.lineTo(bR1.x, bR1.y);
-      ctx.closePath();
-      ctx.fill();
-
-      // Wall Lights & Pillars
-      if (segIndex % 3 === 0) {
-        // Wall light panel (cyan/amber flickering light)
-        let flicker = 0.75 + 0.25 * Math.sin(time * 28 + segIndex * 17);
-        if (Math.abs(this.menaceDist - z2) < 2.5) flicker *= (0.3 + 0.7 * Math.random());
-        const lightColor = segIndex % 6 === 0 ? `rgba(56, 189, 248, ${flicker * depthShade})` : `rgba(251, 146, 60, ${flicker * depthShade})`;
-        ctx.fillStyle = lightColor;
-        const lwL1 = { x: pL1.x + (bL1.x - pL1.x) * 0.42, y: pL1.y + (bL1.y - pL1.y) * 0.42 };
-        const lwL2 = { x: pL2.x + (bL2.x - pL2.x) * 0.42, y: pL2.y + (bL2.y - pL2.y) * 0.42 };
-        const lwLb1 = { x: pL1.x + (bL1.x - pL1.x) * 0.58, y: pL1.y + (bL1.y - pL1.y) * 0.58 };
-        const lwLb2 = { x: pL2.x + (bL2.x - pL2.x) * 0.58, y: pL2.y + (bL2.y - pL2.y) * 0.58 };
-        ctx.beginPath();
-        ctx.moveTo(lwL1.x, lwL1.y);
-        ctx.lineTo(lwL2.x, lwL2.y);
-        ctx.lineTo(lwLb2.x, lwLb2.y);
-        ctx.lineTo(lwLb1.x, lwLb1.y);
-        ctx.closePath();
-        ctx.fill();
-
-        const lwR1 = { x: pR1.x + (bR1.x - pR1.x) * 0.42, y: pR1.y + (bR1.y - pR1.y) * 0.42 };
-        const lwR2 = { x: pR2.x + (bR2.x - pR2.x) * 0.42, y: pR2.y + (bR2.y - pR2.y) * 0.42 };
-        const lwRb1 = { x: pR1.x + (bR1.x - pR1.x) * 0.58, y: pR1.y + (bR1.y - pR1.y) * 0.58 };
-        const lwRb2 = { x: pR2.x + (bR2.x - pR2.x) * 0.58, y: pR2.y + (bR2.y - pR2.y) * 0.58 };
-        ctx.beginPath();
-        ctx.moveTo(lwR1.x, lwR1.y);
-        ctx.lineTo(lwR2.x, lwR2.y);
-        ctx.lineTo(lwRb2.x, lwRb2.y);
-        ctx.lineTo(lwRb1.x, lwRb1.y);
-        ctx.closePath();
-        ctx.fill();
+      // Ceiling: darker plating, seam, and a cold lamp strip every third segment
+      quad(TL1, TR1, TR2, TL2, segIndex % 2 === 0 ? `rgba(17, 22, 33, ${depth})` : `rgba(13, 17, 26, ${depth})`);
+      line(TL2, TR2, `rgba(51, 65, 85, ${0.6 * depth})`, px(0.02, sNear, 1));
+      if (segIndex % 3 === 1) {
+        let flick = 0.8 + 0.2 * Math.sin(time * 23 + segIndex * 11);
+        if (Math.abs(this.menaceDist - zNear) < 2.5) flick *= 0.35 + 0.65 * Math.random();
+        const za = zNear + 0.45, zb = zFar - 0.45;
+        if (zb > za) {
+          quad(proj(-0.32, Yc, zb), proj(0.32, Yc, zb), proj(0.32, Yc, za), proj(-0.32, Yc, za), `rgba(186, 230, 253, ${0.75 * flick * depth})`);
+          quad(proj(-0.75, Yc, zb), proj(0.75, Yc, zb), proj(0.75, Yc, za), proj(-0.75, Yc, za), `rgba(125, 211, 252, ${0.14 * flick * depth})`);
+        }
       }
 
-      // Pillars / Side alcoves
-      if (segIndex % 4 === 0) {
-        const pilL = proj(-Xw + 0.35, Yc, z2);
-        const pilLb = proj(-Xw + 0.35, Yf, z2);
-        ctx.strokeStyle = `rgba(15, 23, 42, ${0.85 * depthShade})`;
-        ctx.lineWidth = Math.max(1, 3 * pL2.s);
-        ctx.beginPath();
-        ctx.moveTo(pilL.x, pilL.y);
-        ctx.lineTo(pilLb.x, pilLb.y);
-        ctx.stroke();
-
-        const pilR = proj(Xw - 0.35, Yc, z2);
-        const pilRb = proj(Xw - 0.35, Yf, z2);
-        ctx.beginPath();
-        ctx.moveTo(pilR.x, pilR.y);
-        ctx.lineTo(pilRb.x, pilRb.y);
-        ctx.stroke();
+      // Walls: panelled tech-base plating on both sides
+      for (const side of [-1, 1]) {
+        // Base plate (lit from the near end)
+        const gA = wallPt(side, 0.5, zFar), gB = wallPt(side, 0.5, zNear);
+        const wallGrad = ctx.createLinearGradient(gA.x, 0, gB.x, 0);
+        wallGrad.addColorStop(0, `rgba(30, 41, 59, ${depth})`);
+        wallGrad.addColorStop(1, `rgba(42, 55, 78, ${depth})`);
+        wallQuad(side, 0, 1, zFar, zNear, wallGrad);
+        // Recessed panel face
+        wallQuad(side, 0.26, 0.74, zFar - 0.18, zNear + 0.18, `rgba(51, 65, 85, ${0.55 * depth})`);
+        wallQuad(side, 0.3, 0.7, zFar - 0.26, zNear + 0.26, segIndex % 2 === 0 ? `rgba(30, 41, 59, ${0.7 * depth})` : `rgba(36, 48, 68, ${0.7 * depth})`);
+        // Upper trim rail + lower hazard band
+        wallQuad(side, 0.2, 0.235, zFar, zNear, `rgba(100, 116, 139, ${0.75 * depth})`);
+        wallQuad(side, 0.82, 1, zFar, zNear, segIndex % 2 === 0 ? `rgba(234, 179, 8, ${0.62 * depth})` : `rgba(15, 23, 42, ${0.9 * depth})`);
+        wallQuad(side, 0.8, 0.82, zFar, zNear, `rgba(148, 163, 184, ${0.5 * depth})`);
+        // Panel seam at the segment edge (ceiling to floor)
+        line(wallPt(side, 0, zNear), wallPt(side, 1, zNear), `rgba(6, 8, 13, ${0.9 * depth})`, px(0.035, sNear, 1));
+        // Rivets along the trim
+        ctx.fillStyle = `rgba(148, 163, 184, ${0.7 * depth})`;
+        for (let k = 0.25; k < 1; k += 0.5) {
+          const rv = wallPt(side, 0.22, zNear + (zFar - zNear) * k);
+          ctx.beginPath();
+          ctx.arc(rv.x, rv.y, px(0.03, rv.s, 0.8), 0, Math.PI * 2);
+          ctx.fill();
+        }
+        // Wall light every third segment: cyan / amber, flickers as the Menace passes
+        if (segIndex % 3 === 0) {
+          let flicker = 0.75 + 0.25 * Math.sin(time * 28 + segIndex * 17);
+          if (Math.abs(this.menaceDist - zNear) < 2.5) flicker *= (0.3 + 0.7 * Math.random());
+          const cyan = segIndex % 6 === 0;
+          const za = zNear + 0.55, zb = zFar - 0.55;
+          if (zb > za) {
+            wallQuad(side, 0.4, 0.6, zb + 0.25, za - 0.25, cyan ? `rgba(56, 189, 248, ${0.16 * flicker * depth})` : `rgba(251, 146, 60, ${0.16 * flicker * depth})`);
+            wallQuad(side, 0.44, 0.56, zb, za, cyan ? `rgba(186, 230, 253, ${0.9 * flicker * depth})` : `rgba(254, 215, 170, ${0.9 * flicker * depth})`);
+          }
+        }
+        // Pillar every fourth segment: a column standing proud of the wall, for parallax
+        if (segIndex % 4 === 2) {
+          const za = zNear + 0.6, zb = zNear + 1.1;
+          if (zb <= zFar) {
+            const inset = 0.32;
+            // Far face (toward the vanishing point), inner face, near face
+            quad(wallPt(side, 0, zb), wallPt(side, 0, zb, inset), wallPt(side, 1, zb, inset), wallPt(side, 1, zb), `rgba(15, 23, 42, ${0.95 * depth})`);
+            wallQuad(side, 0, 1, zb, za, `rgba(71, 85, 105, ${depth})`, inset);
+            wallQuad(side, 0.18, 0.24, zb, za, `rgba(148, 163, 184, ${0.8 * depth})`, inset);
+            wallQuad(side, 0.78, 0.84, zb, za, `rgba(234, 179, 8, ${0.7 * depth})`, inset);
+            quad(wallPt(side, 0, za), wallPt(side, 0, za, inset), wallPt(side, 1, za, inset), wallPt(side, 1, za), `rgba(94, 110, 135, ${depth})`);
+          }
+        }
       }
     }
 
-    // --- EXIT Door (Approaching at end of 20s run) ---
+    // --- Distance atmosphere: translucent haze pooling at the vanishing point ---
+    const haze = ctx.createRadialGradient(vp.x, vp.y, 0, vp.x, vp.y, viewH * 0.42);
+    haze.addColorStop(0, 'rgba(6, 8, 13, 0.72)');
+    haze.addColorStop(0.45, 'rgba(6, 8, 13, 0.3)');
+    haze.addColorStop(1, 'rgba(6, 8, 13, 0)');
+    ctx.fillStyle = haze;
+    ctx.fillRect(0, 0, W, viewH);
+
+    // --- EXIT Door (approaching at the end of the 20s run) ---
     if (this.elapsed >= this.duration - 5.5) {
       const doorZ = Math.max(1.8, (this.duration - this.elapsed) * 4.2);
       const pDL = proj(-Xw, Yc, doorZ);
       const pDR = proj(Xw, Yc, doorZ);
       const pDbL = proj(-Xw, Yf, doorZ);
       const pDbR = proj(Xw, Yf, doorZ);
+      const ds = pDL.s;
 
-      // Door panel
-      ctx.fillStyle = '#1e293b';
-      ctx.beginPath();
-      ctx.moveTo(pDL.x, pDL.y);
-      ctx.lineTo(pDR.x, pDR.y);
-      ctx.lineTo(pDbR.x, pDbR.y);
-      ctx.lineTo(pDbL.x, pDbL.y);
-      ctx.closePath();
-      ctx.fill();
-
+      quad(pDL, pDR, pDbR, pDbL, '#1e293b');
+      // Door leaves with a centre seam
+      quad(proj(-Xw * 0.9, Yc * 0.9, doorZ), proj(-0.08, Yc * 0.9, doorZ), proj(-0.08, Yf * 0.92, doorZ), proj(-Xw * 0.9, Yf * 0.92, doorZ), '#334155');
+      quad(proj(0.08, Yc * 0.9, doorZ), proj(Xw * 0.9, Yc * 0.9, doorZ), proj(Xw * 0.9, Yf * 0.92, doorZ), proj(0.08, Yf * 0.92, doorZ), '#334155');
       // Yellow chevron warning border
       ctx.strokeStyle = '#eab308';
-      ctx.lineWidth = Math.max(2, 6 * pDL.s);
-      ctx.stroke();
+      ctx.lineWidth = px(0.06, ds, 2);
+      ctx.strokeRect(pDL.x, pDL.y, pDR.x - pDL.x, pDbL.y - pDL.y);
 
-      // Bright glowing EXIT sign above door
-      const signPt = proj(0, Yc + 0.3, doorZ);
+      // Glowing EXIT sign above the door
+      const signPt = proj(0, Yc + 0.32, doorZ);
       ctx.save();
-      ctx.font = `900 ${Math.max(10, Math.floor(28 * signPt.s))}px system-ui, sans-serif`;
+      ctx.font = `900 ${Math.max(10, Math.floor(px(0.38, ds, 10)))}px system-ui, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = '#22c55e';
@@ -6607,165 +6706,105 @@ class GloomRun {
       ctx.fillText('EXIT ▶', signPt.x, signPt.y);
       ctx.restore();
 
-      // Door opening illumination if within last second
+      // Door opening light in the last 0.8s (translucent, confined to the door)
       if (this.elapsed >= this.duration - 0.8) {
         const openPct = (this.elapsed - (this.duration - 0.8)) / 0.8;
-        ctx.fillStyle = `rgba(240, 253, 244, ${Math.min(0.9, openPct * 1.5)})`;
+        ctx.fillStyle = `rgba(240, 253, 244, ${Math.min(0.85, openPct * 1.4)})`;
         ctx.fillRect(pDL.x, pDL.y, pDR.x - pDL.x, pDbL.y - pDL.y);
       }
     }
 
-    // --- Collect Dynamic Entities for Depth-Sorting ---
+    // --- Dynamic entities, depth-sorted (farthest first). All sizes are world units × s. ---
     const drawList = [];
-
-    // Floor Pellets
-    this.floorPellets.forEach(p => {
-      drawList.push({ type: 'pellet', z: p.z, lane: p.lane });
-    });
-
-    // Obstacles
-    this.obstacles.forEach(ob => {
-      drawList.push({ type: 'obstacle', z: ob.z, lane: ob.lane, rot: ob.rot });
-    });
-
-    // Projectiles
-    this.projectiles.forEach(p => {
-      drawList.push({ type: 'proj', z: p.z, x: p.x });
-    });
-
-    // The Menace
+    this.floorPellets.forEach(p => drawList.push({ type: 'pellet', z: p.z, lane: p.lane }));
+    this.obstacles.forEach(ob => drawList.push({ type: 'obstacle', z: ob.z, lane: ob.lane, rot: ob.rot }));
+    this.projectiles.forEach(p => drawList.push({ type: 'proj', z: p.z, x: p.x }));
     drawList.push({ type: 'menace', z: this.menaceDist, laneX: this.menaceLaneX });
-
-    // Sort by depth (farthest first)
     drawList.sort((a, b) => b.z - a.z);
 
-    // Draw sorted entities
+    // Sprites fade gently with distance (never below 0.8 so the far Menace stays readable)
+    const spriteAlpha = z => Math.max(0.8, Math.min(1, 1.3 - 0.5 * (z / maxZ)));
+    this.menaceScreen = null;
+
     for (const ent of drawList) {
+      ctx.save();
+      ctx.globalAlpha = spriteAlpha(ent.z);
       if (ent.type === 'pellet') {
-        const pt = proj(ent.lane * 1.1, Yf - 0.2, ent.z);
-        const r = Math.max(2, 6.5 * pt.s);
-        ctx.save();
+        const pt = proj(ent.lane * 1.1, Yf - 0.18, ent.z);
+        const r = px(0.16, pt.s, 2);
         ctx.fillStyle = '#ffd32a';
         ctx.shadowColor = '#ffd32a';
-        ctx.shadowBlur = 10;
+        ctx.shadowBlur = Math.min(14, r * 1.2);
         ctx.beginPath();
         ctx.arc(pt.x, pt.y, r, 0, Math.PI * 2);
         ctx.fill();
-        ctx.fillStyle = '#ffffff';
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = '#fff275';
         ctx.beginPath();
         ctx.arc(pt.x - r * 0.3, pt.y - r * 0.3, r * 0.35, 0, Math.PI * 2);
         ctx.fill();
-        ctx.restore();
       } else if (ent.type === 'obstacle') {
-        const pt = proj(ent.lane * 1.1, Yf - 0.5, ent.z);
-        const size = Math.max(6, 18 * pt.s);
-        ctx.save();
+        // A knocked-loose supply crate tumbling down the lane
+        const pt = proj(ent.lane * 1.1, Yf - 0.32, ent.z);
+        const size = px(0.55, pt.s, 4);
         ctx.translate(pt.x, pt.y);
         ctx.rotate(ent.rot);
         ctx.fillStyle = '#475569';
         ctx.fillRect(-size / 2, -size / 2, size, size);
+        ctx.fillStyle = '#334155';
+        ctx.fillRect(-size / 2, -size * 0.1, size, size * 0.2);
+        ctx.fillRect(-size * 0.1, -size / 2, size * 0.2, size);
         ctx.strokeStyle = '#eab308';
-        ctx.lineWidth = Math.max(1, 2 * pt.s);
+        ctx.lineWidth = Math.max(1, size * 0.08);
         ctx.strokeRect(-size / 2, -size / 2, size, size);
-        ctx.restore();
       } else if (ent.type === 'proj') {
-        const pt = proj(ent.x, 0.2, ent.z);
-        const pr = Math.max(2, 5 * pt.s);
-        ctx.save();
+        const pt = proj(ent.x, 0.25, ent.z);
+        const pr = px(0.11, pt.s, 2);
         ctx.fillStyle = '#38bdf8';
         ctx.shadowColor = '#38bdf8';
-        ctx.shadowBlur = 12;
+        ctx.shadowBlur = Math.min(12, pr * 2);
         ctx.beginPath();
         ctx.arc(pt.x, pt.y, pr, 0, Math.PI * 2);
         ctx.fill();
+        ctx.shadowBlur = 0;
         ctx.fillStyle = '#ffffff';
         ctx.beginPath();
         ctx.arc(pt.x, pt.y, pr * 0.5, 0, Math.PI * 2);
         ctx.fill();
-        ctx.restore();
       } else if (ent.type === 'menace') {
-        const pt = proj(ent.laneX * 1.1, 0.3, ent.z);
-        const r = Math.max(8, 48 * pt.s);
-        const bounce = Math.sin(this.elapsed * 15) * (4 * pt.s);
-        const cy = pt.y + bounce;
+        // Body radius 1.25 world units (a big lad; the lanes are 1.1 apart); feet on the floor. Clamped
+        // so that at the closest approach (the grab at z ≈ 2.2) he fills at most the central portion.
+        const bodyR = 1.25;
+        const legLen = 0.28;
+        const rMax = Math.min(W, viewH) * 0.28;
+        const pt = proj(ent.laneX * 1.1, Yf - legLen - bodyR, ent.z);
+        const r = Math.min(rMax, px(bodyR, pt.s, 3));
+        const bounce = Math.abs(Math.sin(this.elapsed * 14)) * r * 0.08;
+        const cx = pt.x, cy = pt.y - bounce;
 
-        ctx.save();
-        // Shadow on floor
+        // Shadow on the floor
         const sPt = proj(ent.laneX * 1.1, Yf - 0.05, ent.z);
         ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
         ctx.beginPath();
-        ctx.ellipse(sPt.x, sPt.y, r * 0.85, r * 0.25, 0, 0, Math.PI * 2);
+        ctx.ellipse(sPt.x, sPt.y, r * 0.9, r * 0.22, 0, 0, Math.PI * 2);
         ctx.fill();
 
-        // Menace sphere body
-        ctx.translate(pt.x, cy);
-        if (this.menaceHitFlash > 0) {
-          ctx.fillStyle = '#ffffff';
-          ctx.shadowColor = '#fde047';
-          ctx.shadowBlur = 20;
-          ctx.beginPath();
-          ctx.arc(0, 0, r, 0, Math.PI * 2);
-          ctx.fill();
-        } else {
-          const mGrad = ctx.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.1, 0, 0, r);
-          mGrad.addColorStop(0, '#fef08a');
-          mGrad.addColorStop(0.6, '#ffd32a');
-          mGrad.addColorStop(1, '#b45309');
-          ctx.fillStyle = mGrad;
-          ctx.beginPath();
-          ctx.arc(0, 0, r, 0, Math.PI * 2);
-          ctx.fill();
-
-          // Angry menacing brows
-          ctx.strokeStyle = '#0f172a';
-          ctx.lineWidth = Math.max(1.5, r * 0.14);
-          ctx.beginPath();
-          ctx.moveTo(-r * 0.6, -r * 0.35);
-          ctx.lineTo(-r * 0.15, -r * 0.18);
-          ctx.moveTo(r * 0.6, -r * 0.35);
-          ctx.lineTo(r * 0.15, -r * 0.18);
-          ctx.stroke();
-
-          // Glowing furious eyes
-          ctx.fillStyle = '#ef4444';
-          ctx.beginPath();
-          ctx.arc(-r * 0.35, -r * 0.1, r * 0.16, 0, Math.PI * 2);
-          ctx.arc(r * 0.35, -r * 0.1, r * 0.16, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.fillStyle = '#ffffff';
-          ctx.beginPath();
-          ctx.arc(-r * 0.32, -r * 0.12, r * 0.07, 0, Math.PI * 2);
-          ctx.arc(r * 0.38, -r * 0.12, r * 0.07, 0, Math.PI * 2);
-          ctx.fill();
-
-          // Menacing gaping mouth with sharp fangs
-          const mouthOpen = 0.2 + 0.15 * Math.sin(this.elapsed * 12);
-          ctx.fillStyle = '#1e1b4b';
-          ctx.beginPath();
-          ctx.ellipse(0, r * 0.3, r * 0.5, r * mouthOpen, 0, 0, Math.PI * 2);
-          ctx.fill();
-
-          // Triangular sharp teeth
-          ctx.fillStyle = '#ffffff';
-          [-r * 0.3, -r * 0.1, r * 0.1, r * 0.3].forEach(tx => {
-            ctx.beginPath();
-            ctx.moveTo(tx - r * 0.07, r * (0.3 - mouthOpen * 0.9));
-            ctx.lineTo(tx + r * 0.07, r * (0.3 - mouthOpen * 0.9));
-            ctx.lineTo(tx, r * (0.3 - mouthOpen * 0.1));
-            ctx.closePath();
-            ctx.fill();
-          });
-        }
-        ctx.restore();
+        ctx.translate(cx, cy);
+        ctx.scale(r, r);
+        const look = Math.max(-0.08, Math.min(0.08, (this.laneX - ent.laneX) * 0.08));
+        const chomp = 0.55 + 0.45 * Math.abs(Math.sin(this.elapsed * 6));
+        this.drawMenaceFigure(ctx, this.elapsed * 14, chomp, look, this.menaceHitFlash > 0);
+        this.menaceScreen = { x: cx, y: cy, r: r };
       }
+      ctx.restore();
     }
 
-    // --- Hit Sparks & Atmosphere Dust ---
+    // --- Hit Sparks ---
     this.sparks.forEach(sp => {
       const pt = proj(sp.x, sp.y, sp.z);
       ctx.fillStyle = sp.color;
       ctx.beginPath();
-      ctx.arc(pt.x, pt.y, Math.max(1, 3 * pt.s), 0, Math.PI * 2);
+      ctx.arc(pt.x, pt.y, px(0.07, pt.s, 1), 0, Math.PI * 2);
       ctx.fill();
     });
 

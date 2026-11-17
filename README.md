@@ -58,7 +58,7 @@ The flip set is **four** mini-games, one per power pellet, each an instantly rec
 | --- | --- | --- | --- |
 | top-left (1,1) | **Green Valley** | rolling-hills chase | built (Round 2, Gauntlet fixes Round 4) |
 | top-right (17,1) | **Block Kingdom** | bright platformer | built (Round 3, Gauntlet fixes Round 4) |
-| bottom-left (1,19) | **GLOOM** | first-person corridor | built (Round 4) |
+| bottom-left (1,19) | **GLOOM** | first-person corridor | built (Round 4, renderer rebuilt Round 5) |
 | bottom-right (17,19) | **Phantom Grand Prix** | kart racer | built (Round 4) |
 
 Every flip is a named module behind one contract (enter with the possessed ghost; exit `survived` → back unbenched with +200, or `caught` → the normal bench flow). Maze time freezes during any flip.
@@ -84,6 +84,20 @@ A behind-the-kart pseudo-3D racer on a curving, banked track:
 ### Bounded Gauntlet Fixes (Green Valley & Block Kingdom)
 - **Green Valley:** Two-tone geometric diamond-patterned earth faces under grass line, palm-style curved trees with segmented trunks and spiky fronds, loop-de-loop silhouette in distant background ocean layer, steep slope section in terrain, bold hollow golden ring pellets with spinning shine, 4 parallax layers with soft contact shadows, landing dust and pace dust, surge speed lines, jump/landing squash-and-stretch, sparkle pickup trails, and Menace kept visible in-frame gaining on a larger ghost with panicked backward glance and near-catch screen shake.
 - **Block Kingdom:** Distant pale spotted hills echoing genre backdrop, mid-ground hill band, foreground bushes, grass tufts, flowers, shaded dirt stratum under ground line, soft drop shadows under blocks, chimneys, minions, Menace, and ghost, running dust puffs, landing squash-and-stretch, sparkle pellet trails, block passing/strike bounce animation, speed lines and subtle shake as Menace closes, taller chimneys, larger block clusters at varied heights, and an in-art gag: Menace waving a tiny captured squad flag as he runs.
+
+## Round 5 — GLOOM Corridor Renderer Rebuild (defect repair)
+
+Operator inspection of the Round 4 delivery found GLOOM's game state correct but its picture broken: a white void behind the banner, a blank field during live play, then a flat yellow field with one giant white disc. No corridor, no walls, no Menace figure.
+
+**Diagnosis.** The corridor itself had always been drawn correctly (world-unit quads projected through `s = fov / z`), but every *sprite* multiplied a pixel-size constant by `s` — which is pixels-per-world-unit (about 10 at the far end, 190 at the near clip), not a 0–1 scale factor. A floor pellet was drawn at `6.5 × s` (a 3,000-pixel disc as it reached the camera; its white highlight alone covered the playfield — the "white void"), the Menace at `48 × s` (a 480-pixel disc on his very first frame at the far end of the corridor — the "yellow field"), crates at `18 × s`. The sprites were drawn last, so the perfectly good corridor underneath was buried every frame. The sprite scale was never clamped. It was not a placeholder; it was a unit mistake in the sprite layer.
+
+**Repair (rendering only — gameplay, controls, timing, music and the flip contract untouched).**
+- Every sprite and line width is now a world size × `s`, with a pixel floor: pellets 0.16 u, crates 0.55 u, bolts 0.11 u, sparks 0.07 u, seams 0.02–0.035 u.
+- The corridor was rebuilt as panelled tech-base walls on both sides: base plate gradient, recessed panel faces, upper trim rail with rivets, lower hazard band, a dark panel seam at every segment edge, cyan/amber wall lights every third segment (flickering as the Menace passes), and columns standing proud of the wall every fourth segment for parallax. Floor: alternating deck plating with seams and three lane guides. Ceiling: darker plating with cold lamp strips. Everything converges on the vanishing point, which carries a translucent cold glow and a translucent haze pool for distance.
+- The Menace is a **figure** (`drawMenaceFigure`): the round yellow glutton on two stubby pumping legs, running head-on at the camera — eyes with pupils that track your lane, angry brows, a wide chomping grin with fangs and tongue, the hunter's red rim glow. He is drawn in unit space and scaled by the projection (body radius 1.25 u), so he grows smoothly as he closes, and his radius is clamped to 28% of the view so at the grab he fills at most the central portion of the frame. A hit is a translucent white wash and a bright rim; the face stays.
+- The only opaque full-playfield fill is the dark base tone `#06080d`. Every overlay (lights, haze, muzzle flash, low-NERVE red pulse) is translucent; the red pulse stays an edge vignette.
+- The blaster and the status bar are byte-for-byte the Round 4 code.
+- The renderer reports where it drew the Menace (`getFlip().extra.menaceScreen`) so the battery can check the figure, not just the state.
 
 ## The Soundtrack (Rounds 2–4)
 
@@ -136,7 +150,7 @@ Music starts only after the first user gesture, ducks under the catch and flip s
 
 ## Running Automated Acceptance Checks
 
-The project includes headless Playwright test coverage: the 10 Round 1 checks, the 3 Round 2 checks, the 2 Round 3 checks, and the 4 Round 4 checks (19 total checks).
+The project includes headless Playwright test coverage: the 10 Round 1 checks, the 3 Round 2 checks, the 2 Round 3 checks, the 4 Round 4 checks, and the 2 Round 5 pixel-level render checks (21 total checks).
 
 ```bash
 npm test
@@ -161,7 +175,9 @@ The test suite automatically validates:
 16. GLOOM routing and survival: bottom-left pellet routes to GLOOM within a second; music reads `gloom`; forced survival returns to playing, unbenched, with +200 bonus.
 17. GLOOM caught path: forced catch in fresh GLOOM flip benches that ghost and returns to playing.
 18. Phantom Grand Prix routing and survival: bottom-right pellet routes to Phantom Grand Prix; music reads `grandprix`; forced survival returns unbenched with +200 bonus.
-19. Phantom Grand Prix caught path: forced catch in fresh Grand Prix flip benches that ghost and returns to playing; zero console errors across all 19 checks.
+19. Phantom Grand Prix caught path: forced catch in fresh Grand Prix flip benches that ghost and returns to playing; zero console errors across all 19 state checks.
+20. GLOOM render sanity (the battery gets eyes): enters GLOOM through the bottom-left pellet, strafes and fires, and at ~4s of live corridor play reads the canvas pixels of the playfield (the view above GLOOM's status bar) in-page: at least 40 distinct colours (quantised to 32 levels per channel), no single colour over 55% of the region, the Menace's body yellow measurably present in the central corridor area (≥ 80 px) but never over 45% of it, the renderer's reported Menace rect inside the central area with body yellow, eye white and grin dark all present inside it (a figure, not a disc). A second sample ~5s later must pass the same thresholds with a strictly larger figure, and that frame is kept as `screenshots/gloom.png`. On the Round 4 build this check fails: the Menace was a frame-filling disc (yellow far over 45% of the central area) and the renderer reported no figure.
+21. Render sanity for the other three flips: the same distinct-colour and dominance thresholds applied to a ~4s mid-play frame of Green Valley, Block Kingdom and Phantom Grand Prix; zero console errors across all 21 checks.
 
 Screenshots of title, gameplay, the flip transition, Green Valley, Block Kingdom (banner and mid-level), GLOOM mid-corridor, Phantom Grand Prix mid-race, maze clear, and game over screens are saved into `screenshots/`.
 
