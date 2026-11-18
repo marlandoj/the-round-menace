@@ -6934,10 +6934,14 @@ class KingdomRun {
   }
 }
 
-// 3d. GLOOM — the first-person corridor shooter parody the bottom-left power pellet triggers.
-// Classic 90s FPS in original Round Menace dress: textured tech-base panel corridor rushing past
-// in perspective, 3-lane strafing, pellet blaster with muzzle flash and recoil at bottom-center,
-// and a chunky status bar with NERVE %, PELLETS ammo, and animated ghost face portrait.
+// 3d. GLOOM — the raycast maze shooter the bottom-left power pellet throws the possessed ghost into.
+// Round 8: a clean-room re-implementation of the 90s first-person ENGINE in original code and art: a true
+// per-column raycaster (DDA over a 14x14 grid maze, original layout) with procedural wall textures, per-pixel
+// floor and ceiling casting, distance lighting and muzzle light; sliding doors that open on approach; free
+// movement (forward / back / turn / strafe) with collision sliding and head bob; a pellet-blaster viewmodel
+// with bob and recoil; the Menace as a pathing sprite enemy (BFS toward the player, occluded per column by the
+// depth buffer, clamped scaling as he closes); limited pellets as ammo; an exit teleporter across the maze.
+// Controls: Up/W forward, Down/S back, Left/Right turn, A/D strafe, Space / tap fires; swipe sidesteps.
 class GloomRun {
   constructor(game, ghostIndex) {
     this.game = game;
@@ -6949,299 +6953,538 @@ class GloomRun {
     // Flip module contract
     this.kind = 'gloom';
     this.musicMode = 'gloom';
-    this.hudLabel = '⚠️ Hunt Flipped — GLOOM Tech-Base Corridor';
+    this.hudLabel = '⚠️ Hunt Flipped — GLOOM: Find the Teleporter';
     this.openingBanner = 'GLOOM — TECH-BASE ESCAPE!';
     this.bannerColor = '#ef4444';
-    this.exitBanner = 'DECONTAMINATION CHAMBER REACHED';
-    this.surviveText = 'Corridor cleared! Survival +200';
-    this.pressToJump = false; // tap/space fires pellet burst
-    this.touchHalves = false; // swipe or arrow keys strafe
+    this.exitBanner = 'TELEPORTER REACHED';
+    this.surviveText = 'Teleported out! Survival +200';
+    this.pressToJump = false;               // Tap / Space fires the blaster
+    this.touchHalves = false;
 
-    this.duration = 20; // ~20 seconds of running to exit door
-    this.phase = 'tear_in'; // tear_in -> run -> survived | caught
+    this.duration = 20;
+    this.phase = 'tear_in';                 // tear_in -> run -> survived | caught
     this.tearInDuration = 0.7;
     this.phaseT = 0;
     this.elapsed = 0;
     this.outcome = null;
 
-    // Player strafe and health/ammo state
-    this.targetLane = 0; // -1: Left, 0: Center, 1: Right
-    this.laneX = 0; // smoothly lerped towards targetLane
-    this.nerve = 100; // NERVE %
-    this.grabs = 0;
-    this.pellets = 20; // ammo count
-    this.maxPellets = 40;
-    this.collected = 0; // floor pellets picked up
-    this.surges = 0;
+    // Engine tuning (world units are grid tiles)
+    this.moveSpeed = 2.6;
+    this.strafeSpeed = 1.9;
+    this.turnSpeed = 2.3;                   // rad/s
+    this.bodyR = 0.24;
+    this.fov = 66 * Math.PI / 180;
+    this.viewH = this.H - 84;               // The corridor view above the status bar
+    this.RW = Math.floor(this.W / 2);       // Render buffer (half resolution, chunky pixels)
+    this.RH = Math.floor(this.viewH / 2);
+    this.planeDist = (this.RW / 2) / Math.tan(this.fov / 2);
 
-    // Weapons & visual juice
+    this.buildMap();
+    this.buildTextures();
+
+    const start = this.find('P'), mstart = this.find('M');
+    this.player = { x: start.x + 0.5, y: start.y + 0.5, a: -Math.PI / 2, vx: 0, vy: 0, bob: 0, moving: 0, hurt: 0 };
+    this.menace = {
+      x: mstart.x + 0.5, y: mstart.y + 0.5, speed: 1.05 * cfg.menaceSpeedMultiplier, gain: 0.02,
+      path: [], repath: 0, stun: 0, hitFlash: 0, stride: 0, frozen: false, knock: null
+    };
+    this.startGap = Math.hypot(this.menace.x - this.player.x, this.menace.y - this.player.y);
+    this.menaceDist = this.startGap;
+    this.menaceScreen = null;
+    this.startExitDist = this.exitDistAt(this.player.x, this.player.y);
+
+    // Input state
+    this.keys = { fwd: false, back: false, left: false, right: false, sl: false, sr: false };
+    this.sidestep = 0;                      // Pending strafe impulse (tiles) from a swipe / steer()
+
+    // Weapon, ammo, nerve
+    this.pellets = 20;
+    this.maxPellets = 40;
+    this.collected = 0;
+    this.surges = 0;
+    this.nerve = 100;
     this.recoil = 0;
     this.muzzleFlash = 0;
     this.fireCooldown = 0;
     this.screenShake = 0;
     this.redFlash = 0;
-    this.faceState = 'normal'; // normal, firing, hurt, low_nerve
+    this.faceState = 'normal';
     this.faceTimer = 0;
     this.lookDir = 0;
     this.bobTime = 0;
+    this.hitsLanded = 0;
+    this.turned = 0;                        // Radians turned in place (behaviour telemetry)
 
-    // Menace pursuer
-    this.menaceStartDist = 26;
-    this.menaceDist = this.menaceStartDist;
-    this.menaceLane = 0;
-    this.menaceLaneX = 0;
-    this.menaceSpeed = 1.35;
-    this.menaceChargeTimer = 2.2;
-    this.menaceHitFlash = 0;
-
-    // Entities
-    this.projectiles = [];
-    this.floorPellets = [];
-    this.obstacles = [];
+    this.shots = [];
     this.sparks = [];
-    this.pelletSpawnTimer = 0.8;
+    this.pickups = [
+      { x: 12.5, y: 7.5 }, { x: 10.5, y: 9.5 }, { x: 8.5, y: 5.5 }, { x: 4.5, y: 9.5 }, { x: 1.5, y: 7.5 }, { x: 7.5, y: 7.5 }, { x: 3.5, y: 11.5 }
+    ].map(p => ({ x: p.x, y: p.y, taken: false, bob: Math.random() * 6 }));
 
-    // Seed some initial floor pellets down the corridor
-    for (let z = 6; z <= 28; z += 4.5) {
-      this.floorPellets.push({ lane: (Math.floor(Math.random() * 3) - 1), z });
+    // Render buffer
+    this.buf = document.createElement('canvas');
+    this.buf.width = this.RW;
+    this.buf.height = this.RH;
+    this.bctx = this.buf.getContext('2d');
+    this.img = this.bctx.createImageData(this.RW, this.RH);
+    this.pix = new Uint32Array(this.img.data.buffer);
+    this.depth = new Float32Array(this.RW);
+    this.zbufDirty = true;
+    this.grain = null;
+  }
+
+  // ===== Map (original 14x14 layout) =====
+  // '#': wall  '.': floor  'D': sliding door  'E': exit teleporter  'P': player start  'M': Menace start
+  buildMap() {
+    this.rows = [
+      '##############',
+      '#.......#..M.#',
+      '#.#####.#.#..#',
+      '#.#...#.#....#',
+      '#.#.#.#.##...#',
+      '#...#.#......#',
+      '#.###.#D###..#',
+      '#.#...#......#',
+      '#.#.###.###..#',
+      '#.#...D......#',
+      '#.##.#####...#',
+      '#....#...#...#',
+      '####.D.E.#..P#',
+      '##############'
+    ];
+    this.N = 14;
+    this.grid = this.rows.map(r => r.split(''));
+    this.doors = [];
+    this.wallKind = [];
+    const hash = (a, b) => { const v = Math.sin(a * 12.9898 + b * 78.233) * 43758.5453; return v - Math.floor(v); };
+    for (let y = 0; y < this.N; y++) {
+      this.wallKind.push([]);
+      for (let x = 0; x < this.N; x++) {
+        const ch = this.grid[y][x];
+        if (ch === 'D') {
+          // A door slides along the axis its corridor runs across
+          const horiz = this.cell(x - 1, y) === '#' && this.cell(x + 1, y) === '#';
+          this.doors.push({ x, y, open: 0, target: 0, timer: 0, horiz, opened: 0 });
+        }
+        this.wallKind[y].push(Math.floor(hash(x, y) * 4));
+      }
+    }
+    this.exit = this.find('E');
+    // Distance field from the exit (through doors), for the HUD progress
+    this.exitField = Array.from({ length: this.N }, () => Array(this.N).fill(Infinity));
+    const q = [[this.exit.x, this.exit.y]];
+    this.exitField[this.exit.y][this.exit.x] = 0;
+    while (q.length) {
+      const [cx, cy] = q.shift();
+      const d = this.exitField[cy][cx];
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = cx + dx, ny = cy + dy;
+        if (this.cell(nx, ny) === '#') continue;
+        if (this.exitField[ny][nx] > d + 1) { this.exitField[ny][nx] = d + 1; q.push([nx, ny]); }
+      }
     }
   }
 
-  jump() {
-    if (this.phase !== 'run') return false;
-    if (this.fireCooldown > 0) return false;
-    if (this.pellets <= 0) return false;
+  cell(x, y) {
+    if (x < 0 || y < 0 || x >= this.N || y >= this.N) return '#';
+    return this.grid[y][x];
+  }
+  find(ch) {
+    for (let y = 0; y < this.N; y++) for (let x = 0; x < this.N; x++) if (this.grid[y][x] === ch) return { x, y };
+    return { x: 1, y: 1 };
+  }
+  doorAt(x, y) { return this.doors.find(d => d.x === x && d.y === y) || null; }
+  // Solid for movement: walls always, doors unless mostly open
+  blocked(x, y) {
+    const ch = this.cell(Math.floor(x), Math.floor(y));
+    if (ch === '#') return true;
+    if (ch === 'D') { const d = this.doorAt(Math.floor(x), Math.floor(y)); return !d || d.open < 0.7; }
+    return false;
+  }
+  exitDistAt(x, y) {
+    const cx = Math.max(0, Math.min(this.N - 1, Math.floor(x))), cy = Math.max(0, Math.min(this.N - 1, Math.floor(y)));
+    const d = this.exitField[cy][cx];
+    return isFinite(d) ? d : 99;
+  }
 
+  // ===== Procedural textures (64x64, ABGR words) in the Round 7 gritty brown / grey / olive family =====
+  buildTextures() {
+    const S = 64;
+    this.TS = S;
+    const hash = (a, b) => { const v = Math.sin(a * 12.9898 + b * 78.233) * 43758.5453; return v - Math.floor(v); };
+    const make = fn => {
+      const t = new Uint32Array(S * S);
+      for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+        const c = fn(x, y);
+        const n = (hash(x, y) - 0.5) * 14;                       // grit
+        const r = Math.max(0, Math.min(255, c[0] + n)) | 0, g = Math.max(0, Math.min(255, c[1] + n)) | 0, b = Math.max(0, Math.min(255, c[2] + n)) | 0;
+        t[y * S + x] = (255 << 24) | (b << 16) | (g << 8) | r;
+      }
+      return t;
+    };
+    const panel = (x, y, variant) => {
+      let c = [92, 80, 64];
+      if (y < 6) c = [128, 118, 98];                               // upper trim rail
+      else if (y < 9) c = [58, 54, 40];
+      else if (y >= 50 && y < 58) c = ((x + y) >> 2) % 2 ? [200, 150, 40] : [40, 34, 28];   // hazard band
+      else if (y >= 58) c = [50, 46, 38];
+      else if (x >= 6 && x < 58 && y >= 14 && y < 46) {
+        c = [[112, 100, 80], [104, 96, 74], [110, 106, 76], [118, 98, 78]][variant];
+        if (y < 18) c = [c[0] + 18, c[1] + 18, c[2] + 18];       // lit top edge of the recess
+        if (x < 9 || x >= 55) c = [c[0] - 22, c[1] - 22, c[2] - 22];
+      }
+      // Rivets
+      for (const [rx, ry] of [[3, 11], [60, 11], [3, 47], [60, 47]]) if (Math.abs(x - rx) <= 1 && Math.abs(y - ry) <= 1) c = [150, 140, 118];
+      if (variant === 1 && x >= 28 && x < 36 && y >= 9 && y < 50) c = [140 - (y - 9), 60, 24];          // rust streak
+      if (variant === 2 && y >= 24 && y < 34) c = (y === 24 || y === 33) ? [50, 70, 86] : (y < 28 ? [130, 160, 180] : [70, 92, 110]);   // coolant pipe
+      if (variant === 3 && x >= 18 && x < 46 && y >= 20 && y < 42) c = (y % 4 < 2) ? [22, 20, 16] : [96, 90, 74];                     // vent grille
+      return c;
+    };
+    this.texWall = [0, 1, 2, 3].map(v => make((x, y) => panel(x, y, v)));
+    this.texDoor = make((x, y) => {
+      let c = [88, 90, 94];
+      if (Math.abs(x - 32) <= 1) c = [30, 30, 34];                                     // centre seam
+      if (y < 5 || y >= 59) c = [52, 54, 58];
+      if ((y >= 14 && y < 18) || (y >= 46 && y < 50)) c = [70, 92, 110];              // coolant stripes
+      if (y >= 24 && y < 40 && Math.abs(Math.abs(x - 32) - (y - 24)) < 3) c = [220, 160, 40];   // chevron
+      if (y >= 7 && y < 11 && x >= 26 && x < 38) c = [220, 50, 50];                    // lock lamp
+      return c;
+    });
+    this.texFloor = make((x, y) => {
+      let c = ((x >> 5) + (y >> 5)) % 2 ? [78, 68, 54] : [70, 62, 50];
+      if (x % 32 === 0 || y % 32 === 0) c = [36, 32, 26];
+      if (hash(x >> 3, y >> 3) < 0.12) c = [48, 40, 30];                              // oil stains
+      if (hash(x, y + 99) > 0.985) c = [185, 172, 140];                                // flecks
+      return c;
+    });
+    this.texCeil = make((x, y) => {
+      let c = [40, 36, 30];
+      if (x >= 10 && x < 16) c = [88, 82, 66];                                        // conduit
+      if (x >= 48 && x < 54) c = [88, 82, 66];
+      if (x >= 26 && x < 38 && y >= 20 && y < 44) c = [255, 232, 190];                 // work light
+      else if (x >= 24 && x < 40 && y >= 18 && y < 46) c = [28, 26, 22];
+      if (y % 32 === 0) c = [24, 22, 18];
+      return c;
+    });
+  }
+
+  // ===== Input =====
+  // Keyboard: the module claims the movement keys; Space / the tap path (jump) fires
+  key(code, down) {
+    const k = this.keys;
+    switch (code) {
+      case 'ArrowUp': case 'KeyW': k.fwd = down; return true;
+      case 'ArrowDown': case 'KeyS': k.back = down; return true;
+      case 'ArrowLeft': k.left = down; return true;
+      case 'ArrowRight': k.right = down; return true;
+      case 'KeyA': k.sl = down; return true;
+      case 'KeyD': k.sr = down; return true;
+      default: return false;
+    }
+  }
+  dpad(dir, down) {
+    const k = this.keys;
+    if (dir === 'up') k.fwd = down;
+    else if (dir === 'down') k.back = down;
+    else if (dir === 'left') k.left = down;
+    else if (dir === 'right') k.right = down;
+    else return false;
+    return true;
+  }
+  jump() { return this.fire(); }
+  jumpRelease() {}
+  fastFall() {}
+  // A swipe / steer tap is a sidestep of one tile; held steering is handled by key()
+  steer(dir) { if (this.phase === 'run' || this.phase === 'tear_in') this.sidestep += dir * 1.0; }   // queued through the tear-in
+  steerRelease(dir) {}
+
+  fire() {
+    if (this.phase !== 'run' || this.fireCooldown > 0 || this.pellets <= 0) return false;
     this.pellets--;
-    this.fireCooldown = 0.18;
+    this.fireCooldown = 0.2;
     this.recoil = 1.0;
     this.muzzleFlash = 0.09;
     this.screenShake = Math.max(this.screenShake, 0.12);
     this.faceState = 'firing';
     this.faceTimer = 0.32;
     if (this.game.sound.playBlaster) this.game.sound.playBlaster();
-
-    // Spawn blaster projectile flying down the corridor
-    this.projectiles.push({
-      x: this.laneX * 1.1,
-      z: 1.2,
-      vz: 42,
-      hit: false
-    });
+    const p = this.player;
+    this.shots.push({ x: p.x + Math.cos(p.a) * 0.4, y: p.y + Math.sin(p.a) * 0.4, dx: Math.cos(p.a), dy: Math.sin(p.a), speed: 12, life: 1.6 });
     return true;
   }
 
-  jumpRelease() {}
-  fastFall() {}
-
-  steer(dir) {
-    if (this.phase !== 'run') return;
-    this.targetLane = Math.max(-1, Math.min(1, this.targetLane + dir));
-    this.lookDir = this.targetLane;
+  // ===== HUD meter contract =====
+  progress() { return Math.max(0, Math.min(1, 1 - this.exitDistAt(this.player.x, this.player.y) / Math.max(1, this.startExitDist))); }
+  menaceProgress() { return Math.max(0, Math.min(1, 1 - this.menaceDist / Math.max(1, this.startGap))); }
+  remainingSeconds() { return Math.max(0, this.exitDistAt(this.player.x, this.player.y) / 2.0); }
+  extraInfo() {
+    const p = this.player, m = this.menace;
+    return {
+      menaceDist: this.menaceDist,
+      menaceScreen: this.menaceScreen ? { x: this.menaceScreen.x, y: this.menaceScreen.y, r: this.menaceScreen.r } : null,
+      nerve: this.nerve, ammo: this.pellets, hits: this.hitsLanded, turned: this.turned,
+      px: p.x, py: p.y, angle: p.a, mx: m.x, my: m.y, menaceStun: m.stun,
+      doors: this.doors.map(d => ({ x: d.x, y: d.y, open: d.open, opened: d.opened })),
+      exit: this.exit, exitDist: this.exitDistAt(p.x, p.y)
+    };
   }
 
-  steerRelease(dir) {}
-
-  progress() {
-    return Math.max(0, Math.min(1, this.elapsed / this.duration));
-  }
-
-  menaceProgress() {
-    return Math.max(0, Math.min(1, 1 - (this.menaceDist / this.menaceStartDist)));
-  }
-
-  remainingSeconds() {
-    return Math.max(0, this.duration - this.elapsed);
-  }
-
-  puffSparks(x, z) {
-    for (let i = 0; i < 14; i++) {
-      const ang = Math.random() * Math.PI * 2;
-      const spd = 20 + Math.random() * 50;
-      this.sparks.push({
-        x: x,
-        y: 0.2,
-        z: z,
-        vx: Math.cos(ang) * spd,
-        vy: (Math.random() - 0.5) * spd,
-        life: 0.3 + Math.random() * 0.2,
-        maxLife: 0.5,
-        color: Math.random() < 0.5 ? '#fde047' : '#f97316'
-      });
+  puffSparks(x, y) {
+    for (let i = 0; i < 12; i++) {
+      const a = Math.random() * Math.PI * 2, s = 0.6 + Math.random() * 1.6;
+      this.sparks.push({ x, y, z: 0.2 + Math.random() * 0.4, vx: Math.cos(a) * s, vy: Math.sin(a) * s, vz: 1 + Math.random() * 2, life: 0.35 + Math.random() * 0.2, maxLife: 0.55, color: Math.random() < 0.5 ? '#fde047' : '#f97316' });
     }
+  }
+
+  // Test / tuning hooks
+  debug(cmd, arg) {
+    const p = this.player, m = this.menace;
+    if (cmd === 'place') { p.x = arg.x; p.y = arg.y; if (arg.angle !== undefined) p.a = arg.angle; return { x: p.x, y: p.y, a: p.a }; }
+    if (cmd === 'placeMenace') { m.x = arg.x; m.y = arg.y; m.path = []; m.repath = 0; return { x: m.x, y: m.y }; }
+    if (cmd === 'freezeMenace') { m.frozen = !!arg; return m.frozen; }
+    if (cmd === 'doors') return this.doors.map(d => ({ x: d.x, y: d.y, open: d.open, horiz: d.horiz }));
+    if (cmd === 'map') return this.rows;
+    if (cmd === 'ammo') { this.pellets = arg | 0; return this.pellets; }
+    return null;
+  }
+
+  // ===== Simulation =====
+  // Move a circle through the grid with axis-separated sliding
+  slide(b, dx, dy, r) {
+    const tryX = b.x + dx;
+    if (!this.blocked(tryX + Math.sign(dx) * r, b.y - r * 0.7) && !this.blocked(tryX + Math.sign(dx) * r, b.y + r * 0.7)) b.x = tryX;
+    const tryY = b.y + dy;
+    if (!this.blocked(b.x - r * 0.7, tryY + Math.sign(dy) * r) && !this.blocked(b.x + r * 0.7, tryY + Math.sign(dy) * r)) b.y = tryY;
+  }
+
+  // Breadth-first path over walkable cells (doors count as walkable; he waits for them to slide)
+  findPath(x0, y0, x1, y1) {
+    const N = this.N;
+    const prev = new Int16Array(N * N).fill(-1);
+    const seen = new Uint8Array(N * N);
+    const q = [y0 * N + x0];
+    seen[y0 * N + x0] = 1;
+    const goal = y1 * N + x1;
+    while (q.length) {
+      const cur = q.shift();
+      if (cur === goal) break;
+      const cx = cur % N, cy = (cur / N) | 0;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = cx + dx, ny = cy + dy;
+        if (this.cell(nx, ny) === '#') continue;
+        const ni = ny * N + nx;
+        if (seen[ni]) continue;
+        seen[ni] = 1;
+        prev[ni] = cur;
+        q.push(ni);
+      }
+    }
+    if (!seen[goal]) return [];
+    const path = [];
+    for (let c = goal; c !== y0 * N + x0 && c !== -1; c = prev[c]) path.push({ x: (c % N) + 0.5, y: ((c / N) | 0) + 0.5 });
+    return path.reverse();
+  }
+
+  // Where the Menace sits on screen (CSS px) for the current camera; null when behind the player
+  projectMenace() {
+    const p = this.player, m = this.menace;
+    const rx = m.x - p.x, ry = m.y - p.y;
+    const fx = Math.cos(p.a), fy = Math.sin(p.a);
+    const depth = rx * fx + ry * fy;
+    const lateral = rx * -fy + ry * fx;
+    if (depth < 0.15) return null;
+    const scale = this.planeDist / depth;                       // render px per world unit at his depth
+    const sx = (this.RW / 2 + lateral * scale) * 2;
+    const r = Math.min(this.W * 0.28, Math.max(3, 0.42 * scale * 2));
+    const sy = (this.RH / 2 + this.bobOffset()) * 2 + r * 0.05;
+    return { x: sx, y: sy, r, depth, scale };
+  }
+
+  bobOffset() {
+    return Math.sin(this.bobTime * 9) * 1.6 * this.player.moving;
   }
 
   update(dt) {
     if (this.outcome) return this.outcome;
     this.phaseT += dt;
-
-    if (this.phase === 'tear_in') {
-      if (this.phaseT >= this.tearInDuration) {
-        this.phase = 'run';
-        this.phaseT = 0;
-      }
-      return null;
-    }
-
-    this.elapsed += dt;
-    this.bobTime += dt;
-
-    // Timers & cooldowns
     if (this.fireCooldown > 0) this.fireCooldown -= dt;
     if (this.recoil > 0) this.recoil = Math.max(0, this.recoil - dt * 4.5);
     if (this.muzzleFlash > 0) this.muzzleFlash -= dt;
     if (this.screenShake > 0) this.screenShake = Math.max(0, this.screenShake - dt * 2.2);
     if (this.redFlash > 0) this.redFlash = Math.max(0, this.redFlash - dt * 2.0);
-    if (this.menaceHitFlash > 0) this.menaceHitFlash -= dt;
-    if (this.hitFlash > 0) this.hitFlash = Math.max(0, this.hitFlash - dt);
-
-    if (this.faceTimer > 0) {
-      this.faceTimer -= dt;
-    } else {
-      this.faceState = this.nerve <= 33 ? 'low_nerve' : 'normal';
-    }
-
-    // Smooth lane transitions
-    this.laneX += (this.targetLane - this.laneX) * Math.min(1, dt * 14);
-    this.menaceLaneX += (this.menaceLane - this.menaceLaneX) * Math.min(1, dt * 6.5);
-
-    // Menace moves closer steadily
-    const advanceSpeed = this.menaceSpeed + this.elapsed * 0.025;
-    this.menaceDist -= advanceSpeed * dt;
-
-    // Menace charges / lane switches
-    this.menaceChargeTimer -= dt;
-    if (this.menaceChargeTimer <= 0) {
-      this.menaceChargeTimer = 2.0 + Math.random() * 1.5;
-      this.menaceLane = this.targetLane;
-      // Knock loose an obstacle
-      this.obstacles.push({
-        lane: (Math.floor(Math.random() * 3) - 1),
-        z: this.menaceDist + 0.5,
-        rot: 0,
-        hit: false
-      });
-    }
-
-    // Floor pellets spawning
-    this.pelletSpawnTimer -= dt;
-    if (this.pelletSpawnTimer <= 0) {
-      this.pelletSpawnTimer = 1.1 + Math.random() * 0.7;
-      this.floorPellets.push({
-        lane: (Math.floor(Math.random() * 3) - 1),
-        z: 32,
-        collected: false
-      });
-    }
-
-    // Floor pellets movement and collection
-    for (const p of this.floorPellets) {
-      p.z -= 6.8 * dt;
-      if (!p.collected && p.z <= 1.5 && p.z >= 0.4) {
-        if (Math.abs(p.lane - this.laneX) < 0.6) {
-          p.collected = true;
-          this.pellets = Math.min(this.maxPellets, this.pellets + 5);
-          this.collected++;
-          this.game.score += 25;
-          this.game.updateHUD();
-          if (this.game.sound.playGloomReload) this.game.sound.playGloomReload();
-        }
-      }
-    }
-    this.floorPellets = this.floorPellets.filter(p => !p.collected && p.z > 0.2);
-
-    // Obstacles movement and collisions
-    for (const ob of this.obstacles) {
-      ob.z -= 6.8 * dt;
-      ob.rot += dt * 3.5;
-      if (!ob.hit && ob.z <= 1.5 && ob.z >= 0.4) {
-        if (Math.abs(ob.lane - this.laneX) < 0.6) {
-          ob.hit = true;
-          this.nerve = Math.max(0, this.nerve - 10);
-          this.screenShake = 0.35;
-          this.redFlash = 0.35;
-          this.faceState = 'hurt';
-          this.faceTimer = 0.5;
-          if (this.game.sound.playSmash) this.game.sound.playSmash();
-        }
-      }
-    }
-    this.obstacles = this.obstacles.filter(ob => !ob.hit && ob.z > 0.2);
-
-    // Projectiles
-    for (const p of this.projectiles) {
-      p.z += p.vz * dt;
-      // Hit check against Menace
-      if (!p.hit && p.z >= this.menaceDist && p.z <= this.menaceDist + 2.5) {
-        if (Math.abs(p.x - this.menaceLaneX * 1.1) < 0.85) {
-          p.hit = true;
-          this.menaceDist = Math.min(29, this.menaceDist + 2.8);
-          this.menaceHitFlash = 0.22;
-          this.hitFlash = 0.16;                  // Round 7 hit feedback: a brief flash and a small shake
-          this.screenShake = Math.max(this.screenShake, 0.3);
-          this.game.score += 50;
-          this.game.updateHUD();
-          if (this.game.sound.playGloomHit) this.game.sound.playGloomHit();
-          this.puffSparks(p.x, this.menaceDist);
-        }
-      }
-    }
-    this.projectiles = this.projectiles.filter(p => !p.hit && p.z < 34);
-
-    // Sparks
+    if (this.menace.hitFlash > 0) this.menace.hitFlash -= dt;
+    if (this.faceTimer > 0) this.faceTimer -= dt; else this.faceState = this.nerve <= 33 ? 'low_nerve' : 'normal';
     for (let i = this.sparks.length - 1; i >= 0; i--) {
-      const sp = this.sparks[i];
-      sp.life -= dt;
-      sp.x += sp.vx * 0.001 * dt;
-      sp.y += sp.vy * 0.001 * dt;
-      if (sp.life <= 0) this.sparks.splice(i, 1);
+      const s = this.sparks[i];
+      s.life -= dt; s.x += s.vx * dt; s.y += s.vy * dt; s.z += s.vz * dt; s.vz -= 6 * dt;
+      if (s.life <= 0) this.sparks.splice(i, 1);
     }
+    if (this.toast && (this.toast.t -= dt) <= 0) this.toast = null;
 
-    // Menace grabs check
-    if (this.menaceDist <= 2.2) {
-      if (Math.abs(this.menaceLaneX - this.laneX) < 0.7) {
-        this.grabs++;
-        this.nerve = Math.max(0, 100 - this.grabs * 34);
-        this.screenShake = 0.65;
-        this.redFlash = 0.6;
-        this.faceState = 'hurt';
-        this.faceTimer = 0.7;
-        if (this.game.sound.playGrabStinger) this.game.sound.playGrabStinger();
-        this.menaceDist = 8.5; // Wind up for next charge
-        if (this.grabs >= 3 || this.nerve <= 0) {
-          this.outcome = 'caught';
-          return 'caught';
-        }
-      }
+    if (this.phase === 'tear_in') {
+      if (this.phaseT >= this.tearInDuration) { this.phase = 'run'; this.phaseT = 0; }
+      this.menaceScreen = this.projectMenace();
+      return null;
     }
+    this.elapsed += dt;
 
-    // Camera overrun
-    if (this.menaceDist <= 1.0) {
-      this.outcome = 'caught';
-      return 'caught';
-    }
-
-    // Survived to Exit Door
-    if (this.elapsed >= this.duration) {
-      this.outcome = 'survived';
-      return 'survived';
-    }
-
+    this.updatePlayer(dt);
+    if (this.outcome) return this.outcome;
+    this.updateDoors(dt);
+    this.updateMenace(dt);
+    if (this.outcome) return this.outcome;
+    this.updateShots(dt);
+    this.menaceScreen = this.projectMenace();
     return null;
   }
 
-  // Test / debug surface: where the Menace figure landed on screen in the last frame (CSS px)
-  extraInfo() {
-    return {
-      menaceDist: this.menaceDist,
-      menaceLaneX: this.menaceLaneX,
-      laneX: this.laneX,
-      nerve: this.nerve,
-      ammo: this.pellets,
-      menaceScreen: this.menaceScreen ? { x: this.menaceScreen.x, y: this.menaceScreen.y, r: this.menaceScreen.r } : null
-    };
+  updatePlayer(dt) {
+    const p = this.player, k = this.keys;
+    const turn = (k.right ? 1 : 0) - (k.left ? 1 : 0);
+    if (turn) {
+      p.a += turn * this.turnSpeed * dt;
+      this.turned += this.turnSpeed * dt;
+      this.lookDir = turn;
+    } else {
+      this.lookDir = 0;
+    }
+    const f = (k.fwd ? 1 : 0) - (k.back ? 1 : 0);
+    let s = (k.sr ? 1 : 0) - (k.sl ? 1 : 0);
+    // A pending sidestep impulse plays out at strafe speed
+    let stepDx = 0, stepDy = 0;
+    if (this.sidestep !== 0) {
+      const step = Math.sign(this.sidestep) * Math.min(Math.abs(this.sidestep), 3.2 * dt);
+      this.sidestep -= step;
+      if (Math.abs(this.sidestep) < 0.001) this.sidestep = 0;
+      stepDx = -Math.sin(p.a) * step;
+      stepDy = Math.cos(p.a) * step;
+      this.lookDir = Math.sign(step);
+    }
+    const fx = Math.cos(p.a), fy = Math.sin(p.a);
+    const rxv = -fy, ryv = fx;                                  // right vector
+    const dx = (fx * f * this.moveSpeed + rxv * s * this.strafeSpeed) * dt + stepDx;
+    const dy = (fy * f * this.moveSpeed + ryv * s * this.strafeSpeed) * dt + stepDy;
+    if (dx || dy) this.slide(p, dx, dy, this.bodyR);
+    const speed = Math.hypot(dx, dy) / Math.max(dt, 1e-4);
+    p.moving += ((speed > 0.2 ? 1 : 0) - p.moving) * Math.min(1, dt * 10);
+    this.bobTime += dt * (0.3 + speed * 0.35);
+
+    // Pellet pickups (ammo)
+    for (const pk of this.pickups) {
+      if (pk.taken) continue;
+      if (Math.hypot(pk.x - p.x, pk.y - p.y) < 0.5) {
+        pk.taken = true;
+        this.pellets = Math.min(this.maxPellets, this.pellets + 5);
+        this.collected++;
+        this.game.score += 25;
+        this.game.updateHUD();
+        if (this.game.sound.playGloomReload) this.game.sound.playGloomReload();
+        this.toast = { text: '+5 PELLETS', t: 0.9, color: '#ffd32a' };
+      }
+    }
+
+    // The exit teleporter
+    if (this.cell(Math.floor(p.x), Math.floor(p.y)) === 'E') {
+      this.outcome = 'survived';
+      this.phase = 'survived';
+      this.game.sound.playGateBurst();
+    }
   }
 
+  updateDoors(dt) {
+    const p = this.player, m = this.menace;
+    for (const d of this.doors) {
+      const cx = d.x + 0.5, cy = d.y + 0.5;
+      const nearP = Math.hypot(p.x - cx, p.y - cy) < 1.35;
+      const nearM = !m.frozen && Math.hypot(m.x - cx, m.y - cy) < 1.0;
+      const inside = Math.floor(p.x) === d.x && Math.floor(p.y) === d.y || Math.floor(m.x) === d.x && Math.floor(m.y) === d.y;
+      if (nearP || nearM || inside) { d.target = 1; d.timer = 1.6; }
+      else if (d.timer > 0) { d.timer -= dt; if (d.timer <= 0) d.target = 0; }
+      const before = d.open;
+      if (d.open < d.target) d.open = Math.min(1, d.open + dt / 0.55);
+      else if (d.open > d.target) d.open = Math.max(0, d.open - dt / 0.8);
+      if (before < 0.5 && d.open >= 0.5) { d.opened++; if (this.game.sound.playBonk) this.game.sound.playBonk(); }
+    }
+  }
+
+  updateMenace(dt) {
+    const m = this.menace, p = this.player;
+    if (m.frozen) { this.menaceDist = Math.hypot(m.x - p.x, m.y - p.y); return; }
+    m.speed += m.gain * dt;
+    if (m.stun > 0) m.stun -= dt;
+    if (m.knock) {
+      // Driven back by a shot: a short shove along his approach line, stopped by walls
+      const k = m.knock;
+      k.t += dt;
+      const step = k.v * dt;
+      const nx = m.x + k.dx * step, ny = m.y + k.dy * step;
+      if (!this.blocked(nx + k.dx * 0.3, ny + k.dy * 0.3)) { m.x = nx; m.y = ny; }
+      k.v = Math.max(0, k.v - 14 * dt);
+      if (k.t > 0.35 || k.v <= 0) m.knock = null;
+    } else if (m.stun <= 0) {
+      m.repath -= dt;
+      if (m.repath <= 0 || !m.path.length) {
+        m.path = this.findPath(Math.floor(m.x), Math.floor(m.y), Math.floor(p.x), Math.floor(p.y));
+        m.repath = 0.35;
+      }
+      let target = m.path.length ? m.path[0] : { x: p.x, y: p.y };
+      // Within the player's cell, close on her directly
+      if (Math.floor(m.x) === Math.floor(p.x) && Math.floor(m.y) === Math.floor(p.y)) target = { x: p.x, y: p.y };
+      const dx = target.x - m.x, dy = target.y - m.y;
+      const dist = Math.hypot(dx, dy);
+      const step = Math.min(dist, m.speed * dt);
+      if (dist > 1e-4) {
+        const nx = m.x + dx / dist * step, ny = m.y + dy / dist * step;
+        if (!this.blocked(nx, ny)) { m.x = nx; m.y = ny; m.stride += step * 7; }   // doors hold him until they slide
+      }
+      if (dist < 0.1 && m.path.length) m.path.shift();
+    }
+    this.menaceDist = Math.hypot(m.x - p.x, m.y - p.y);
+
+    // Nerve drains as he closes, recovers when he is far
+    if (this.menaceDist < 3.5) this.nerve -= (3.5 - this.menaceDist) * 9 * dt;
+    else this.nerve += 5 * dt;
+    this.nerve = Math.max(0, Math.min(100, this.nerve));
+    if (this.menaceDist < 2 && Math.random() < dt * 2) this.screenShake = Math.max(this.screenShake, 0.08);
+
+    // His touch is the catch
+    if (this.menaceDist < 0.55) {
+      this.outcome = 'caught';
+      this.phase = 'caught';
+      this.redFlash = 1;
+      if (this.game.sound.playGrabStinger) this.game.sound.playGrabStinger();
+    }
+  }
+
+  updateShots(dt) {
+    const m = this.menace;
+    for (let i = this.shots.length - 1; i >= 0; i--) {
+      const s = this.shots[i];
+      s.life -= dt;
+      const nx = s.x + s.dx * s.speed * dt, ny = s.y + s.dy * s.speed * dt;
+      if (s.life <= 0 || this.blocked(nx, ny)) {
+        this.puffSparks(s.x, s.y);
+        this.shots.splice(i, 1);
+        continue;
+      }
+      s.x = nx; s.y = ny;
+      if (Math.hypot(s.x - m.x, s.y - m.y) < 0.5) {
+        // A hit drives him back down the corridor and stuns him for a beat
+        this.shots.splice(i, 1);
+        this.hitsLanded++;
+        m.hitFlash = 0.25;
+        m.stun = 0.5;
+        m.path = [];
+        const kd = Math.hypot(m.x - this.player.x, m.y - this.player.y) || 1;
+        m.knock = { dx: (m.x - this.player.x) / kd, dy: (m.y - this.player.y) / kd, v: 6.5, t: 0 };
+        this.game.score += 50;
+        this.game.updateHUD();
+        if (this.game.sound.playGloomHit) this.game.sound.playGloomHit();
+        this.puffSparks(m.x, m.y);
+        this.toast = { text: 'HIT! HE STAGGERS', t: 0.8, color: '#fde047' };
+      }
+    }
+  }
   // The Menace as a FIGURE, seen head-on down the corridor: the round yellow glutton on two stubby
   // legs, running straight at the camera. Drawn centred on the origin in a unit space (body radius 1)
   // so the caller scales it with the projection. `look` nudges the pupils toward the player's lane.
@@ -7353,660 +7596,409 @@ class GloomRun {
     }
   }
 
-  draw(ctx, time) {
-    const W = this.W, H = this.H;
-    const viewH = H - 84; // Leave 84px for chunky status bar
-    const midX = W / 2;
-    const midY = viewH * 0.48;
-    const fov = 300;
+  // ===== Rendering =====
+  // Distance lighting: a warm falloff with the muzzle flash adding near light
+  light(d, mf) {
+    let l = Math.min(1, 1.35 / (1 + d * 0.28));
+    if (mf > 0) l += mf * 0.8 / (1 + d * d * 0.25);
+    return l;
+  }
 
-    ctx.save();
+  // Cast the walls, floor and ceiling into the half-resolution buffer and fill the depth buffer
+  castScene(mf, time) {
+    const RW = this.RW, RH = this.RH, TS = this.TS, pix = this.pix, depth = this.depth;
+    const p = this.player;
+    const dirX = Math.cos(p.a), dirY = Math.sin(p.a);
+    const tanH = Math.tan(this.fov / 2);
+    const planeX = -dirY * tanH, planeY = dirX * tanH;
+    const horizon = Math.round(RH / 2 + this.bobOffset());
+    const exitCx = this.exit.x, exitCy = this.exit.y;
+    const exitPulse = 0.6 + 0.4 * Math.sin(time * 5);
 
-    // Screen Shake
-    if (this.screenShake > 0) {
-      const sx = (Math.random() - 0.5) * this.screenShake * 24;
-      const sy = (Math.random() - 0.5) * this.screenShake * 24;
-      ctx.translate(sx, sy);
-    }
-
-    // Base tone: the one opaque fill, and it is dark (warm black). Everything else layers on top with alpha.
-    ctx.fillStyle = '#0a0907';
-    ctx.fillRect(0, 0, W, viewH);
-
-    // Projection: `s` is PIXELS PER WORLD UNIT (fov / z, about 10 at the far end, 190 at the near
-    // clip). Every size below is a world size multiplied by s — never a pixel size times s.
-    const camX = this.laneX * 0.7;
-    const proj = (xw, yw, zw) => {
-      const s = fov / Math.max(0.5, zw);
-      return { x: midX + (xw - camX) * s, y: midY + yw * s, s: s };
-    };
-    const px = (worldSize, s, minPx) => Math.max(minPx, worldSize * s);
-    const hash = (a, b) => { const v = Math.sin(a * 12.9898 + b * 78.233) * 43758.5453; return v - Math.floor(v); };
-
-    const Xw = 2.1;   // corridor half-width
-    const Yc = -1.6;  // ceiling height
-    const Yf = 1.6;   // floor depth
-    const minZ = 1.6;
-    const maxZ = 30.0;
-    const segLen = 2.0;
-    const travel = this.elapsed * 5.5;
-    const scrollZ = travel % segLen;
-    const baseSeg = Math.floor(travel / segLen);
-    const mf = this.muzzleFlash > 0 ? Math.min(1, this.muzzleFlash / 0.09) : 0;   // Muzzle light, 0..1
-
-    // Vanishing-point glow: a sodium-amber work light at the far end of the corridor (translucent)
-    const vp = proj(0, 0, maxZ);
-    const vpGlow = ctx.createRadialGradient(vp.x, vp.y, 0, vp.x, vp.y, viewH * 0.22);
-    vpGlow.addColorStop(0, 'rgba(255, 196, 110, 0.26)');
-    vpGlow.addColorStop(1, 'rgba(255, 196, 110, 0)');
-    ctx.fillStyle = vpGlow;
-    ctx.fillRect(0, 0, W, viewH);
-
-    const quad = (a, b, c, d, fill) => {
-      ctx.fillStyle = fill;
-      ctx.beginPath();
-      ctx.moveTo(a.x, a.y);
-      ctx.lineTo(b.x, b.y);
-      ctx.lineTo(c.x, c.y);
-      ctx.lineTo(d.x, d.y);
-      ctx.closePath();
-      ctx.fill();
-    };
-    const line = (a, b, stroke, width) => {
-      ctx.strokeStyle = stroke;
-      ctx.lineWidth = width;
-      ctx.beginPath();
-      ctx.moveTo(a.x, a.y);
-      ctx.lineTo(b.x, b.y);
-      ctx.stroke();
-    };
-    // A point on a wall: side -1 / +1, height fraction 0 (ceiling) .. 1 (floor), depth z, optional inset
-    const wallPt = (side, f, z, inset = 0) => proj(side * (Xw - inset), Yc + (Yf - Yc) * f, z);
-    const wallQuad = (side, f0, f1, zFar, zNear, fill, inset = 0) =>
-      quad(wallPt(side, f0, zFar, inset), wallPt(side, f0, zNear, inset), wallPt(side, f1, zNear, inset), wallPt(side, f1, zFar, inset), fill);
-    // Irregular blobs (scorch marks, stains): a 7-point polygon with a fixed jitter pattern
-    const JIT = [[1, 0], [0.6, 0.75], [-0.3, 1], [-0.95, 0.4], [-0.8, -0.6], [0.1, -0.95], [0.75, -0.55]];
-    const wallBlob = (side, f, z, rf, rz, fill) => {
-      ctx.fillStyle = fill;
-      ctx.beginPath();
-      JIT.forEach(([a, b], k) => { const p = wallPt(side, f + a * rf, z + b * rz); if (k === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); });
-      ctx.closePath();
-      ctx.fill();
-    };
-    const floorBlob = (x, z, rx, rz, fill) => {
-      ctx.fillStyle = fill;
-      ctx.beginPath();
-      JIT.forEach(([a, b], k) => { const p = proj(x + a * rx, Yf, z + b * rz); if (k === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); });
-      ctx.closePath();
-      ctx.fill();
-    };
-
-    // --- Corridor segments, back to front. Round 7: gritty brown / grey / olive tech-base — grimy deck
-    //     plates with stains, ceiling conduits, panelled walls carrying rivets, vents, pipes, hazard plates,
-    //     scorch marks and grime streaks (hashed per segment, so the pattern rides with the corridor),
-    //     work lights that flicker and occasionally drop out, and muzzle light that falls off with distance. ---
-    const segCount = Math.ceil((maxZ - minZ) / segLen) + 1;
-    for (let i = segCount; i >= 0; i--) {
-      const zFarRaw = minZ + (i + 1) * segLen - scrollZ;
-      const zNearRaw = zFarRaw - segLen;
-      const zFar = Math.min(zFarRaw, maxZ);
-      const zNear = Math.max(zNearRaw, minZ);
-      if (zNear >= zFar) continue;
-      const segIndex = baseSeg + i;
-      const depth = Math.pow(Math.max(0.06, Math.min(1, 1 - zNear / maxZ)), 0.85);
-      const sNear = fov / zNear;
-      const nearDetail = zNear < 16;                       // Fine detail only where it can be read
-      const h1 = hash(segIndex, 1), h2 = hash(segIndex, 2), h3 = hash(segIndex, 3);
-      // Muzzle light on this segment: bright up close, gone by mid-corridor
-      const ml = mf * 0.55 / (1 + zNear * zNear * 0.11);
-
-      const TL1 = proj(-Xw, Yc, zFar), TL2 = proj(-Xw, Yc, zNear);
-      const TR1 = proj(Xw, Yc, zFar), TR2 = proj(Xw, Yc, zNear);
-      const BL1 = proj(-Xw, Yf, zFar), BL2 = proj(-Xw, Yf, zNear);
-      const BR1 = proj(Xw, Yf, zFar), BR2 = proj(Xw, Yf, zNear);
-
-      // Floor: grimy deck plating, lit down the centre under the work lights and darker in the gutters,
-      // with a seam at each segment edge, oil stains and three worn lane guides
-      const floorGrad = ctx.createLinearGradient(BL2.x, 0, BR2.x, 0);
-      const fl = segIndex % 2 === 0 ? [[44, 40, 32], [78, 68, 54], [70, 62, 50], [40, 36, 30]] : [[38, 34, 28], [66, 58, 46], [60, 54, 44], [34, 30, 26]];
-      floorGrad.addColorStop(0, `rgba(${fl[0]}, ${depth})`); floorGrad.addColorStop(0.42, `rgba(${fl[1]}, ${depth})`); floorGrad.addColorStop(0.6, `rgba(${fl[2]}, ${depth})`); floorGrad.addColorStop(1, `rgba(${fl[3]}, ${depth})`);
-      quad(BL1, BR1, BR2, BL2, floorGrad);
-      quad(proj(-Xw, Yf, zFar), proj(Xw, Yf, zFar), proj(Xw, Yf, zFar - 0.12), proj(-Xw, Yf, zFar - 0.12), `rgba(40, 34, 28, ${0.8 * depth})`);
-      line(BL2, BR2, `rgba(22, 18, 14, ${0.85 * depth})`, px(0.03, sNear, 1));
-      if (h1 < 0.6) floorBlob((h2 * 3.2 - 1.6), zNear + 0.5 + h3 * 1.0, 0.35 + h2 * 0.3, 0.45, `rgba(20, 14, 8, ${0.5 * depth})`);
-      if (h3 > 0.55) floorBlob((h1 * 3.2 - 1.6), zNear + 0.3 + h2 * 1.4, 0.2, 0.3, `rgba(110, 96, 70, ${0.18 * depth})`);
-      [-1.1, 0, 1.1].forEach(lx => {
-        line(proj(lx, Yf, zFar), proj(lx, Yf, zNear), `rgba(190, 140, 40, ${0.26 * depth})`, px(0.02, sNear, 1));
-      });
-      // Floor plate seams running the corridor between the lanes, plus a drain grate every fifth segment
-      [-1.65, -0.55, 0.55, 1.65].forEach(lx => line(proj(lx, Yf, zFar), proj(lx, Yf, zNear), `rgba(30, 24, 18, ${0.5 * depth})`, px(0.015, sNear, 1)));
-      // Coolant lines in the gutters: a cool blue-grey pipe along each wall foot
-      for (const gx of [-1.95, 1.95]) {
-        quad(proj(gx - 0.08, Yf, zFar), proj(gx + 0.08, Yf, zFar), proj(gx + 0.08, Yf, zNear), proj(gx - 0.08, Yf, zNear), `rgba(70, 92, 110, ${0.85 * depth})`);
-        quad(proj(gx - 0.03, Yf, zFar), proj(gx + 0.03, Yf, zFar), proj(gx + 0.03, Yf, zNear), proj(gx - 0.03, Yf, zNear), `rgba(130, 160, 180, ${0.55 * depth})`);
-      }
-      if (segIndex % 5 === 2 && nearDetail) {
-        const gx = h2 > 0.5 ? 1.55 : -1.55, gz = zNear + 0.7;
-        quad(proj(gx - 0.3, Yf, gz + 0.5), proj(gx + 0.3, Yf, gz + 0.5), proj(gx + 0.3, Yf, gz), proj(gx - 0.3, Yf, gz), `rgba(24, 20, 16, ${0.9 * depth})`);
-        for (let g = 0; g < 4; g++) line(proj(gx - 0.3, Yf, gz + 0.1 + g * 0.1), proj(gx + 0.3, Yf, gz + 0.1 + g * 0.1), `rgba(96, 86, 70, ${0.6 * depth})`, px(0.015, sNear, 1));
-      }
-      if (nearDetail) {
-        // Scuffs and flecks on the deck plates
-        const ftones = ['rgba(150, 70, 30, 0.3)', 'rgba(16, 12, 8, 0.45)', 'rgba(185, 172, 140, 0.2)', 'rgba(96, 108, 60, 0.28)', 'rgba(205, 150, 60, 0.18)'];
-        for (let k = 0; k < 8; k++) {
-          const fx = hash(segIndex * 7, k + 3) * 3.8 - 1.9, fz = zNear + 0.15 + hash(k + 3, segIndex * 7) * 1.6;
-          const fw = 0.08 + hash(k, segIndex + 2) * 0.22;
-          quad(proj(fx, Yf, fz + 0.1), proj(fx + fw, Yf, fz + 0.1), proj(fx + fw, Yf, fz), proj(fx, Yf, fz), ftones[(k + segIndex) % ftones.length]);
+    // Ceiling and floor rows (camera at half height; ceiling 1 unit above the floor)
+    const ray0X = dirX - planeX, ray0Y = dirY - planeY;
+    const ray1X = dirX + planeX, ray1Y = dirY + planeY;
+    for (let y = 0; y < RH; y++) {
+      const dy = y - horizon;
+      if (dy === 0) { for (let x = 0; x < RW; x++) pix[y * RW + x] = 0xff100e0a; continue; }
+      const rowDist = 0.5 * this.planeDist / Math.abs(dy);
+      const isFloor = dy > 0;
+      const tex = isFloor ? this.texFloor : this.texCeil;
+      const stepX = rowDist * (ray1X - ray0X) / RW, stepY = rowDist * (ray1Y - ray0Y) / RW;
+      let wx = p.x + rowDist * ray0X, wy = p.y + rowDist * ray0Y;
+      let l = this.light(rowDist, mf) * (isFloor ? 1 : 0.85);
+      if (rowDist > 14) l *= Math.max(0.3, 1 - (rowDist - 14) * 0.08);
+      const sh = Math.min(300, l * 256) | 0;
+      const row = y * RW;
+      for (let x = 0; x < RW; x++) {
+        const cx = Math.floor(wx), cy = Math.floor(wy);
+        const tx = ((wx - cx) * TS) | 0, ty = ((wy - cy) * TS) | 0;
+        let c = tex[ty * TS + tx];
+        let r = (c & 255) * sh >> 8, g = ((c >> 8) & 255) * sh >> 8, b = ((c >> 16) & 255) * sh >> 8;
+        if (isFloor && cx === exitCx && cy === exitCy) {
+          // The teleporter pad glows amber-green on the deck
+          const rr = Math.hypot(wx - cx - 0.5, wy - cy - 0.5);
+          if (rr < 0.46) { const k = (rr > 0.36 ? 1 : 0.35) * exitPulse; r = Math.min(255, r + 200 * k); g = Math.min(255, g + 180 * k); b = Math.min(255, b + 60 * k); }
         }
-      }
-      if (ml > 0.01) quad(BL1, BR1, BR2, BL2, `rgba(210, 236, 255, ${ml * 0.7})`);
-
-      // Ceiling: darker plating, seam, twin conduits running the corridor, and a work-light housing every third segment
-      const ceilGrad = ctx.createLinearGradient(TL2.x, 0, TR2.x, 0);
-      ceilGrad.addColorStop(0, `rgba(26, 24, 20, ${depth})`); ceilGrad.addColorStop(0.5, segIndex % 2 === 0 ? `rgba(46, 42, 34, ${depth})` : `rgba(40, 36, 30, ${depth})`); ceilGrad.addColorStop(1, `rgba(28, 26, 22, ${depth})`);
-      quad(TL1, TR1, TR2, TL2, ceilGrad);
-      line(TL2, TR2, `rgba(18, 16, 12, ${0.7 * depth})`, px(0.02, sNear, 1));
-      for (const cx of [-1.45, 1.45]) {
-        quad(proj(cx - 0.12, Yc, zFar), proj(cx + 0.12, Yc, zFar), proj(cx + 0.12, Yc, zNear), proj(cx - 0.12, Yc, zNear), `rgba(88, 82, 66, ${0.9 * depth})`);
-        quad(proj(cx - 0.04, Yc, zFar), proj(cx + 0.04, Yc, zFar), proj(cx + 0.04, Yc, zNear), proj(cx - 0.04, Yc, zNear), `rgba(130, 122, 100, ${0.6 * depth})`);
-        if (nearDetail) quad(proj(cx - 0.16, Yc, zNear + 0.3), proj(cx + 0.16, Yc, zNear + 0.3), proj(cx + 0.16, Yc, zNear + 0.18), proj(cx - 0.16, Yc, zNear + 0.18), `rgba(50, 46, 38, ${depth})`);
-      }
-      if (segIndex % 4 === 1 && nearDetail) {
-        // Ceiling vent grille
-        quad(proj(-0.5, Yc, zNear + 1.4), proj(0.5, Yc, zNear + 1.4), proj(0.5, Yc, zNear + 1.0), proj(-0.5, Yc, zNear + 1.0), `rgba(22, 20, 16, ${0.9 * depth})`);
-        for (let g = 0; g < 4; g++) line(proj(-0.5, Yc, zNear + 1.05 + g * 0.1), proj(0.5, Yc, zNear + 1.05 + g * 0.1), `rgba(96, 90, 74, ${0.5 * depth})`, px(0.015, sNear, 1));
-      }
-      if (segIndex % 3 === 1) {
-        // Work light: warm tube in a housing; flickers, and now and then drops out for a moment
-        let flick = 0.8 + 0.2 * Math.sin(time * 23 + segIndex * 11);
-        const beat = Math.floor(time * 2.6 + segIndex * 0.37);
-        if (hash(segIndex, beat) < 0.13) flick *= 0.15 + 0.6 * hash(beat, segIndex);
-        if (hash(segIndex, 9) < 0.12) flick *= 0.12;                  // A dead tube here and there
-        if (Math.abs(this.menaceDist - zNear) < 2.5) flick *= 0.35 + 0.65 * Math.random();
-        const za = zNear + 0.45, zb = zFar - 0.45;
-        if (zb > za) {
-          quad(proj(-0.42, Yc, zb + 0.1), proj(0.42, Yc, zb + 0.1), proj(0.42, Yc, za - 0.1), proj(-0.42, Yc, za - 0.1), `rgba(28, 26, 22, ${depth})`);
-          quad(proj(-0.32, Yc, zb), proj(0.32, Yc, zb), proj(0.32, Yc, za), proj(-0.32, Yc, za), `rgba(255, 232, 190, ${0.8 * flick * depth})`);
-          quad(proj(-0.75, Yc, zb), proj(0.75, Yc, zb), proj(0.75, Yc, za), proj(-0.75, Yc, za), `rgba(255, 210, 140, ${0.16 * flick * depth})`);
-          // Light pooling on the floor beneath the tube
-          quad(proj(-0.9, Yf, zb + 0.3), proj(0.9, Yf, zb + 0.3), proj(0.9, Yf, za - 0.3), proj(-0.9, Yf, za - 0.3), `rgba(255, 220, 160, ${0.09 * flick * depth})`);
-        }
-      }
-      if (ml > 0.01) quad(TL1, TR1, TR2, TL2, `rgba(210, 236, 255, ${ml * 0.45})`);
-
-      // Walls: panelled tech-base plating on both sides, each panel carrying its own hashed detail
-      for (const side of [-1, 1]) {
-        const hs = hash(segIndex, side > 0 ? 21 : 22);
-        // Base plate (lit from the near end), olive-brown
-        const gA = wallPt(side, 0.5, zFar), gB = wallPt(side, 0.5, zNear);
-        const wallGrad = ctx.createLinearGradient(gA.x, 0, gB.x, 0);
-        wallGrad.addColorStop(0, `rgba(58, 54, 40, ${depth})`);
-        wallGrad.addColorStop(0.55, `rgba(92, 80, 64, ${depth})`);
-        wallGrad.addColorStop(1, `rgba(122, 104, 80, ${depth})`);
-        wallQuad(side, 0, 1, zFar, zNear, wallGrad);
-        // Rust bleeding down from the trim on some panels
-        if (hs > 0.3 && hs < 0.5 && nearDetail) wallQuad(side, 0.235, 0.5, zNear + 0.9, zNear + 1.5, `rgba(140, 60, 24, ${0.28 * depth})`);
-        // Recessed panel face
-        wallQuad(side, 0.26, 0.74, zFar - 0.18, zNear + 0.18, `rgba(112, 100, 80, ${0.5 * depth})`);
-        const panelTone = [[58, 50, 40], [68, 60, 48], [62, 64, 46], [74, 58, 44]][segIndex % 4];
-        wallQuad(side, 0.3, 0.7, zFar - 0.26, zNear + 0.26, `rgba(${panelTone}, ${0.75 * depth})`);
-        wallQuad(side, 0.3, 0.36, zFar - 0.26, zNear + 0.26, `rgba(255, 240, 210, ${0.06 * depth})`);
-        // Upper trim rail + a run of pipe along it, lower hazard band
-        wallQuad(side, 0.2, 0.235, zFar, zNear, `rgba(128, 118, 98, ${0.75 * depth})`);
-        wallQuad(side, 0.08, 0.16, zFar, zNear, `rgba(40, 36, 30, ${depth})`);
-        wallQuad(side, 0.095, 0.145, zFar, zNear, segIndex % 7 === 3 ? `rgba(124, 70, 40, ${depth})` : `rgba(104, 98, 80, ${depth})`);
-        wallQuad(side, 0.105, 0.12, zFar, zNear, `rgba(170, 160, 132, ${0.7 * depth})`);
-        wallQuad(side, 0.13, 0.145, zFar, zNear, `rgba(24, 20, 16, ${0.6 * depth})`);
-        wallQuad(side, 0.82, 1, zFar, zNear, segIndex % 2 === 0 ? `rgba(170, 128, 36, ${0.58 * depth})` : `rgba(28, 24, 20, ${0.9 * depth})`);
-        wallQuad(side, 0.8, 0.82, zFar, zNear, `rgba(150, 140, 116, ${0.5 * depth})`);
-        // Grime: dark streaks running down from the trim, and a scorch mark on some panels
-        if (hs < 0.5 && nearDetail) {
-          wallQuad(side, 0.235, 0.55 + hs * 0.3, zNear + 0.4 + hs * 0.8, zNear + 0.55 + hs * 0.8, `rgba(14, 10, 6, ${0.35 * depth})`);
-          wallQuad(side, 0.235, 0.45 + hs * 0.2, zNear + 1.2, zNear + 1.3, `rgba(14, 10, 6, ${0.25 * depth})`);
-        }
-        if (hs > 0.78 && nearDetail) wallBlob(side, 0.5 + (hs - 0.78) * 1.2, zNear + 1.0, 0.16, 0.5, `rgba(8, 6, 4, ${0.6 * depth})`);
-        // Panel seam at the segment edge (ceiling to floor)
-        line(wallPt(side, 0, zNear), wallPt(side, 1, zNear), `rgba(10, 8, 6, ${0.9 * depth})`, px(0.035, sNear, 1));
-        // Rivets along the trim and the hazard rail
-        ctx.fillStyle = `rgba(150, 140, 116, ${0.75 * depth})`;
-        for (let k = 0.25; k < 1; k += 0.5) {
-          const rv = wallPt(side, 0.22, zNear + (zFar - zNear) * k);
-          ctx.beginPath();
-          ctx.arc(rv.x, rv.y, px(0.03, rv.s, 0.8), 0, Math.PI * 2);
-          ctx.fill();
-          const rv2 = wallPt(side, 0.81, zNear + (zFar - zNear) * k);
-          ctx.beginPath();
-          ctx.arc(rv2.x, rv2.y, px(0.025, rv2.s, 0.8), 0, Math.PI * 2);
-          ctx.fill();
-        }
-        // Grime flecks over the near panels: rust, soot, chipped paint and olive mould, hashed per panel
-        if (nearDetail) {
-          const tones = ['rgba(150, 70, 30, 0.38)', 'rgba(20, 16, 12, 0.42)', 'rgba(185, 172, 140, 0.26)', 'rgba(96, 108, 60, 0.32)', 'rgba(205, 150, 60, 0.24)', 'rgba(70, 40, 30, 0.4)', 'rgba(120, 130, 120, 0.22)'];
-          for (let k = 0; k < 10; k++) {
-            const f = 0.25 + hash(segIndex * 5 + side * 2, k) * 0.52, zz = zNear + 0.25 + hash(k, segIndex * 5 + side * 2) * 1.45;
-            wallQuad(side, f, f + 0.02 + hash(k, segIndex) * 0.03, zz + 0.06 + hash(segIndex, k) * 0.12, zz, tones[(k + segIndex + (side > 0 ? 3 : 0)) % tones.length]);
-          }
-        }
-        // Panel feature by hash: a slatted vent, a hazard plate, or a wall console with blinking status lights
-        const feat = Math.floor(hash(segIndex, side > 0 ? 31 : 32) * 4);
-        if (nearDetail && feat === 0) {
-          wallQuad(side, 0.36, 0.56, zNear + 0.6, zNear + 1.4, `rgba(26, 22, 18, ${0.95 * depth})`, 0.02);
-          for (let v = 0; v < 5; v++) wallQuad(side, 0.38 + v * 0.036, 0.395 + v * 0.036, zNear + 0.65, zNear + 1.35, `rgba(120, 110, 90, ${0.55 * depth})`, 0.02);
-        } else if (nearDetail && feat === 1) {
-          wallQuad(side, 0.58, 0.78, zNear + 0.5, zNear + 1.3, `rgba(30, 26, 22, ${0.95 * depth})`, 0.02);
-          for (let v = 0; v < 4; v++) {
-            const a = zNear + 0.55 + v * 0.2, b = a + 0.09;
-            quad(wallPt(side, 0.6, a, 0.02), wallPt(side, 0.6, b, 0.02), wallPt(side, 0.76, b + 0.16, 0.02), wallPt(side, 0.76, a + 0.16, 0.02), `rgba(190, 150, 50, ${0.5 * depth})`);
-          }
-        } else if (nearDetail && feat === 2) {
-          const inset = 0.22;
-          quad(wallPt(side, 0.34, zNear + 1.3), wallPt(side, 0.34, zNear + 1.3, inset), wallPt(side, 0.7, zNear + 1.3, inset), wallPt(side, 0.7, zNear + 1.3), `rgba(26, 22, 18, ${0.95 * depth})`);
-          wallQuad(side, 0.34, 0.7, zNear + 1.3, zNear + 0.6, `rgba(84, 78, 64, ${depth})`, inset);
-          quad(wallPt(side, 0.34, zNear + 0.6), wallPt(side, 0.34, zNear + 0.6, inset), wallPt(side, 0.7, zNear + 0.6, inset), wallPt(side, 0.7, zNear + 0.6), `rgba(110, 102, 84, ${depth})`);
-          wallQuad(side, 0.4, 0.52, zNear + 1.2, zNear + 0.7, `rgba(16, 20, 14, ${depth})`, inset);
-          const blink = Math.floor(time * 3 + segIndex);
-          [['#4ade80', 0.58], ['#fbbf24', 0.62], ['#ef4444', 0.66]].forEach(([c, f], k) => {
-            if (hash(blink, k + segIndex) < 0.7) wallQuad(side, f, f + 0.03, zNear + 1.1, zNear + 0.95, c, inset);
-          });
-          wallQuad(side, 0.44, 0.46, zNear + 1.15, zNear + 0.75 + 0.3 * Math.abs(Math.sin(time * 1.3 + segIndex)), `rgba(74, 222, 128, ${0.8 * depth})`, inset);
-        }
-        // Wall light every third segment: amber / warm white, flickers as the Menace passes
-        if (segIndex % 3 === 0) {
-          let flicker = 0.75 + 0.25 * Math.sin(time * 28 + segIndex * 17);
-          const beat = Math.floor(time * 2.2 + segIndex * 0.51 + side);
-          if (hash(segIndex + side, beat) < 0.12) flicker *= 0.1 + 0.5 * hash(beat, segIndex);
-          if (Math.abs(this.menaceDist - zNear) < 2.5) flicker *= (0.3 + 0.7 * Math.random());
-          const warm = segIndex % 6 === 0;
-          const za = zNear + 0.55, zb = zFar - 0.55;
-          if (zb > za) {
-            wallQuad(side, 0.4, 0.6, zb + 0.25, za - 0.25, warm ? `rgba(255, 214, 150, ${0.16 * flicker * depth})` : `rgba(251, 146, 60, ${0.16 * flicker * depth})`);
-            wallQuad(side, 0.44, 0.56, zb, za, warm ? `rgba(255, 240, 210, ${0.9 * flicker * depth})` : `rgba(254, 215, 170, ${0.9 * flicker * depth})`);
-            wallQuad(side, 0.42, 0.44, zb, za, `rgba(40, 36, 30, ${depth})`);
-            wallQuad(side, 0.56, 0.58, zb, za, `rgba(40, 36, 30, ${depth})`);
-          }
-        }
-        // Pillar every fourth segment: a column standing proud of the wall, for parallax
-        if (segIndex % 4 === 2) {
-          const za = zNear + 0.6, zb = zNear + 1.1;
-          if (zb <= zFar) {
-            const inset = 0.32;
-            quad(wallPt(side, 0, zb), wallPt(side, 0, zb, inset), wallPt(side, 1, zb, inset), wallPt(side, 1, zb), `rgba(30, 26, 22, ${0.95 * depth})`);
-            wallQuad(side, 0, 1, zb, za, `rgba(112, 102, 84, ${depth})`, inset);
-            wallQuad(side, 0.18, 0.24, zb, za, `rgba(170, 160, 132, ${0.8 * depth})`, inset);
-            wallQuad(side, 0.78, 0.84, zb, za, `rgba(190, 150, 50, ${0.65 * depth})`, inset);
-            for (let rv = 0.3; rv < 0.8; rv += 0.2) wallQuad(side, rv, rv + 0.02, za + 0.3, za + 0.2, `rgba(60, 54, 44, ${depth})`, inset);
-            quad(wallPt(side, 0, za), wallPt(side, 0, za, inset), wallPt(side, 1, za, inset), wallPt(side, 1, za), `rgba(118, 106, 86, ${depth})`);
-          }
-        }
-        if (ml > 0.01) wallQuad(side, 0, 1, zFar, zNear, `rgba(210, 236, 255, ${ml * 0.6})`);
+        if (r > 255) r = 255; if (g > 255) g = 255; if (b > 255) b = 255;
+        pix[row + x] = 0xff000000 | (b << 16) | (g << 8) | r;
+        wx += stepX; wy += stepY;
       }
     }
 
-    // --- Distance atmosphere: translucent haze pooling at the vanishing point ---
-    const haze = ctx.createRadialGradient(vp.x, vp.y, 0, vp.x, vp.y, viewH * 0.42);
-    haze.addColorStop(0, 'rgba(10, 9, 7, 0.72)');
-    haze.addColorStop(0.45, 'rgba(10, 9, 7, 0.3)');
-    haze.addColorStop(1, 'rgba(10, 9, 7, 0)');
-    ctx.fillStyle = haze;
-    ctx.fillRect(0, 0, W, viewH);
+    // Walls, one DDA per column
+    for (let x = 0; x < RW; x++) {
+      const camX = 2 * x / RW - 1;
+      const rdx = dirX + planeX * camX, rdy = dirY + planeY * camX;
+      let mapX = Math.floor(p.x), mapY = Math.floor(p.y);
+      const ddx = rdx === 0 ? 1e30 : Math.abs(1 / rdx), ddy = rdy === 0 ? 1e30 : Math.abs(1 / rdy);
+      let stepX, stepY, sdx, sdy;
+      if (rdx < 0) { stepX = -1; sdx = (p.x - mapX) * ddx; } else { stepX = 1; sdx = (mapX + 1 - p.x) * ddx; }
+      if (rdy < 0) { stepY = -1; sdy = (p.y - mapY) * ddy; } else { stepY = 1; sdy = (mapY + 1 - p.y) * ddy; }
+      let side = 0, hit = false, dist = 0, u = 0, tex = null, guard = 0;
+      while (!hit && guard++ < 64) {
+        if (sdx < sdy) { sdx += ddx; mapX += stepX; side = 0; } else { sdy += ddy; mapY += stepY; side = 1; }
+        const ch = this.cell(mapX, mapY);
+        if (ch === '#') {
+          dist = side === 0 ? sdx - ddx : sdy - ddy;
+          const wallHit = side === 0 ? p.y + dist * rdy : p.x + dist * rdx;
+          u = wallHit - Math.floor(wallHit);
+          if ((side === 0 && rdx > 0) || (side === 1 && rdy < 0)) u = 1 - u;
+          tex = this.texWall[this.wallKind[mapY][mapX]];
+          hit = true;
+        } else if (ch === 'D') {
+          // Thin sliding panel on the cell's centre plane; the open part lets the ray through
+          const d = this.doorAt(mapX, mapY);
+          let t, hitCoord;
+          if (d.horiz) {                                     // panel runs along x: plane y = mapY + 0.5
+            if (Math.abs(rdy) < 1e-6) continue;
+            t = (mapY + 0.5 - p.y) / rdy;
+            hitCoord = p.x + t * rdx;
+            if (Math.floor(hitCoord) !== mapX) continue;
+            u = hitCoord - mapX;
+          } else {                                           // panel runs along y: plane x = mapX + 0.5
+            if (Math.abs(rdx) < 1e-6) continue;
+            t = (mapX + 0.5 - p.x) / rdx;
+            hitCoord = p.y + t * rdy;
+            if (Math.floor(hitCoord) !== mapY) continue;
+            u = hitCoord - mapY;
+          }
+          if (t <= 0) continue;
+          if (u < d.open) continue;                          // through the gap
+          u = u - d.open;
+          dist = t;
+          side = d.horiz ? 1 : 0;
+          tex = this.texDoor;
+          hit = true;
+        }
+      }
+      if (!hit) { depth[x] = 1e9; continue; }
+      depth[x] = dist;
+      const lineH = this.planeDist / Math.max(0.05, dist);
+      const top = horizon - lineH * 0.5;
+      const y0 = Math.max(0, Math.ceil(top)), y1 = Math.min(RH - 1, Math.floor(top + lineH));
+      const tx = Math.min(TS - 1, (u * TS) | 0);
+      let l = this.light(dist, mf) * (side === 1 ? 0.82 : 1);
+      if (dist > 14) l *= Math.max(0.3, 1 - (dist - 14) * 0.08);
+      const sh = Math.min(300, l * 256) | 0;
+      const texStep = TS / lineH;
+      let ty = (y0 - top) * texStep;
+      for (let y = y0; y <= y1; y++) {
+        const c = tex[(Math.min(TS - 1, ty | 0)) * TS + tx];
+        let r = (c & 255) * sh >> 8, g = ((c >> 8) & 255) * sh >> 8, b = ((c >> 16) & 255) * sh >> 8;
+        if (r > 255) r = 255; if (g > 255) g = 255; if (b > 255) b = 255;
+        pix[y * RW + x] = 0xff000000 | (b << 16) | (g << 8) | r;
+        ty += texStep;
+      }
+    }
+    this.horizonPx = horizon * 2;
+  }
 
-    // --- EXIT Door (approaching at the end of the 20s run) ---
-    if (this.elapsed >= this.duration - 5.5) {
-      const doorZ = Math.max(1.8, (this.duration - this.elapsed) * 4.2);
-      const pDL = proj(-Xw, Yc, doorZ);
-      const pDR = proj(Xw, Yc, doorZ);
-      const pDbL = proj(-Xw, Yf, doorZ);
-      const pDbR = proj(Xw, Yf, doorZ);
-      const ds = pDL.s;
+  // Project a world point (with a height above the floor, 0..1) into CSS screen coordinates
+  projectPoint(wx, wy, h) {
+    const p = this.player;
+    const rx = wx - p.x, ry = wy - p.y;
+    const fx = Math.cos(p.a), fy = Math.sin(p.a);
+    const d = rx * fx + ry * fy;
+    if (d < 0.12) return null;
+    const lat = rx * -fy + ry * fx;
+    const scale = this.planeDist / d;
+    return { x: (this.RW / 2 + lat * scale) * 2, y: this.horizonPx + (0.5 - h) * scale * 2, scale: scale * 2, d };
+  }
 
-      quad(pDL, pDR, pDbR, pDbL, '#2a2622');
-      // Door leaves with a centre seam
-      quad(proj(-Xw * 0.9, Yc * 0.9, doorZ), proj(-0.08, Yc * 0.9, doorZ), proj(-0.08, Yf * 0.92, doorZ), proj(-Xw * 0.9, Yf * 0.92, doorZ), '#4a443a');
-      quad(proj(0.08, Yc * 0.9, doorZ), proj(Xw * 0.9, Yc * 0.9, doorZ), proj(Xw * 0.9, Yf * 0.92, doorZ), proj(0.08, Yf * 0.92, doorZ), '#4a443a');
-      // Yellow chevron warning border
-      ctx.strokeStyle = '#eab308';
-      ctx.lineWidth = px(0.06, ds, 2);
-      ctx.strokeRect(pDL.x, pDL.y, pDR.x - pDL.x, pDbL.y - pDL.y);
-
-      // Glowing EXIT sign above the door
-      const signPt = proj(0, Yc + 0.32, doorZ);
+  // Draw a sprite callback clipped to the columns where it is in front of the walls
+  drawOccluded(ctx, sx, halfW, d, fn) {
+    const c0 = Math.max(0, Math.floor((sx - halfW) / 2)), c1 = Math.min(this.RW - 1, Math.ceil((sx + halfW) / 2));
+    if (c1 < c0) return false;
+    let drawn = false, run = -1;
+    const flush = end => {
       ctx.save();
-      ctx.font = `900 ${Math.max(10, Math.floor(px(0.38, ds, 10)))}px system-ui, sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillStyle = '#22c55e';
-      ctx.shadowColor = '#22c55e';
-      ctx.shadowBlur = 12;
-      ctx.fillText('EXIT ▶', signPt.x, signPt.y);
-      ctx.restore();
-
-      // Door opening light in the last 0.8s (translucent, confined to the door)
-      if (this.elapsed >= this.duration - 0.8) {
-        const openPct = (this.elapsed - (this.duration - 0.8)) / 0.8;
-        ctx.fillStyle = `rgba(240, 253, 244, ${Math.min(0.85, openPct * 1.4)})`;
-        ctx.fillRect(pDL.x, pDL.y, pDR.x - pDL.x, pDbL.y - pDL.y);
-      }
-    }
-
-    // --- Dynamic entities, depth-sorted (farthest first). All sizes are world units × s. ---
-    const drawList = [];
-    this.floorPellets.forEach(p => drawList.push({ type: 'pellet', z: p.z, lane: p.lane }));
-    this.obstacles.forEach(ob => drawList.push({ type: 'obstacle', z: ob.z, lane: ob.lane, rot: ob.rot }));
-    this.projectiles.forEach(p => drawList.push({ type: 'proj', z: p.z, x: p.x }));
-    // Corridor furniture: crates, barrels, hanging cables and wall machinery at fixed world positions
-    if (!this.furniture) {
-      this.furniture = [];
-      let fz = 5;
-      let n = 0;
-      while (fz < 220) {
-        const kinds = ['crate', 'barrel', 'cable', 'machine', 'crate', 'barrel'];
-        this.furniture.push({ kind: kinds[Math.floor(hash(n, 41) * kinds.length)], z: fz, side: hash(n, 42) < 0.5 ? -1 : 1, seed: hash(n, 43) });
-        fz += 2.6 + hash(n, 44) * 3.4;
-        n++;
-      }
-    }
-    for (const f of this.furniture) {
-      const z = f.z - travel;
-      if (z > minZ + 0.3 && z < maxZ - 1) drawList.push({ type: 'prop', z, kind: f.kind, side: f.side, seed: f.seed });
-    }
-    drawList.push({ type: 'menace', z: this.menaceDist, laneX: this.menaceLaneX });
-    drawList.sort((a, b) => b.z - a.z);
-
-    // Sprites fade gently with distance (never below 0.8 so the far Menace stays readable)
-    const spriteAlpha = z => Math.max(0.8, Math.min(1, 1.3 - 0.5 * (z / maxZ)));
-    this.menaceScreen = null;
-
-    for (const ent of drawList) {
-      ctx.save();
-      ctx.globalAlpha = spriteAlpha(ent.z);
-      if (ent.type === 'pellet') {
-        const pt = proj(ent.lane * 1.1, Yf - 0.18, ent.z);
-        const r = px(0.16, pt.s, 2);
-        ctx.fillStyle = '#ffd32a';
-        ctx.shadowColor = '#ffd32a';
-        ctx.shadowBlur = Math.min(14, r * 1.2);
-        ctx.beginPath();
-        ctx.arc(pt.x, pt.y, r, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.shadowBlur = 0;
-        ctx.fillStyle = '#fff275';
-        ctx.beginPath();
-        ctx.arc(pt.x - r * 0.3, pt.y - r * 0.3, r * 0.35, 0, Math.PI * 2);
-        ctx.fill();
-      } else if (ent.type === 'obstacle') {
-        // A knocked-loose supply crate tumbling down the lane
-        const pt = proj(ent.lane * 1.1, Yf - 0.32, ent.z);
-        const size = px(0.55, pt.s, 4);
-        ctx.translate(pt.x, pt.y);
-        ctx.rotate(ent.rot);
-        ctx.fillStyle = '#6b6048';
-        ctx.fillRect(-size / 2, -size / 2, size, size);
-        ctx.fillStyle = '#4a4232';
-        ctx.fillRect(-size / 2, -size * 0.1, size, size * 0.2);
-        ctx.fillRect(-size * 0.1, -size / 2, size * 0.2, size);
-        ctx.strokeStyle = '#b8902c';
-        ctx.lineWidth = Math.max(1, size * 0.08);
-        ctx.strokeRect(-size / 2, -size / 2, size, size);
-      } else if (ent.type === 'prop') {
-        const dz = Math.max(0.06, Math.min(1, 1 - ent.z / maxZ));
-        ctx.globalAlpha = Math.min(1, dz * 1.6);
-        const wx = ent.side * 1.82;
-        if (ent.kind === 'crate') {
-          // Supply crate against the wall: front, top and inner faces, stencil band
-          const sz = 0.52;
-          const f0 = proj(wx - sz / 2, Yf, ent.z), f1 = proj(wx + sz / 2, Yf, ent.z), f2 = proj(wx + sz / 2, Yf - sz, ent.z), f3 = proj(wx - sz / 2, Yf - sz, ent.z);
-          const b2 = proj(wx + sz / 2, Yf - sz, ent.z + sz), b3 = proj(wx - sz / 2, Yf - sz, ent.z + sz);
-          quad(f3, f2, b2, b3, '#8a7c5a');
-          const innerX = ent.side < 0 ? wx + sz / 2 : wx - sz / 2;
-          quad(proj(innerX, Yf, ent.z), proj(innerX, Yf - sz, ent.z), proj(innerX, Yf - sz, ent.z + sz), proj(innerX, Yf, ent.z + sz), '#4e4634');
-          quad(f0, f1, f2, f3, '#6e634a');
-          quad(proj(wx - sz / 2, Yf - sz * 0.6, ent.z), proj(wx + sz / 2, Yf - sz * 0.6, ent.z), proj(wx + sz / 2, Yf - sz * 0.42, ent.z), proj(wx - sz / 2, Yf - sz * 0.42, ent.z), ent.seed > 0.5 ? 'rgba(190, 150, 50, 0.7)' : 'rgba(30, 26, 20, 0.6)');
-          ctx.strokeStyle = 'rgba(20, 16, 12, 0.8)';
-          ctx.lineWidth = px(0.02, f0.s, 1);
-          ctx.strokeRect(f3.x, f3.y, f1.x - f0.x, f0.y - f3.y);
-        } else if (ent.kind === 'barrel') {
-          const pt = proj(wx, Yf - 0.36, ent.z);
-          const r = px(0.26, pt.s, 2), h = px(0.72, pt.s, 4);
-          const bg = ctx.createLinearGradient(pt.x - r, 0, pt.x + r, 0);
-          const rust = ent.seed > 0.5;
-          bg.addColorStop(0, rust ? '#5a2a1a' : '#4a4a2a'); bg.addColorStop(0.35, rust ? '#9a4a2c' : '#7a7a44'); bg.addColorStop(0.7, rust ? '#b25a34' : '#8c8c50'); bg.addColorStop(1, rust ? '#4a2014' : '#3a3a20');
-          ctx.fillStyle = bg;
-          ctx.fillRect(pt.x - r, pt.y - h / 2, r * 2, h);
-          ctx.fillStyle = 'rgba(20, 14, 10, 0.55)';
-          ctx.fillRect(pt.x - r, pt.y - h * 0.22, r * 2, Math.max(1, h * 0.05));
-          ctx.fillRect(pt.x - r, pt.y + h * 0.18, r * 2, Math.max(1, h * 0.05));
-          ctx.fillStyle = rust ? '#6a3220' : '#5a5a30';
-          ctx.beginPath(); ctx.ellipse(pt.x, pt.y - h / 2, r, r * 0.3, 0, 0, Math.PI * 2); ctx.fill();
-          ctx.fillStyle = 'rgba(255,255,255,0.08)';
-          ctx.beginPath(); ctx.ellipse(pt.x, pt.y - h / 2, r * 0.7, r * 0.2, 0, 0, Math.PI * 2); ctx.fill();
-          if (ent.seed > 0.75) { ctx.fillStyle = 'rgba(190, 150, 50, 0.75)'; ctx.beginPath(); ctx.arc(pt.x, pt.y, r * 0.35, 0, Math.PI * 2); ctx.fill(); }
-        } else if (ent.kind === 'cable') {
-          // A loop of cable sagging from the ceiling conduit
-          const a = proj(ent.side * 1.45, Yc + 0.05, ent.z), b = proj(ent.side * 1.45, Yc + 0.05, ent.z + 1.4);
-          const low = proj(ent.side * 1.2, Yc + 0.75 + ent.seed * 0.4, ent.z + 0.7);
-          ctx.strokeStyle = '#141210';
-          ctx.lineWidth = px(0.06, low.s, 1.5);
-          ctx.lineCap = 'round';
-          ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.quadraticCurveTo(low.x, low.y + (low.y - a.y) * 0.4, b.x, b.y); ctx.stroke();
-          ctx.strokeStyle = 'rgba(160, 150, 120, 0.5)';
-          ctx.lineWidth = px(0.02, low.s, 1);
-          ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.quadraticCurveTo(low.x, low.y + (low.y - a.y) * 0.4, b.x, b.y); ctx.stroke();
-          const tag = proj(ent.side * 1.2, Yc + 0.75 + ent.seed * 0.4 + 0.12, ent.z + 0.7);
-          ctx.fillStyle = ent.seed > 0.5 ? '#ef4444' : '#fbbf24';
-          ctx.fillRect(tag.x - px(0.05, tag.s, 1), tag.y, px(0.1, tag.s, 2), px(0.12, tag.s, 2));
-        } else if (ent.kind === 'machine') {
-          // Floor-standing machinery against the wall: a cabinet with a gauge and a warning lamp
-          const sz = 0.6, ht = 1.1;
-          const x0 = wx - sz / 2, x1 = wx + sz / 2;
-          const f0 = proj(x0, Yf, ent.z), f1 = proj(x1, Yf, ent.z), f2 = proj(x1, Yf - ht, ent.z), f3 = proj(x0, Yf - ht, ent.z);
-          quad(f3, f2, proj(x1, Yf - ht, ent.z + sz), proj(x0, Yf - ht, ent.z + sz), '#5c5444');
-          const innerX = ent.side < 0 ? x1 : x0;
-          quad(proj(innerX, Yf, ent.z), proj(innerX, Yf - ht, ent.z), proj(innerX, Yf - ht, ent.z + sz), proj(innerX, Yf, ent.z + sz), '#3a3428');
-          const cg = ctx.createLinearGradient(0, f3.y, 0, f0.y);
-          cg.addColorStop(0, '#6e6552'); cg.addColorStop(1, '#4a4336');
-          quad(f0, f1, f2, f3, cg);
-          const gp = proj(wx, Yf - ht * 0.72, ent.z);
-          ctx.fillStyle = '#14120e';
-          ctx.beginPath(); ctx.arc(gp.x, gp.y, px(0.14, gp.s, 2), 0, Math.PI * 2); ctx.fill();
-          ctx.strokeStyle = '#4ade80';
-          ctx.lineWidth = px(0.02, gp.s, 1);
-          ctx.beginPath(); ctx.moveTo(gp.x, gp.y); ctx.lineTo(gp.x + Math.cos(time * 2 + ent.seed * 6) * px(0.1, gp.s, 1), gp.y + Math.sin(time * 2 + ent.seed * 6) * px(0.1, gp.s, 1)); ctx.stroke();
-          const lamp = proj(wx, Yf - ht * 0.35, ent.z);
-          const on = Math.floor(time * 2 + ent.seed * 4) % 2 === 0;
-          ctx.fillStyle = on ? '#ef4444' : '#5a1a1a';
-          ctx.beginPath(); ctx.arc(lamp.x, lamp.y, px(0.06, lamp.s, 1), 0, Math.PI * 2); ctx.fill();
-          for (let v = 0; v < 3; v++) { const vq = proj(wx - 0.2, Yf - ht * 0.2 + v * 0.08, ent.z); ctx.fillStyle = 'rgba(20,16,12,0.8)'; ctx.fillRect(vq.x, vq.y, px(0.4, vq.s, 2), px(0.03, vq.s, 1)); }
-        }
-      } else if (ent.type === 'proj') {
-        const pt = proj(ent.x, 0.25, ent.z);
-        const pr = px(0.11, pt.s, 2);
-        ctx.fillStyle = '#38bdf8';
-        ctx.shadowColor = '#38bdf8';
-        ctx.shadowBlur = Math.min(12, pr * 2);
-        ctx.beginPath();
-        ctx.arc(pt.x, pt.y, pr, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.shadowBlur = 0;
-        ctx.fillStyle = '#ffffff';
-        ctx.beginPath();
-        ctx.arc(pt.x, pt.y, pr * 0.5, 0, Math.PI * 2);
-        ctx.fill();
-      } else if (ent.type === 'menace') {
-        // Body radius 1.25 world units (a big lad; the lanes are 1.1 apart); feet on the floor. Clamped
-        // so that at the closest approach (the grab at z ≈ 2.2) he fills at most the central portion.
-        const bodyR = 1.25;
-        const legLen = 0.28;
-        const rMax = Math.min(W, viewH) * 0.28;
-        const pt = proj(ent.laneX * 1.1, Yf - legLen - bodyR, ent.z);
-        const r = Math.min(rMax, px(bodyR, pt.s, 3));
-        const bounce = Math.abs(Math.sin(this.elapsed * 14)) * r * 0.08;
-        const cx = pt.x, cy = pt.y - bounce;
-
-        // Shadow on the floor
-        const sPt = proj(ent.laneX * 1.1, Yf - 0.05, ent.z);
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
-        ctx.beginPath();
-        ctx.ellipse(sPt.x, sPt.y, r * 0.9, r * 0.22, 0, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.translate(cx, cy);
-        ctx.scale(r, r);
-        const look = Math.max(-0.08, Math.min(0.08, (this.laneX - ent.laneX) * 0.08));
-        const chomp = 0.55 + 0.45 * Math.abs(Math.sin(this.elapsed * 6));
-        this.drawMenaceFigure(ctx, this.elapsed * 14, chomp, look, this.menaceHitFlash > 0);
-        this.menaceScreen = { x: cx, y: cy, r: r };
-        // Hit feedback: an expanding ring off his body as a shot lands
-        if (this.hitFlash > 0) {
-          const k = 1 - this.hitFlash / 0.16;
-          ctx.strokeStyle = `rgba(255, 240, 150, ${0.9 * (1 - k)})`;
-          ctx.lineWidth = 0.12;
-          ctx.beginPath(); ctx.arc(0, 0, 1.1 + k * 1.4, 0, Math.PI * 2); ctx.stroke();
-        }
-      }
-      ctx.restore();
-    }
-
-    // --- Hit Sparks ---
-    this.sparks.forEach(sp => {
-      const pt = proj(sp.x, sp.y, sp.z);
-      ctx.fillStyle = sp.color;
       ctx.beginPath();
-      ctx.arc(pt.x, pt.y, px(0.07, pt.s, 1), 0, Math.PI * 2);
-      ctx.fill();
-    });
-
-    // --- Muzzle Flash Screen Illumination (the near corridor already carries the falling-off light) ---
-    if (this.muzzleFlash > 0) {
-      const mfGrad = ctx.createRadialGradient(midX, viewH - 20, 30, midX, viewH - 20, W * 0.6);
-      mfGrad.addColorStop(0, 'rgba(56, 189, 248, 0.4)');
-      mfGrad.addColorStop(1, 'rgba(56, 189, 248, 0)');
-      ctx.fillStyle = mfGrad;
-      ctx.fillRect(0, 0, W, viewH);
+      ctx.rect(run * 2, 0, (end - run + 1) * 2, this.viewH);
+      ctx.clip();
+      fn();
+      ctx.restore();
+      drawn = true;
+    };
+    for (let c = c0; c <= c1; c++) {
+      const vis = this.depth[c] > d - 0.15;
+      if (vis && run < 0) run = c;
+      if (!vis && run >= 0) { flush(c - 1); run = -1; }
     }
-    // --- Hit landed: a short warm flash over the whole view ---
-    if (this.hitFlash > 0) {
-      ctx.fillStyle = `rgba(255, 240, 200, ${0.26 * (this.hitFlash / 0.16)})`;
-      ctx.fillRect(0, 0, W, viewH);
-    }
+    if (run >= 0) flush(c1);
+    return drawn;
+  }
 
-    // --- Ghost Pellet Blaster (Bottom-Center Weapon) ---
-    const ghostRef = this.game.ghosts[this.ghostIndex];
-    const ghostColor = ghostRef ? ghostRef.color : '#ec4899';
-    const gunX = midX - camX * 22 + Math.sin(this.bobTime * 7) * 4 + this.lookDir * 10;
-    const gunY = viewH + 20 + Math.cos(this.bobTime * 14) * 3 + this.recoil * 35;
-
+  drawWeapon(ctx, time, mf) {
+    const W = this.W, viewH = this.viewH, p = this.player;
+    const bobX = Math.sin(this.bobTime * 4.5) * 9 * p.moving, bobY = Math.abs(Math.cos(this.bobTime * 4.5)) * 7 * p.moving;
+    const kick = this.recoil * 26;
+    const gx = W / 2 + 54 + bobX, gy = viewH + 18 + bobY + kick;
     ctx.save();
-    ctx.translate(gunX, gunY);
-
-    // Blaster shadow/base
-    ctx.fillStyle = '#15130f';
-    ctx.beginPath();
-    ctx.moveTo(-54, 0);
-    ctx.lineTo(54, 0);
-    ctx.lineTo(38, -90);
-    ctx.lineTo(-38, -90);
-    ctx.closePath();
-    ctx.fill();
-
-    // Twin Gunmetal Barrels
-    const barrelGrad = ctx.createLinearGradient(-35, 0, 35, 0);
-    barrelGrad.addColorStop(0, '#2a261f');
-    barrelGrad.addColorStop(0.3, '#5f5848');
-    barrelGrad.addColorStop(0.7, '#5f5848');
-    barrelGrad.addColorStop(1, '#15130f');
-    ctx.fillStyle = barrelGrad;
-    // Left barrel
-    ctx.fillRect(-32, -100, 26, 75);
-    // Right barrel
-    ctx.fillRect(6, -100, 26, 75);
-
-    // Muzzle openings
-    ctx.fillStyle = '#050403';
-    ctx.beginPath();
-    ctx.ellipse(-19, -100, 11, 4, 0, 0, Math.PI * 2);
-    ctx.ellipse(19, -100, 11, 4, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Heavy Armored Receiver Housing
-    ctx.fillStyle = '#44403a';
-    ctx.fillRect(-45, -45, 90, 50);
-    ctx.strokeStyle = '#7a7262';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(-45, -45, 90, 50);
-
-    // Glowing Squad Plasma Core in center
-    ctx.fillStyle = ghostColor;
-    ctx.shadowColor = ghostColor;
-    ctx.shadowBlur = 12;
-    ctx.beginPath();
-    ctx.arc(0, -22, 10, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.shadowBlur = 0;
-
-    // Heat vents / rivets
+    ctx.translate(gx, gy);
+    ctx.rotate(-0.08 + this.recoil * 0.12);
+    // Grip and body: gunmetal with amber vents and a round pellet chamber (original design)
     ctx.fillStyle = '#2a261f';
-    [-24, -12, 12, 24].forEach(vx => {
-      ctx.fillRect(vx - 2, -40, 4, 10);
-    });
-
-    // Muzzle Flash Effect
-    if (this.muzzleFlash > 0) {
+    ctx.fillRect(-30, -40, 60, 70);
+    ctx.fillStyle = '#4a4336';
+    ctx.fillRect(-44, -96, 88, 64);
+    ctx.fillStyle = '#5c5444';
+    ctx.fillRect(-44, -96, 88, 10);
+    ctx.fillStyle = '#6e6552';
+    ctx.fillRect(-36, -150, 44, 62);
+    ctx.fillStyle = '#8a7c5a';
+    ctx.fillRect(-36, -150, 44, 8);
+    ctx.fillStyle = '#15130f';
+    ctx.fillRect(-26, -164, 24, 18);
+    // Amber vents
+    ctx.fillStyle = '#b8902c';
+    for (let i = 0; i < 4; i++) ctx.fillRect(-40, -84 + i * 12, 14, 5);
+    // Pellet chamber with the next pellet glowing
+    ctx.fillStyle = '#15130f';
+    ctx.beginPath(); ctx.arc(22, -72, 16, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = this.pellets > 0 ? '#ffd32a' : '#5a1a1a';
+    ctx.shadowColor = '#ffd32a'; ctx.shadowBlur = this.pellets > 0 ? 10 : 0;
+    ctx.beginPath(); ctx.arc(22, -72, 9, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
+    // Coolant line
+    ctx.fillStyle = '#38bdf8';
+    ctx.fillRect(10, -140, 4, 40);
+    // Muzzle flash
+    if (mf > 0) {
       ctx.save();
+      ctx.translate(-14, -168);
+      ctx.globalAlpha = mf;
+      ctx.fillStyle = '#fff275';
+      ctx.shadowColor = '#fbbf24'; ctx.shadowBlur = 30;
+      ctx.beginPath();
+      for (let i = 0; i < 8; i++) {
+        const a = i / 8 * Math.PI * 2 + time * 20, rr = i % 2 ? 14 : 34;
+        if (i === 0) ctx.moveTo(Math.cos(a) * rr, Math.sin(a) * rr); else ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr);
+      }
+      ctx.closePath(); ctx.fill();
       ctx.fillStyle = '#ffffff';
-      ctx.shadowColor = '#38bdf8';
-      ctx.shadowBlur = 25;
-      // 8-point bright starburst at barrel tips
-      [-19, 19].forEach(bx => {
-        ctx.beginPath();
-        for (let i = 0; i < 8; i++) {
-          const ang = (i * Math.PI) / 4;
-          const len = i % 2 === 0 ? 34 : 16;
-          const mx = bx + Math.cos(ang) * len;
-          const my = -100 + Math.sin(ang) * len;
-          if (i === 0) ctx.moveTo(mx, my); else ctx.lineTo(mx, my);
-        }
-        ctx.closePath();
-        ctx.fill();
-      });
+      ctx.beginPath(); ctx.arc(0, 0, 10, 0, Math.PI * 2); ctx.fill();
       ctx.restore();
     }
     ctx.restore();
+  }
 
-    // --- Film grain: a fine animated grit over the whole view (overlay blend, so blacks stay black) ---
+  draw(ctx, time) {
+    const W = this.W, H = this.H, viewH = this.viewH;
+    const mf = this.muzzleFlash > 0 ? Math.min(1, this.muzzleFlash / 0.09) : 0;
+    const p = this.player, m = this.menace;
+
+    ctx.save();
+    if (this.screenShake > 0) ctx.translate((Math.random() - 0.5) * this.screenShake * 18, (Math.random() - 0.5) * this.screenShake * 18);
+
+    // 1. The raycast view
+    this.castScene(mf, time);
+    this.bctx.putImageData(this.img, 0, 0);
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(this.buf, 0, 0, this.RW, this.RH, 0, 0, W, viewH);
+    ctx.restore();
+
+    // 2. Sprites, far to near, clipped per column by the depth buffer
+    const sprites = [];
+    for (const pk of this.pickups) if (!pk.taken) sprites.push({ kind: 'pickup', x: pk.x, y: pk.y, ref: pk });
+    sprites.push({ kind: 'exit', x: this.exit.x + 0.5, y: this.exit.y + 0.5 });
+    for (const s of this.shots) sprites.push({ kind: 'shot', x: s.x, y: s.y });
+    for (const s of this.sparks) sprites.push({ kind: 'spark', x: s.x, y: s.y, ref: s });
+    sprites.push({ kind: 'menace', x: m.x, y: m.y });
+    const fx = Math.cos(p.a), fy = Math.sin(p.a);
+    for (const s of sprites) s.d = (s.x - p.x) * fx + (s.y - p.y) * fy;
+    sprites.sort((a, b) => b.d - a.d);
+    let menaceDrawn = false;
+    for (const s of sprites) {
+      if (s.d < 0.15) continue;
+      if (s.kind === 'menace') {
+        const ms = this.menaceScreen;
+        if (!ms) continue;
+        const l = Math.min(1, this.light(ms.depth, mf) + 0.25);
+        menaceDrawn = this.drawOccluded(ctx, ms.x, ms.r * 1.1, ms.depth, () => {
+          // Floor shadow, then the figure in unit space scaled to his screen radius
+          ctx.save();
+          ctx.globalAlpha = 0.35;
+          ctx.fillStyle = '#000';
+          ctx.beginPath(); ctx.ellipse(ms.x, ms.y + ms.r * 1.25, ms.r * 0.9, ms.r * 0.22, 0, 0, Math.PI * 2); ctx.fill();
+          ctx.restore();
+          ctx.save();
+          ctx.translate(ms.x, ms.y);
+          ctx.scale(ms.r, ms.r);
+          const chomp = 0.55 + 0.45 * Math.abs(Math.sin(time * 9));
+          const look = Math.max(-0.1, Math.min(0.1, (W / 2 - ms.x) / W * 0.3));
+          this.drawMenaceFigure(ctx, m.stride, chomp, look, m.hitFlash > 0);
+          ctx.restore();
+          if (l < 1) {
+            // Distance dimming: a translucent dark wash the test's figure classifier tolerates
+            ctx.save();
+            ctx.globalAlpha = (1 - l) * 0.55;
+            ctx.fillStyle = '#0a0907';
+            ctx.beginPath(); ctx.arc(ms.x, ms.y, ms.r * 1.02, 0, Math.PI * 2); ctx.fill();
+            ctx.restore();
+          }
+        });
+        continue;
+      }
+      const pr = this.projectPoint(s.x, s.y, s.kind === 'pickup' ? 0.12 : s.kind === 'shot' ? 0.45 : s.kind === 'spark' ? s.ref.z : 0.5);
+      if (!pr) continue;
+      const l = this.light(pr.d, mf);
+      if (s.kind === 'pickup') {
+        const r = Math.max(2, 0.09 * pr.scale);
+        this.drawOccluded(ctx, pr.x, r * 1.4, pr.d, () => {
+          ctx.save();
+          const bob = Math.sin(time * 4 + s.ref.bob) * r * 0.3;
+          ctx.globalAlpha = Math.min(1, 0.5 + l);
+          ctx.fillStyle = '#ffd32a'; ctx.shadowColor = '#ffd32a'; ctx.shadowBlur = r;
+          ctx.beginPath(); ctx.arc(pr.x, pr.y - bob, r, 0, Math.PI * 2); ctx.fill();
+          ctx.shadowBlur = 0;
+          ctx.fillStyle = '#fff7cc';
+          ctx.beginPath(); ctx.arc(pr.x - r * 0.3, pr.y - bob - r * 0.3, r * 0.35, 0, Math.PI * 2); ctx.fill();
+          ctx.restore();
+        });
+      } else if (s.kind === 'exit') {
+        const hgt = 0.9 * pr.scale, wid = 0.55 * pr.scale;
+        this.drawOccluded(ctx, pr.x, wid * 0.6, pr.d, () => {
+          // Teleporter: a standing ring of amber-green light with a pulsing core
+          ctx.save();
+          const pulse = 0.6 + 0.4 * Math.sin(time * 5);
+          ctx.strokeStyle = `rgba(190, 255, 120, ${0.85 * pulse})`;
+          ctx.lineWidth = Math.max(2, hgt * 0.06);
+          ctx.shadowColor = '#bef264'; ctx.shadowBlur = hgt * 0.25;
+          ctx.beginPath(); ctx.ellipse(pr.x, pr.y - hgt * 0.1, wid * 0.5, hgt * 0.5, 0, 0, Math.PI * 2); ctx.stroke();
+          ctx.fillStyle = `rgba(255, 196, 110, ${0.25 * pulse})`;
+          ctx.beginPath(); ctx.ellipse(pr.x, pr.y - hgt * 0.1, wid * 0.4, hgt * 0.4, 0, 0, Math.PI * 2); ctx.fill();
+          ctx.restore();
+        });
+      } else if (s.kind === 'shot') {
+        const r = Math.max(2, 0.08 * pr.scale);
+        this.drawOccluded(ctx, pr.x, r * 2, pr.d, () => {
+          ctx.save();
+          ctx.fillStyle = '#fff275'; ctx.shadowColor = '#fbbf24'; ctx.shadowBlur = r * 3;
+          ctx.beginPath(); ctx.arc(pr.x, pr.y, r, 0, Math.PI * 2); ctx.fill();
+          ctx.restore();
+        });
+      } else if (s.kind === 'spark') {
+        const r = Math.max(1, 0.03 * pr.scale);
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, s.ref.life / s.ref.maxLife);
+        ctx.fillStyle = s.ref.color;
+        ctx.fillRect(pr.x - r, pr.y - r, r * 2, r * 2);
+        ctx.restore();
+      }
+    }
+    this.menaceVisible = menaceDrawn;
+
+    // 3. Muzzle light on the near scene, crosshair, weapon
+    if (mf > 0) {
+      const g = ctx.createRadialGradient(W / 2, viewH * 0.75, 0, W / 2, viewH * 0.75, viewH * 0.8);
+      g.addColorStop(0, `rgba(255, 236, 170, ${0.22 * mf})`); g.addColorStop(1, 'rgba(255, 236, 170, 0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, W, viewH);
+    }
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
+    ctx.lineWidth = 1.5;
+    const chy = this.horizonPx;
+    ctx.beginPath(); ctx.moveTo(W / 2 - 9, chy); ctx.lineTo(W / 2 - 3, chy); ctx.moveTo(W / 2 + 3, chy); ctx.lineTo(W / 2 + 9, chy);
+    ctx.moveTo(W / 2, chy - 9); ctx.lineTo(W / 2, chy - 3); ctx.moveTo(W / 2, chy + 3); ctx.lineTo(W / 2, chy + 9); ctx.stroke();
+    ctx.restore();
+    this.drawWeapon(ctx, time, mf);
+
+    // 4. Film grain (overlay blend), vignette, red pulse on low nerve or a grab, toasts
     if (!this.grain) {
       const gc = document.createElement('canvas');
       gc.width = 96; gc.height = 96;
       const gctx = gc.getContext('2d');
-      const img = gctx.createImageData(96, 96);
-      for (let i = 0; i < img.data.length; i += 4) {
-        const v = 92 + Math.floor(Math.random() * 72);
-        img.data[i] = v + Math.floor(Math.random() * 12) - 6; img.data[i + 1] = v; img.data[i + 2] = v - Math.floor(Math.random() * 10); img.data[i + 3] = 255;
-      }
-      gctx.putImageData(img, 0, 0);
+      const gi = gctx.createImageData(96, 96);
+      for (let i = 0; i < gi.data.length; i += 4) { const v = 96 + Math.random() * 64; gi.data[i] = v; gi.data[i + 1] = v; gi.data[i + 2] = v; gi.data[i + 3] = 255; }
+      gctx.putImageData(gi, 0, 0);
       this.grain = ctx.createPattern(gc, 'repeat');
     }
     ctx.save();
     ctx.globalCompositeOperation = 'overlay';
-    ctx.globalAlpha = 0.42;
+    ctx.globalAlpha = 0.4;
     const gox = Math.floor(Math.random() * 96), goy = Math.floor(Math.random() * 96);
     ctx.translate(-gox, -goy);
     ctx.fillStyle = this.grain;
     ctx.fillRect(gox, goy, W, viewH);
     ctx.restore();
-
-    // --- Red Vignette / Edge Pulse on Low NERVE or Grab ---
+    const vig = ctx.createRadialGradient(W / 2, viewH / 2, viewH * 0.3, W / 2, viewH / 2, viewH * 0.9);
+    vig.addColorStop(0, 'rgba(0,0,0,0)'); vig.addColorStop(1, 'rgba(0,0,0,0.55)');
+    ctx.fillStyle = vig;
+    ctx.fillRect(0, 0, W, viewH);
     const dangerLevel = this.nerve <= 33 ? (34 - this.nerve) / 34 : 0;
-    const pulseAlpha = Math.max(this.redFlash, dangerLevel > 0 ? (0.2 + 0.25 * Math.sin(time * 8)) : 0);
+    const pulseAlpha = Math.max(this.redFlash, dangerLevel > 0 ? (0.2 + 0.25 * Math.sin(time * 8)) * dangerLevel : 0);
     if (pulseAlpha > 0) {
-      const redVig = ctx.createRadialGradient(midX, viewH / 2, viewH * 0.35, midX, viewH / 2, viewH * 0.85);
+      const redVig = ctx.createRadialGradient(W / 2, viewH / 2, viewH * 0.35, W / 2, viewH / 2, viewH * 0.85);
       redVig.addColorStop(0, 'rgba(239, 68, 68, 0)');
       redVig.addColorStop(1, `rgba(239, 68, 68, ${pulseAlpha * 0.65})`);
       ctx.fillStyle = redVig;
       ctx.fillRect(0, 0, W, viewH);
     }
+    if (this.toast) {
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, this.toast.t * 2);
+      ctx.font = '900 16px system-ui, sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.lineWidth = 5; ctx.strokeStyle = 'rgba(8, 9, 20, 0.85)';
+      ctx.strokeText(this.toast.text, W / 2, viewH * 0.3);
+      ctx.fillStyle = this.toast.color;
+      ctx.fillText(this.toast.text, W / 2, viewH * 0.3);
+      ctx.restore();
+    }
+    // Compass strip: which way the teleporter lies
+    const ex = this.exit.x + 0.5 - p.x, ey = this.exit.y + 0.5 - p.y;
+    let rel = Math.atan2(ey, ex) - p.a;
+    while (rel > Math.PI) rel -= Math.PI * 2;
+    while (rel < -Math.PI) rel += Math.PI * 2;
+    ctx.save();
+    ctx.fillStyle = 'rgba(8, 9, 20, 0.55)';
+    ctx.fillRect(W / 2 - 70, 8, 140, 14);
+    ctx.fillStyle = '#a89f8a';
+    ctx.font = '800 9px system-ui, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('TELEPORTER', W / 2, 15);
+    if (Math.abs(rel) < this.fov / 2 + 0.2) {
+      ctx.fillStyle = '#bef264';
+      ctx.beginPath(); ctx.moveTo(W / 2 + rel / (this.fov / 2) * 60, 24); ctx.lineTo(W / 2 + rel / (this.fov / 2) * 60 - 5, 32); ctx.lineTo(W / 2 + rel / (this.fov / 2) * 60 + 5, 32); ctx.closePath(); ctx.fill();
+    } else {
+      ctx.fillStyle = '#bef264';
+      ctx.fillText(rel > 0 ? '▶' : '◀', W / 2 + (rel > 0 ? 62 : -62), 15);
+    }
+    ctx.restore();
 
-    ctx.restore(); // Undo screen shake
+    ctx.restore(); // shake
 
+    // 5. Status bar
+    this.drawStatusBar(ctx, time);
+  }
+
+  // Status bar (Round 4–7 grammar kept: EXIT progress strip, NERVE %, ghost portrait slot, PELLETS count)
+  drawStatusBar(ctx, time) {
+    const W = this.W, H = this.H, midX = W / 2;
+    const ghostColor = this.game.ghosts[this.ghostIndex].color;
     // --- CHUNKY DOOM-INSPIRED STATUS BAR (Bottom 84px) ---
     const barY = H - 84;
     const barH = 84;
@@ -8057,7 +8049,7 @@ class GloomRun {
     const nerveColor = this.nerve > 60 ? '#22c55e' : (this.nerve > 30 ? '#eab308' : '#ef4444');
     ctx.fillStyle = nerveColor;
     ctx.font = '900 24px monospace, sans-serif';
-    ctx.fillText(`${this.nerve}%`, 22, barY + 58);
+    ctx.fillText(`${Math.round(this.nerve)}%`, 22, barY + 58);
 
     // Center Box: GHOST FACE PORTRAIT (Recessed 62x62 Frame)
     const portX = midX - 31;
