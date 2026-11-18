@@ -33,7 +33,7 @@ async function runAcceptanceTests() {
 
   const indexPath = `file://${path.resolve(__dirname, '../index.html')}`;
   let passedCount = 0;
-  let totalCount = 25;
+  let totalCount = 26;
 
   // Screenshot directory
   const screenshotDir = path.resolve(__dirname, '../screenshots');
@@ -43,7 +43,7 @@ async function runAcceptanceTests() {
 
   try {
     // Check 1: Page loads with zero console errors
-    console.log('[Check 1/25] Loading game page...');
+    console.log('[Check 1/26] Loading game page...');
     await page.goto(indexPath, { waitUntil: 'load' });
     await page.waitForTimeout(500);
 
@@ -59,7 +59,7 @@ async function runAcceptanceTests() {
     console.log('  📸 Captured screenshot: screenshots/title.png');
 
     // Check 2: Game starts from PLAY
-    console.log('\n[Check 2/25] Starting game from PLAY button...');
+    console.log('\n[Check 2/26] Starting game from PLAY button...');
     await page.click('#btn-play');
     await page.waitForTimeout(400);
 
@@ -76,7 +76,7 @@ async function runAcceptanceTests() {
     console.log('  📸 Captured screenshot: screenshots/gameplay.png');
 
     // Check 3: Menace eats pellets autonomously
-    console.log('\n[Check 3/25] Testing autonomous Menace pellet eating...');
+    console.log('\n[Check 3/26] Testing autonomous Menace pellet eating...');
     const initialPellets = await page.evaluate(() => window.__RM_GAME__.getPellets().remaining);
     // Let Menace move and eat for 2 seconds
     await page.waitForTimeout(2000);
@@ -89,7 +89,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 4: Possession switching works for all four ghosts (1-4 and squad bar clicks)
-    console.log('\n[Check 4/25] Testing possession switching across all 4 squad ghosts...');
+    console.log('\n[Check 4/26] Testing possession switching across all 4 squad ghosts...');
     const ghostNames = ['Ember', 'Rosé', 'Tide', 'Goldie'];
     for (let i = 0; i < 4; i++) {
       // Test key press
@@ -110,7 +110,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 5: Touch input moves the possessed ghost
-    console.log('\n[Check 5/25] Testing touch input steering...');
+    console.log('\n[Check 5/26] Testing touch input steering...');
     // Ensure ghost 0 is possessed and positioned at open corridor (5, 5)
     await page.evaluate(() => {
       window.__RM_GAME__.possess(0);
@@ -130,7 +130,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 6: A catch registers when a ghost is steered onto Menace
-    console.log('\n[Check 6/25] Testing ghost catch detection...');
+    console.log('\n[Check 6/26] Testing ghost catch detection...');
     // The hunting squad may have caught him by chance during checks 3–5; a catch (or a flip
     // return) grants him 1s of flashing immunity during which collisions are ignored. Wait it
     // out so the staged catch below is judged on its own merits.
@@ -167,7 +167,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 7: Fright mode flips on power pellet and ghost can be eaten & benched
-    console.log('\n[Check 7/25] Testing Fright Mode & ghost benching...');
+    console.log('\n[Check 7/26] Testing Fright Mode & ghost benching...');
     await page.evaluate(() => window.__RM_GAME__.triggerFright(5.0));
     await page.waitForTimeout(200);
 
@@ -194,7 +194,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 8: Win / Maze Clear screen reachable
-    console.log('\n[Check 8/25] Testing Win / Maze Clear screen...');
+    console.log('\n[Check 8/26] Testing Win / Maze Clear screen...');
     await page.evaluate(() => window.__RM_GAME__.forceWin());
     await page.waitForTimeout(300);
 
@@ -210,7 +210,7 @@ async function runAcceptanceTests() {
     console.log('  📸 Captured screenshot: screenshots/win.png');
 
     // Check 9: Lose screen reachable
-    console.log('\n[Check 9/25] Testing Game Over screen...');
+    console.log('\n[Check 9/26] Testing Game Over screen...');
     await page.evaluate(() => window.__RM_GAME__.forceLose());
     await page.waitForTimeout(300);
 
@@ -226,7 +226,7 @@ async function runAcceptanceTests() {
     console.log('  📸 Captured screenshot: screenshots/gameover.png');
 
     // Check 10: Squad exits the house and hunts (regression: ghosts once looped in the house pocket)
-    console.log('\n[Check 10/25] Testing squad house exit and hunting range...');
+    console.log('\n[Check 10/26] Testing squad house exit and hunting range...');
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(400);
     await page.click('#btn-play');
@@ -307,7 +307,7 @@ async function runAcceptanceTests() {
     // ===== Round 2 checks: the Green Valley Flip and the soundtrack =====
 
     // Check 11: Flip triggers on a real power-pellet pickup; forced survival returns to playing unbenched
-    console.log('\n[Check 11/25] Testing the Green Valley Flip on a real power-pellet pickup...');
+    console.log('\n[Check 11/26] Testing the Green Valley Flip on a real power-pellet pickup...');
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(400);
     const musicBeforeGesture = await page.evaluate(() => window.__RM_GAME__.getMusicState());
@@ -378,7 +378,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 12: Flip caught path benches that ghost and returns to playing
-    console.log('\n[Check 12/25] Testing the flip caught path (bench + return to maze)...');
+    console.log('\n[Check 12/26] Testing the flip caught path (bench + return to maze)...');
     await page.evaluate(() => window.__RM_GAME__.triggerFlip());
     await page.waitForTimeout(300);
     const freshFlipState = await page.evaluate(() => window.__RM_GAME__.getState());
@@ -402,7 +402,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 13: Soundtrack states + zero console errors across the whole battery
-    console.log('\n[Check 13/25] Testing soundtrack states and console cleanliness...');
+    console.log('\n[Check 13/26] Testing soundtrack states and console cleanliness...');
     if (musicBeforeGesture !== 'off') throw new Error(`Music should be off before the first gesture, got "${musicBeforeGesture}"`);
     if (musicAfterPlay !== 'maze') throw new Error(`Music should read "maze" after PLAY, got "${musicAfterPlay}"`);
     if (musicDuringFlip !== 'valley') throw new Error(`Music should read "valley" during the flip, got "${musicDuringFlip}"`);
@@ -434,7 +434,7 @@ async function runAcceptanceTests() {
 
     // Check 14: The top-right pellet routes to Block Kingdom; forced survival returns to playing unbenched with the bonus;
     // the music reads "kingdom" during the segment.
-    console.log('\n[Check 14/25] Testing flip routing (top-right pellet → Block Kingdom) and kingdom survival...');
+    console.log('\n[Check 14/26] Testing flip routing (top-right pellet → Block Kingdom) and kingdom survival...');
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(400);
     await page.click('#btn-play');
@@ -513,7 +513,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 15: Kingdom caught path benches that ghost and returns to playing
-    console.log('\n[Check 15/25] Testing the Block Kingdom caught path (bench + return to maze)...');
+    console.log('\n[Check 15/26] Testing the Block Kingdom caught path (bench + return to maze)...');
     await page.evaluate(() => window.__RM_GAME__.triggerFlip('kingdom'));
     await page.waitForTimeout(300);
     const freshKingdom = await page.evaluate(() => window.__RM_GAME__.getFlip());
@@ -542,7 +542,7 @@ async function runAcceptanceTests() {
     // ===== Round 4 checks: GLOOM corridor shooter flip & Phantom Grand Prix kart racer flip =====
 
     // Check 16: GLOOM routing and survival (bottom-left pellet)
-    console.log('\n[Check 16/25] Testing GLOOM routing and survival (bottom-left pellet)...');
+    console.log('\n[Check 16/26] Testing GLOOM routing and survival (bottom-left pellet)...');
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(400);
     await page.click('#btn-play');
@@ -604,7 +604,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 17: GLOOM caught path
-    console.log('\n[Check 17/25] Testing GLOOM caught path (bench + return to maze)...');
+    console.log('\n[Check 17/26] Testing GLOOM caught path (bench + return to maze)...');
     await page.evaluate(() => window.__RM_GAME__.triggerFlip('gloom'));
     await page.waitForTimeout(300);
     const freshGloom = await page.evaluate(() => window.__RM_GAME__.getFlip());
@@ -629,7 +629,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 18: Phantom Grand Prix routing and survival (bottom-right pellet)
-    console.log('\n[Check 18/25] Testing Phantom Grand Prix routing and survival (bottom-right pellet)...');
+    console.log('\n[Check 18/26] Testing Phantom Grand Prix routing and survival (bottom-right pellet)...');
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(400);
     await page.click('#btn-play');
@@ -691,7 +691,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 19: Grand Prix caught path
-    console.log('\n[Check 19/25] Testing Phantom Grand Prix caught path (bench + return to maze)...');
+    console.log('\n[Check 19/26] Testing Phantom Grand Prix caught path (bench + return to maze)...');
     await page.evaluate(() => window.__RM_GAME__.triggerFlip('grandprix'));
     await page.waitForTimeout(300);
     const freshGP = await page.evaluate(() => window.__RM_GAME__.getFlip());
@@ -778,7 +778,7 @@ async function runAcceptanceTests() {
     const describeFrame = s => `${s.distinct} distinct colours, dominant ${s.dominantColour} at ${(s.dominantShare * 100).toFixed(1)}%`;
 
     // Check 20: GLOOM render sanity — a real frame of live corridor play shows a corridor and a Menace figure
-    console.log('\n[Check 20/25] GLOOM render sanity (pixel analysis of a live mid-corridor frame)...');
+    console.log('\n[Check 20/26] GLOOM render sanity (pixel analysis of a live mid-corridor frame)...');
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(400);
     await page.click('#btn-play');
@@ -846,7 +846,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 21: Render sanity for the other three flips — a mid-play frame of each is a real picture
-    console.log('\n[Check 21/25] Render sanity for Green Valley, Block Kingdom and Phantom Grand Prix...');
+    console.log('\n[Check 21/26] Render sanity for Green Valley, Block Kingdom and Phantom Grand Prix...');
     const otherFlips = [
       { kind: 'valley', name: 'Green Valley' },
       { kind: 'kingdom', name: 'Block Kingdom' },
@@ -897,7 +897,7 @@ async function runAcceptanceTests() {
     const leaveEngine = async () => { await page.evaluate(() => window.__RM_GAME__.forceFlipSurvive()); await page.waitForTimeout(250); };
 
     // Check 22: Block Kingdom engine — a stomp flattens a minion; a bumped block releases its pickup
-    console.log('\n[Check 22/25] Block Kingdom engine: a stomp flattens a minion and a bumped block releases its pickup...');
+    console.log('\n[Check 22/26] Block Kingdom engine: a stomp flattens a minion and a bumped block releases its pickup...');
     await startEngine('kingdom');
     await D('freezeMenace', true);
     let kf = await F();
@@ -932,7 +932,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 23: Green Valley engine — a hit scatters rings; a downhill measurably builds speed over the flat
-    console.log('\n[Check 23/25] Green Valley engine: a Menace hit scatters rings, downhill builds speed over flat...');
+    console.log('\n[Check 23/26] Green Valley engine: a Menace hit scatters rings, downhill builds speed over flat...');
     await startEngine('valley');
     await D('freezeMenace', true);
     await D('place', { x: 300, speed: 200, rings: 12 });
@@ -967,7 +967,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 24: GLOOM engine — turning in place changes the rendered view; a door opens on approach
-    console.log('\n[Check 24/25] GLOOM engine: turning in place changes the rendered view, a door opens on approach...');
+    console.log('\n[Check 24/26] GLOOM engine: turning in place changes the rendered view, a door opens on approach...');
     await startEngine('gloom');
     await D('freezeMenace', true);
     const sampleCentre = () => page.evaluate(() => {
@@ -1013,7 +1013,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 25: Phantom Grand Prix engine — a held drift releases a measurable speed boost
-    console.log('\n[Check 25/25] Phantom Grand Prix engine: a held drift releases a measurable speed boost...');
+    console.log('\n[Check 25/26] Phantom Grand Prix engine: a held drift releases a measurable speed boost...');
     await startEngine('grandprix');
     await D('freezeRivals', true);
     const trackInfo = await D('track', null);
@@ -1038,6 +1038,111 @@ async function runAcceptanceTests() {
     await leaveEngine();
     if (consoleErrors.length > 0) throw new Error(`Console errors during the engine checks: ${consoleErrors.join(' | ')}`);
     console.log(`  ✓ PASS: Drift held ${holdT.toFixed(2)}s (stage ${holdStage}) at ${holdSpeed.toFixed(0)}; release fired a ${pf.extra.boost.toFixed(2)}s boost to ${pf.extra.speed.toFixed(0)} (plain top speed ${trackInfo.topSpeed}); 0 console errors across all 25 checks.`);
+    passedCount++;
+
+    // ===== Round 9 check: the Menace's brain — behaviour, not state =====
+    // (a) Collision-course trials: the Menace is set running along an open corridor with a hunting ghost placed
+    //     ahead of him on the same line, heading at him, every other ghost parked in the house. He must avoid the
+    //     head-on meeting — leave the line, double back, or end further away than he started — with no catch, in
+    //     the clear majority of trials (the Round 8 brain walked into the ghost whenever the next junction lay
+    //     beyond the meeting point, because it could never reverse and only fled inside 3 tiles).
+    // (b) AI-vs-AI soak: the possessed ghost runs her own AI too, so all four hunt him with nobody at the keys.
+    //     Each flip he triggers is survived through the hook (all four hunters stay on the board). He must eat at
+    //     least 2 DISTINCT power pellets before his second catch, inside a bounded window of maze time — the proof
+    //     that the flips are reachable in a normal game.
+    console.log('\n[Check 26/26] Menace brain: head-on avoidance trials and an AI-vs-AI power-pellet soak...');
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForTimeout(400);
+    await page.click('#btn-play');
+    await page.waitForTimeout(300);
+    const brainTrials = [
+      { name: 'row 5 → vs Ember ←', m: [3, 5, 1, 0], g: [0, 15, 5, -1, 0] },
+      { name: 'row 5 ← vs Ember →', m: [15, 5, -1, 0], g: [0, 3, 5, 1, 0] },
+      { name: 'row 11 → vs Ember ←', m: [3, 11, 1, 0], g: [0, 15, 11, -1, 0] },
+      { name: 'row 11 ← vs Ember →', m: [15, 11, -1, 0], g: [0, 3, 11, 1, 0] },
+      { name: 'col 5 ↓ vs Ember ↑', m: [5, 3, 0, 1], g: [0, 5, 9, 0, -1] },
+      { name: 'row 19 ← vs Ember →', m: [14, 19, -1, 0], g: [0, 3, 19, 1, 0] },
+      { name: 'row 15 ← vs Rosé →', m: [9, 15, -1, 0], g: [1, 2, 15, 1, 0] },
+      { name: 'row 13 → vs Rosé ←', m: [10, 13, 1, 0], g: [1, 17, 13, -1, 0] }
+    ];
+    let avoided = 0;
+    const trialNotes = [];
+    for (const t of brainTrials) {
+      await page.evaluate(() => { if (window.__RM_GAME__.getState() === 'flip') window.__RM_GAME__.forceFlipSurvive(); });
+      await page.waitForTimeout(120);
+      await page.evaluate((t) => {
+        const G = window.__RM_GAME__;
+        G.setAutopilot(true);
+        for (let i = 0; i < 4; i++) G.parkGhost(i);
+        G.setMenacePos(t.m[0], t.m[1], t.m[2], t.m[3]);
+        G.setGhostPos(t.g[0], t.g[1], t.g[2], t.g[3], t.g[4]);
+        G.clearMenaceImmunity();
+      }, t);
+      const t0 = await page.evaluate(() => ({ lives: window.__RM_GAME__.getMenace().lives, m: window.__RM_GAME__.getMenace(), g: window.__RM_GAME__.getSquad() }));
+      const sep0 = Math.hypot(t0.g[t.g[0]].x - t0.m.x, t0.g[t.g[0]].y - t0.m.y) / 24;
+      const alongRow = t.m[2] !== 0;
+      const line = alongRow ? t.m[1] : t.m[0];
+      let minSep = sep0, sepEnd = sep0, courseChanged = false, caught = false, flipped = false;
+      for (let i = 0; i < 60; i++) {
+        await page.waitForTimeout(40);
+        const s = await page.evaluate(() => ({ st: window.__RM_GAME__.getState(), m: window.__RM_GAME__.getMenace(), g: window.__RM_GAME__.getSquad(), b: window.__RM_GAME__.getMenaceBrain() }));
+        if (s.st === 'flip') { flipped = true; break; }
+        if (s.st !== 'playing') break;
+        if (s.m.lives < t0.lives) { caught = true; break; }
+        const gg = s.g[t.g[0]];
+        const sep = Math.hypot(gg.x - s.m.x, gg.y - s.m.y) / 24;
+        minSep = Math.min(minSep, sep); sepEnd = sep;
+        if (alongRow ? s.m.tileY !== line : s.m.tileX !== line) courseChanged = true;
+        if (s.b && (alongRow ? s.b.chosen.x === -t.m[2] : s.b.chosen.y === -t.m[3])) courseChanged = true;
+      }
+      const ok = !caught && !flipped && (courseChanged || sepEnd > sep0 + 0.5);
+      if (ok) avoided++;
+      trialNotes.push(`${t.name}: ${ok ? 'avoided' : 'FAILED'} (sep ${sep0.toFixed(1)}→${sepEnd.toFixed(1)}, min ${minSep.toFixed(1)}, ${courseChanged ? 'turned off / doubled back' : 'held course'}${caught ? ', CAUGHT' : ''}${flipped ? ', flipped' : ''})`);
+    }
+    for (const n of trialNotes) console.log(`  · ${n}`);
+    if (avoided < 6) throw new Error(`The Menace walked into the head-on ghost too often: only ${avoided}/${brainTrials.length} trials avoided (need ≥ 6)`);
+
+    // (b) The soak
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForTimeout(400);
+    await page.click('#btn-play');
+    await page.waitForTimeout(300);
+    await page.evaluate(() => window.__RM_GAME__.setAutopilot(true));
+    const SOAK_LIMIT_S = 100;
+    let soakLives = 3, soakCatches = 0, soakFlips = 0, mazeMs = 0, firstCatchAt = -1;
+    const powersEaten = new Set();
+    let lastPowers = await page.evaluate(() => window.__RM_GAME__.getPowerPellets());
+    const soakPelletsStart = (await page.evaluate(() => window.__RM_GAME__.getPellets())).remaining;
+    let tick = Date.now();
+    let soakEnd = '';
+    while (mazeMs < SOAK_LIMIT_S * 1000) {
+      await page.waitForTimeout(100);
+      const s = await page.evaluate(() => ({ st: window.__RM_GAME__.getState(), m: window.__RM_GAME__.getMenace(), pp: window.__RM_GAME__.getPowerPellets() }));
+      const now = Date.now();
+      if (s.st === 'playing') {
+        mazeMs += now - tick;
+        if (s.m.lives < soakLives) { soakCatches++; soakLives = s.m.lives; if (firstCatchAt < 0) firstCatchAt = mazeMs / 1000; }
+      } else if (s.st === 'flip') {
+        for (const p of lastPowers) if (!s.pp.some(q => q.x === p.x && q.y === p.y)) { powersEaten.add(`${p.x},${p.y}`); soakFlips++; }
+        await page.evaluate(() => window.__RM_GAME__.forceFlipSurvive());
+        await page.waitForTimeout(150);
+      } else {
+        soakEnd = `state ${s.st}`;
+        break;
+      }
+      lastPowers = s.pp;
+      tick = Date.now();
+      if (powersEaten.size >= 2) { soakEnd = 'two power pellets reached'; break; }
+      if (soakCatches >= 2) { soakEnd = 'caught twice'; break; }
+    }
+    if (!soakEnd) soakEnd = `window of ${SOAK_LIMIT_S}s used up`;
+    const soakPellets = await page.evaluate(() => window.__RM_GAME__.getPellets());
+    await page.evaluate(() => { if (window.__RM_GAME__.getState() === 'flip') window.__RM_GAME__.forceFlipSurvive(); window.__RM_GAME__.setAutopilot(false); });
+    console.log(`  · soak: ${(mazeMs / 1000).toFixed(1)}s of maze time, ${soakFlips} flip${soakFlips === 1 ? '' : 's'} from power pellets ${[...powersEaten].map(p => `(${p})`).join(' ') || '(none)'}, catches ${soakCatches}${firstCatchAt >= 0 ? ` (first at ${firstCatchAt.toFixed(1)}s)` : ''}, pellets eaten ${soakPelletsStart - soakPellets.remaining}; ended: ${soakEnd}`);
+    if (powersEaten.size < 2) throw new Error(`The Menace reached only ${powersEaten.size} distinct power pellet(s) before his second catch (${soakEnd})`);
+    if (consoleErrors.length > 0) throw new Error(`Console errors during the brain check: ${consoleErrors.join(' | ')}`);
+
+    console.log(`  ✓ PASS: Head-on avoidance ${avoided}/${brainTrials.length} trials; AI-vs-AI soak reached ${powersEaten.size} distinct power pellets in ${(mazeMs / 1000).toFixed(1)}s of maze time with ${soakCatches} catch${soakCatches === 1 ? '' : 'es'} — the flips are reachable; 0 console errors across all 26 checks.`);
     passedCount++;
 
   } catch (err) {

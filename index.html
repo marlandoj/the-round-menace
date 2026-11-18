@@ -1856,6 +1856,9 @@ const MAZE_CONFIGS = [
   }
 ];
 
+// The Menace's four candidate steps (Round 9 brain)
+const MENACE_DIRS = [{ x: 0, y: -1 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 0 }];
+
 // 3. Main Game Engine
 class Game {
   constructor() {
@@ -1933,6 +1936,8 @@ class Game {
     this.possessedIndex = 0; // Ember default
     this.menace = null;
     this.ghosts = [];
+    this.autopilot = false;    // Test / soak hook: the possessed ghost runs her own AI (AI-vs-AI)
+    this.menaceBrain = null;   // Telemetry from the Menace's last decision (Round 9 brain)
 
     // Notification toast
     this.toastTimer = 0;
@@ -2872,7 +2877,7 @@ class Game {
     // Update Ghosts
     for (let i = 0; i < this.ghosts.length; i++) {
       const g = this.ghosts[i];
-      const isPossessed = (i === this.possessedIndex);
+      const isPossessed = (i === this.possessedIndex) && !this.autopilot;
       g.update(dt, this, isPossessed);
     }
 
@@ -3031,189 +3036,215 @@ class Game {
     }
   }
 
-  decideMenaceDirection() {
-    const curX = this.menace.tileX;
-    const curY = this.menace.tileY;
-    const curDir = this.menace.dir;
+  // ===== THE MENACE'S BRAIN (Round 9) =====
+  // Every decision happens at a tile centre and is an arrival-time race. First the threat field: the maze is
+  // flooded from every hunting ghost (heading-aware, in quarter tiles, scaled by the ghost's speed and temperament,
+  // the house and the door counted for ghosts still inside) to learn how soon a ghost can be on each tile. Then
+  // each candidate first step — including doubling back — floods the tiles HE reaches ahead of every ghost by a
+  // safety margin, having committed to that step. A step is scored by the safe space it opens, the breathing room
+  // inside it, the escape junctions, the pellets (and fruit) it can eat, and — when something is closing — the
+  // nearest power pellet, which is how the flips get triggered. Under no pressure the pellet terms dominate and he
+  // clears corridors; a reversal costs a little so he does not dither, and nothing when he is under pressure.
+  MENACE_MARGIN() { return 1.0; }       // tiles of lead he insists on over the earliest ghost (catch radius is 0.75)
+  // How many tiles he can still cover while his re-entry immunity flashes (a little under, to be safe)
+  menaceImmuneTiles() { return Math.max(0, this.menace.immuneTimer - 0.15) * this.menace.speed / this.tileSize; }
 
-    const legalMoves = this.getLegalMoves(curX, curY, curDir, false);
-    if (legalMoves.length === 0) {
-      // Reverse if dead end
-      return { x: -curDir.x, y: -curDir.y };
-    }
-    if (legalMoves.length === 1) {
-      return legalMoves[0];
-    }
-
-    // Active (non-benched) ghosts
-    const activeGhosts = this.ghosts.filter(g => !g.isBenched && g.state !== 'HOUSE');
-
-    // 1. (The in-maze fright chase is gone: the power pellet now triggers a routed flip.)
-
-    // 2. Power-pellet grab: ghost <= 4 tiles AND power pellet <= 6 tiles
-    let ghostNear = false;
-    activeGhosts.forEach(g => {
-      if (Math.hypot(g.tileX - curX, g.tileY - curY) <= 4.0) {
-        ghostNear = true;
-      }
-    });
-
-    if (ghostNear) {
-      // Check for power pellets within 6 tiles
-      const powerPellets = [];
-      for (let r = 0; r < this.rows; r++) {
-        for (let c = 0; c < this.cols; c++) {
-          if (this.grid[r][c] === 'o') {
-            const d = Math.hypot(c - curX, r - curY);
-            if (d <= 6.0) {
-              powerPellets.push({ x: c, y: r, dist: d });
-            }
-          }
-        }
-      }
-
-      if (powerPellets.length > 0) {
-        powerPellets.sort((a, b) => a.dist - b.dist);
-        const target = powerPellets[0];
-        let bestMove = legalMoves[0];
-        let bestDist = Infinity;
-        legalMoves.forEach(m => {
-          const nx = curX + m.x;
-          const ny = curY + m.y;
-          const d = Math.hypot(nx - target.x, ny - target.y);
-          if (d < bestDist) {
-            bestDist = d;
-            bestMove = m;
-          }
-        });
-        return bestMove;
-      }
-    }
-
-    // 3. Flee: if nearest active ghost <= 3 tiles
-    let closestGhostDist = Infinity;
-    activeGhosts.forEach(g => {
-      const d = Math.hypot(g.tileX - curX, g.tileY - curY);
-      if (d < closestGhostDist) closestGhostDist = d;
-    });
-
-    if (closestGhostDist <= 3.0) {
-      let bestMove = legalMoves[0];
-      let maxDistToGhost = -1;
-      legalMoves.forEach(m => {
-        const nx = curX + m.x;
-        const ny = curY + m.y;
-        let minGhostD = Infinity;
-        activeGhosts.forEach(g => {
-          const d = Math.hypot(nx - g.tileX, ny - g.tileY);
-          if (d < minGhostD) minGhostD = d;
-        });
-
-        // Tie-breaker: prefers pellet tile
-        const hasPellet = (this.grid[ny] && (this.grid[ny][nx] === '.' || this.grid[ny][nx] === 'o')) ? 0.2 : 0;
-        const score = minGhostD + hasPellet;
-
-        if (score > maxDistToGhost) {
-          maxDistToGhost = score;
-          bestMove = m;
-        }
-      });
-      return bestMove;
-    }
-
-    // 4. Eat (default): BFS to nearest pellet with threat weighting
-    // Detour to fruit if active and no ghost within 5 tiles of fruit
-    let targetX = -1, targetY = -1;
-    if (this.fruit.active) {
-      let ghostNearFruit = false;
-      activeGhosts.forEach(g => {
-        if (Math.hypot(g.tileX - this.fruit.tileX, g.tileY - this.fruit.tileY) <= 5.0) {
-          ghostNearFruit = true;
-        }
-      });
-      if (!ghostNearFruit) {
-        targetX = this.fruit.tileX;
-        targetY = this.fruit.tileY;
-      }
-    }
-
-    if (targetX !== -1 && targetY !== -1) {
-      let bestMove = legalMoves[0];
-      let bestDist = Infinity;
-      legalMoves.forEach(m => {
-        const nx = curX + m.x;
-        const ny = curY + m.y;
-        const d = Math.hypot(nx - targetX, ny - targetY);
-        if (d < bestDist) {
-          bestDist = d;
-          bestMove = m;
-        }
-      });
-      return bestMove;
-    }
-
-    // BFS for nearest pellet with threat weighting
-    const bestMoveFromBFS = this.bfsFindPelletMove(curX, curY, legalMoves, activeGhosts);
-    return bestMoveFromBFS || legalMoves[0];
+  mazeWalkable(c, r) {
+    if (r < 0 || r >= this.rows || c < 0 || c >= this.cols) return false;
+    const ch = this.grid[r][c];
+    return ch !== '#' && ch !== 'H' && ch !== '=';
   }
 
-  bfsFindPelletMove(startX, startY, legalMoves, activeGhosts) {
-    const queue = [];
-    const visited = Array.from({ length: this.rows }, () => Array(this.cols).fill(false));
-    visited[startY][startX] = true;
+  // Four-neighbour indices with the row-9 tunnel wrap; -1 where a wall (or the house) blocks
+  mazeNeighbourIndex(c, r, d) {
+    let nc = c + d.x, nr = r + d.y;
+    if (nr === 9) { if (nc < 0) nc = this.cols - 1; if (nc >= this.cols) nc = 0; }
+    return this.mazeWalkable(nc, nr) ? nr * this.cols + nc : -1;
+  }
 
-    legalMoves.forEach(m => {
-      let nx = startX + m.x;
-      let ny = startY + m.y;
-      if (ny === 9) {
-        if (nx < 0) nx = this.cols - 1;
-        if (nx >= this.cols) nx = 0;
-      }
-      if (ny >= 0 && ny < this.rows && nx >= 0 && nx < this.cols && !visited[ny][nx]) {
-        visited[ny][nx] = true;
-        queue.push({ x: nx, y: ny, firstMove: m, cost: 1 });
-      }
-    });
-
-    while (queue.length > 0) {
-      const cur = queue.shift();
-      const cell = this.grid[cur.y][cur.x];
-
-      if (cell === '.' || cell === 'o') {
-        return cur.firstMove;
-      }
-
-      // Add neighbors
-      const dirs = [{ x: 0, y: -1 }, { x: 0, y: 1 }, { x: -1, y: 0 }, { x: 1, y: 0 }];
-      for (const d of dirs) {
-        let nx = cur.x + d.x;
-        let ny = cur.y + d.y;
-        if (ny === 9) {
-          if (nx < 0) nx = this.cols - 1;
-          if (nx >= this.cols) nx = 0;
-        }
-        if (ny >= 0 && ny < this.rows && nx >= 0 && nx < this.cols) {
-          const nextCell = this.grid[ny][nx];
-          if (nextCell !== '#' && nextCell !== '=' && nextCell !== 'H' && !visited[ny][nx]) {
-            visited[ny][nx] = true;
-            // Threat weighting: higher cost if within 2 tiles of an active ghost
-            let threatCost = 0;
-            activeGhosts.forEach(g => {
-              if (Math.hypot(nx - g.tileX, ny - g.tileY) <= 2.2) {
-                threatCost += 20;
-              }
-            });
-            queue.push({
-              x: nx,
-              y: ny,
-              firstMove: cur.firstMove,
-              cost: cur.cost + 1 + threatCost
-            });
-          }
+  // Bucket Dijkstra over the corridor graph with integer quarter-tile costs. `seeds` = [[index, cost]];
+  // `extra` = an optional single edge {from, to, cost} that costs more than a plain step (the tile behind a ghost).
+  mazeFlood(seeds, extra) {
+    const n = this.cols * this.rows;
+    const dist = new Int32Array(n).fill(1 << 29);
+    const buckets = [];
+    const push = (i, c) => { if (c < dist[i]) { dist[i] = c; (buckets[c] || (buckets[c] = [])).push(i); } };
+    for (const [i, c] of seeds) if (i >= 0) push(i, c);
+    for (let c = 0; c < buckets.length; c++) {
+      const b = buckets[c];
+      if (!b) continue;
+      for (const i of b) {
+        if (dist[i] !== c) continue;
+        const cc = i % this.cols, rr = (i / this.cols) | 0;
+        for (const d of MENACE_DIRS) {
+          const ni = this.mazeNeighbourIndex(cc, rr, d);
+          if (ni < 0) continue;
+          let cost = c + 4;
+          if (extra && i === extra.from && ni === extra.to) cost += extra.cost;
+          push(ni, cost);
         }
       }
     }
-    return null;
+    return dist;
+  }
+
+  // Earliest ghost arrival at every tile, in Menace-tile units (his own travel time to compare against)
+  menaceThreatField() {
+    const n = this.cols * this.rows, ts = this.tileSize, cols = this.cols;
+    const T = new Float32Array(n).fill(1e9);
+    const mSpeed = Math.max(1, this.menace.speed);
+    const info = [], fields = [];
+    for (const g of this.ghosts) {
+      if (g.isBenched || g.state === 'RETURNING') continue;
+      const possessed = (g.id === this.possessedIndex) && !this.autopilot;
+      const seeds = [];
+      let extra = null;
+      if (g.state === 'HOUSE' || g.state === 'EXITING') {
+        if (g.state === 'HOUSE' && !isFinite(g.houseDelay)) continue;     // parked / benched: not a hunter
+        let wait;
+        if (g.state === 'HOUSE') wait = Math.max(0, g.houseDelay - g.houseTimer) * mSpeed / ts + 2.5;
+        else wait = Math.max(0, g.y - (6 * ts + ts / 2)) / ts + Math.abs(g.x - (9 * ts + ts / 2)) / ts + 1;
+        seeds.push([5 * cols + 9, Math.round(wait * 4)]);                   // he emerges onto (9,5)
+      } else {
+        const ci = g.tileY * cols + g.tileX;
+        seeds.push([ci, 0]);
+        if (g.dir.x || g.dir.y) {
+          const prog = Math.min(1, Math.hypot(g.x - (g.tileX * ts + ts / 2), g.y - (g.tileY * ts + ts / 2)) / ts);
+          const ni = this.mazeNeighbourIndex(g.tileX, g.tileY, g.dir);
+          if (ni >= 0) seeds.push([ni, Math.round((1 - prog) * 4)]);
+          // The tile behind him: an AI ghost never reverses on its own; a possessed one can on a key press
+          const bi = this.mazeNeighbourIndex(g.tileX, g.tileY, { x: -g.dir.x, y: -g.dir.y });
+          if (bi >= 0) extra = { from: ci, to: bi, cost: possessed ? 2 : 8 };
+        }
+      }
+      // Temperament: the possessed ghost is sharper (the player reads him), so she is counted a little closer.
+      // Goldie's shyness is deliberately NOT discounted: her retreat corner is often exactly where he is.
+      const bias = possessed ? -0.5 : 0;
+      const ratio = mSpeed / Math.max(1, g.speed);
+      const dist = this.mazeFlood(seeds, extra);
+      const field = new Float32Array(n).fill(1e9);
+      for (let i = 0; i < n; i++) {
+        if (dist[i] >= (1 << 29)) continue;
+        const t = dist[i] / 4 * ratio + bias;
+        field[i] = t;
+        if (t < T[i]) T[i] = t;
+      }
+      fields.push(field);
+      info.push({ name: g.name, state: g.state, possessed });
+    }
+    return { T, fields, info };
+  }
+
+  // Flood from the committed first tile through tiles he reaches ahead of every ghost by the margin
+  // `fields` are the per-ghost arrival fields. A ghost whose way to the candidate tile runs through his own tile is
+  // a FOLLOWER: it is behind him on this step, and at matching speed a follower never closes unless something ahead
+  // stops him — so followers race with only a catch-radius margin, while anything that can cut across his path or
+  // meet him head-on must lose the race by the full margin.
+  menaceSafeRegion(startIdx, curIdx, fields, savePower) {
+    const cols = this.cols, margin = this.MENACE_MARGIN();
+    const seen = new Uint8Array(this.cols * this.rows);
+    const q = [startIdx], md = new Int32Array(this.cols * this.rows);
+    const R = { area: 0, bestRoom: 0, nearestPellet: -1, pelletsNear: 0, nearestPower: -1, fruitDist: -1, junctions: 0 };
+    const relax = new Float32Array(fields.length);
+    for (let k = 0; k < fields.length; k++) relax[k] = fields[k][startIdx] >= fields[k][curIdx] + 0.9 ? margin - 0.3 : 0;
+    const T = i => { let t = 1e9; for (let k = 0; k < fields.length; k++) { const v = fields[k][i] + relax[k]; if (v < t) t = v; } return t; };
+    // Tiles he reaches while still flashing with re-entry immunity are safe whatever the ghosts do
+    const immuneTiles = this.menaceImmuneTiles();
+    if (T(startIdx) <= 1 + margin && immuneTiles < 1) return R;
+    seen[startIdx] = 1; seen[curIdx] = 1;             // committed: the tile he leaves is not part of this future
+    md[startIdx] = 1;
+    const fruitIdx = this.fruit.active ? this.fruit.tileY * cols + this.fruit.tileX : -1;
+    for (let qi = 0; qi < q.length; qi++) {
+      const i = q[qi], d = md[i];
+      const cc = i % cols, rr = (i / cols) | 0;
+      R.area++;
+      const room = T(i) - d;
+      if (room > R.bestRoom) R.bestRoom = room;
+      const ch = this.grid[rr][cc];
+      if (ch === '.' || (ch === 'o' && !savePower)) {
+        if (R.nearestPellet < 0) R.nearestPellet = d;
+        if (d <= 8) R.pelletsNear++;
+      }
+      if (ch === 'o' && R.nearestPower < 0) R.nearestPower = d;
+      if (i === fruitIdx && R.fruitDist < 0) R.fruitDist = d;
+      if (savePower && ch === 'o') continue;              // saving it: he does not route through a power pellet
+      let exits = 0;
+      for (const dd of MENACE_DIRS) {
+        const ni = this.mazeNeighbourIndex(cc, rr, dd);
+        if (ni < 0) continue;
+        exits++;
+        if (seen[ni]) continue;
+        if (d + 1 + margin >= T(ni) && d + 1 >= immuneTiles) continue;   // a ghost gets there first (or too close to call)
+        seen[ni] = 1; md[ni] = d + 1; q.push(ni);
+      }
+      if (exits >= 3 && d <= 5) R.junctions++;
+    }
+    return R;
+  }
+
+  decideMenaceDirection() {
+    const m = this.menace, cols = this.cols;
+    const curX = m.tileX, curY = m.tileY, curDir = m.dir;
+    const curIdx = curY * cols + curX;
+    const moves = [];
+    for (const d of MENACE_DIRS) {
+      const ni = this.mazeNeighbourIndex(curX, curY, d);
+      if (ni >= 0) moves.push({ d, ni });
+    }
+    if (moves.length === 0) return { x: -curDir.x, y: -curDir.y };
+
+    const { T, fields, info } = this.menaceThreatField();
+    const threatNow = T[curIdx];
+    const pressure = Math.max(0, Math.min(1, (8 - threatNow) / 8));
+    const margin = this.MENACE_MARGIN();
+    const immuneTiles = this.menaceImmuneTiles();
+
+    // Score every candidate step. With `savePower` he keeps the power pellets for when a ghost closes: he will
+    // not step onto one and does not route through one, so a corner that only leads through a power pellet is
+    // left for later. When nothing is pressing him and no plain pellet is reachable, the saving is dropped.
+    const evaluate = (savePower) => {
+      let best = null;
+      const candidates = [];
+      for (const mv of moves) {
+        const Tn = T[mv.ni];
+        let s, R = null, note = '';
+        if (Tn <= 1 + margin * 0.6 && immuneTiles < 1) {
+          s = -1000 + Tn;                                   // a ghost is on that tile before he can clear it
+          note = 'deadly';
+        } else {
+          R = this.menaceSafeRegion(mv.ni, curIdx, fields, savePower);
+          if (R.area === 0) { s = -500 + Tn; note = 'closed'; }
+          else {
+            s = 3.0 * Math.min(R.area, 40) / 40 * (0.6 + pressure);
+            s += 1.5 * Math.min(R.bestRoom, 10) / 10;
+            s += 0.3 * Math.min(R.junctions, 3) * pressure;
+            s += 0.25 * Math.min(Tn, 6);
+            if (R.nearestPellet >= 0) s += 2.2 / (1 + 0.25 * R.nearestPellet) * (1 - 0.5 * pressure);
+            s += 0.03 * Math.min(R.pelletsNear, 20);
+            if (R.nearestPower >= 0) s += (savePower ? 0 : 0.5 + 4.5 * pressure) / (1 + 0.12 * R.nearestPower);
+            if (R.fruitDist >= 0) s += 1.6 / (1 + 0.2 * R.fruitDist) * (1 - pressure);
+            if (savePower && this.grid[(mv.ni / cols) | 0][mv.ni % cols] === 'o') { s -= 3.0; note = 'saving'; }
+          }
+        }
+        const reverse = (mv.d.x === -curDir.x && mv.d.y === -curDir.y) && (curDir.x || curDir.y);
+        const straight = mv.d.x === curDir.x && mv.d.y === curDir.y;
+        if (reverse) s -= 0.25 + 1.2 * (1 - pressure);
+        if (straight) s += 0.12;
+        candidates.push({ dir: mv.d, score: s, arrival: Tn, area: R ? R.area : 0, room: R ? R.bestRoom : 0, pellet: R ? R.nearestPellet : -1, power: R ? R.nearestPower : -1, note });
+        if (!best || s > best.score) best = { dir: mv.d, score: s };
+      }
+      return { best, candidates };
+    };
+
+    let savePower = pressure < 0.3;
+    let result = evaluate(savePower);
+    if (savePower && !result.candidates.some(c => c.pellet >= 0 || (this.fruit.active && c.area > 0))) {
+      savePower = false;
+      result = evaluate(false);
+    }
+    // Telemetry for the test hooks and tuning
+    this.menaceBrain = { tile: { x: curX, y: curY }, threatNow: Math.min(999, threatNow), pressure, savePower, chosen: result.best.dir, candidates: result.candidates, hunters: info };
+    return result.best.dir;
   }
 
   getLegalMoves(tileX, tileY, curDir, isGhost, canPassDoor) {
@@ -10502,17 +10533,38 @@ window.addEventListener('DOMContentLoaded', () => {
     // Soundtrack + villain hooks
     getMusicState: () => game.music.getState(),
     getLastTaunt: () => game.lastTaunt,
-    setGhostPos: (idx, tileX, tileY) => {
+    setGhostPos: (idx, tileX, tileY, dirX, dirY) => {
       const g = game.ghosts[idx];
       if (g) {
         g.tileX = tileX;
         g.tileY = tileY;
         g.x = tileX * 24 + 12;
         g.y = tileY * 24 + 12;
-        g.dir = { x: 0, y: 0 };
-        g.nextDir = { x: 0, y: 0 };
+        const hasDir = typeof dirX === 'number' && typeof dirY === 'number';
+        g.dir = hasDir ? { x: dirX, y: dirY } : { x: 0, y: 0 };
+        g.nextDir = hasDir ? { x: dirX, y: dirY } : { x: 0, y: 0 };
+        if (hasDir && (dirX || dirY)) g.facing = { x: dirX, y: dirY };
         g.state = 'CHASE';
+        g.isBenched = false;
       }
+    },
+    // Round 9 Menace-brain hooks: AI-vs-AI (the possessed ghost hunts on her own AI), parking a ghost in the
+    // house out of play, the brain's last decision, and the power pellets still on the board
+    setAutopilot: (on) => { game.autopilot = !!on; return game.autopilot; },
+    parkGhost: (idx) => {
+      const g = game.ghosts[idx];
+      if (!g) return false;
+      g.tileX = 9; g.tileY = 8; g.x = 9 * 24 + 12; g.y = 8 * 24 + 12;
+      g.dir = { x: 0, y: 0 }; g.nextDir = { x: 0, y: 0 };
+      g.state = 'HOUSE'; g.houseDelay = Infinity; g.houseTimer = 0;
+      return true;
+    },
+    clearMenaceImmunity: () => { game.menace.immuneTimer = 0; game.slowMoTimer = 0; },
+    getMenaceBrain: () => game.menaceBrain,
+    getPowerPellets: () => {
+      const out = [];
+      for (let r = 0; r < game.rows; r++) for (let c = 0; c < game.cols; c++) if (game.grid[r][c] === 'o') out.push({ x: c, y: r });
+      return out;
     },
     triggerFright: (dur) => game.startFlip(), // Legacy name: the power pellet now triggers the flip
     simulateCatch: () => game.handleCatch(),
