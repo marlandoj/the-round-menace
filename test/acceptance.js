@@ -725,14 +725,22 @@ async function runAcceptanceTests() {
     // These read the canvas backing store (getImageData) in-page and judge the picture, not the state.
     // Colours are quantised to 32 levels per channel (5 bits) before counting, so anti-aliasing blends
     // along an edge do not pass for "distinct colours"; dominance is the share of the most common
-    // quantised colour. The Menace's body yellow (#fbc531, dimmed by distance fade at most to ~0.7)
-    // is classified by a tight band so the corridor's dim hazard bands and lane guides do not count.
+    // quantised colour. The Menace's body yellow is classified by a hue band (a yellow in any shading: the
+    // Round 10 Tripo render is a lit 3D body, dark gold in shadow and pale gold in the highlight, dimmed further
+    // by the distance fade to ~0.7) that still excludes the corridor's orange lamps, rust barrels and red lights.
+    // Round 10: the figure test is aimed at the sprite's real features — yellow body mass, white glove / eye
+    // regions and red shoe regions — each as a share of his body circle (π r²), so no corridor-only frame can pass.
     const RENDER_MIN_DISTINCT = 40;
     const RENDER_MAX_DOMINANCE = 0.55;
     const MENACE_MIN_PIXELS = 80;       // a figure must leave a measurable footprint in the central area...
     const MENACE_MAX_CENTRAL_SHARE = 0.45; // ...but never swallow the frame (the Round 4 defect)
+    const FIGURE_BODY_SHARE = 0.2;      // body yellow inside his rect ≥ 20% of π r² (unchanged from Round 5)
+    const FIGURE_WHITE_SHARE = 0.02;    // white gloves / eye whites / teeth ≥ 2% of π r² (the sprite gives 5–13%;
+    const FIGURE_RED_SHARE = 0.03;      //   the corridor's light greys fill under 1% of a rect without him)
+                                        // red shoes ≥ 3% of π r² (the sprite gives 8–15%; corridor reds ~0.1%)
 
-    // region / central / rect are in CSS px of the game canvas; null region = the whole canvas
+    // region / central / rect are in CSS px of the game canvas; null region = the whole canvas. The rect is the
+    // figure's body circle (centre x,y radius r) extended down over his legs and shoes (to y + 1.95 r).
     const analysePlayfield = ({ region, central, rect }) => {
       const canvas = document.getElementById('gameCanvas');
       const dpr = window.__game.dpr || 1;
@@ -740,14 +748,15 @@ async function runAcceptanceTests() {
       const CW = canvas.width;
       const reg = region ? { x: region.x * dpr, y: region.y * dpr, w: region.w * dpr, h: region.h * dpr } : { x: 0, y: 0, w: canvas.width, h: canvas.height };
       const cen = central ? { x: central.x * dpr, y: central.y * dpr, w: central.w * dpr, h: central.h * dpr } : null;
-      const rc = rect ? { x: (rect.x - rect.r) * dpr, y: (rect.y - rect.r) * dpr, w: rect.r * 2 * dpr, h: rect.r * 2.4 * dpr } : null;
+      const rc = rect ? { x: (rect.x - rect.r) * dpr, y: (rect.y - rect.r) * dpr, w: rect.r * 2 * dpr, h: rect.r * 2.95 * dpr } : null;
       const inside = (b, x, y) => b && x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h;
-      const isMenaceYellow = (r, g, b) => r >= 170 && g >= 130 && b <= 95 && r > g + 15 && g > b + 45;
-      const isEyeWhite = (r, g, b) => r >= 160 && g >= 160 && b >= 160 && Math.max(r, g, b) - Math.min(r, g, b) <= 35; // neutral light, allowing the distance fade
+      const isMenaceYellow = (r, g, b) => r >= 110 && g >= 70 && b <= 100 && r > g + 20 && g > b + 35 && g >= r * 0.62 && b < g * 0.55;
+      const isEyeWhite = (r, g, b) => r >= 120 && g >= 120 && b >= 120 && Math.max(r, g, b) - Math.min(r, g, b) <= 40; // neutral light (gloves, eye whites, teeth), allowing the distance fade
+      const isShoeRed = (r, g, b) => r >= 100 && g <= 60 && b <= 60 && r > g * 2.5 && r > b * 2.5;
       const isGrinDark = (r, g, b) => r <= 90 && g <= 40 && b <= 40 && r >= g;
       const counts = new Map();
       let total = 0, centralTotal = 0, centralYellow = 0;
-      const rectStats = { total: 0, yellow: 0, white: 0, dark: 0 };
+      const rectStats = { total: 0, yellow: 0, white: 0, red: 0, dark: 0 };
       for (let y = Math.floor(reg.y); y < reg.y + reg.h; y++) {
         for (let x = Math.floor(reg.x); x < reg.x + reg.w; x++) {
           const i = (y * CW + x) * 4;
@@ -761,6 +770,7 @@ async function runAcceptanceTests() {
             rectStats.total++;
             if (yellow) rectStats.yellow++;
             else if (isEyeWhite(r, g, b)) rectStats.white++;
+            else if (isShoeRed(r, g, b)) rectStats.red++;
             else if (isGrinDark(r, g, b)) rectStats.dark++;
           }
         }
@@ -809,7 +819,18 @@ async function runAcceptanceTests() {
     const gStats = await page.evaluate(analysePlayfield, { region: gloomPlayfield, central: gloomCentral, rect: menaceRect });
     console.log(`  · frame at ${rRun.elapsed.toFixed(2)}s of live play (Menace ${(rRun.extra.menaceDist || 0).toFixed(1)} units down the corridor), playfield ${gloomPlayfield.w}×${gloomPlayfield.h}: ${describeFrame(gStats)}`);
     console.log(`  · central corridor area: Menace body-yellow pixels ${gStats.centralYellow} of ${gStats.centralTotal} (${(gStats.centralYellowShare * 100).toFixed(2)}%)`);
-    console.log(`  · Menace figure rect: ${menaceRect ? `centre (${menaceRect.x.toFixed(0)}, ${menaceRect.y.toFixed(0)}) r=${menaceRect.r.toFixed(1)}px → body ${gStats.rect.yellow}, eye-white ${gStats.rect.white}, grin-dark ${gStats.rect.dark} px of ${gStats.rect.total}` : 'NOT REPORTED by the renderer'}`);
+    const figureLine = (rect, st) => rect ? `centre (${rect.x.toFixed(0)}, ${rect.y.toFixed(0)}) r=${rect.r.toFixed(1)}px${rect.sprite ? ` sprite frame ${rect.frame}, shoes at y=${rect.feetY.toFixed(0)}` : ' (code-drawn fallback)'} → body-yellow ${st.rect.yellow}, glove/eye-white ${st.rect.white}, shoe-red ${st.rect.red}, dark ${st.rect.dark} px of ${st.rect.total} (π r² = ${(Math.PI * rect.r * rect.r * dims.dpr * dims.dpr).toFixed(0)})` : 'NOT REPORTED by the renderer';
+    console.log(`  · Menace figure rect: ${figureLine(menaceRect, gStats)}`);
+
+    // Round 10: the figure must be the Tripo sprite (the renderer reports which path drew him), and his rect must
+    // hold body yellow, glove / eye white and shoe red each as a share of his body circle
+    const assertFigure = (rect, st, label) => {
+      const area = Math.PI * rect.r * rect.r * dims.dpr * dims.dpr;
+      if (!rect.sprite) throw new Error(`${label}: the Menace was drawn by the code fallback, not the Tripo sprite (frames decoded: ${rRun.extra.menaceSpriteFrames} of 3)`);
+      if (st.rect.yellow < area * FIGURE_BODY_SHARE) throw new Error(`${label}: Menace rect holds too little body yellow (${st.rect.yellow}px, need ≥ ${(area * FIGURE_BODY_SHARE).toFixed(0)} for r=${rect.r.toFixed(0)})`);
+      if (st.rect.white < area * FIGURE_WHITE_SHARE) throw new Error(`${label}: no white gloves / eyes in the Menace rect (${st.rect.white}px, need ≥ ${(area * FIGURE_WHITE_SHARE).toFixed(0)})`);
+      if (st.rect.red < area * FIGURE_RED_SHARE) throw new Error(`${label}: no red shoes in the Menace rect (${st.rect.red}px, need ≥ ${(area * FIGURE_RED_SHARE).toFixed(0)})`);
+    };
 
     if (gStats.distinct < RENDER_MIN_DISTINCT) throw new Error(`GLOOM frame is a void: only ${gStats.distinct} distinct colours (need ≥ ${RENDER_MIN_DISTINCT})`);
     if (gStats.dominantShare > RENDER_MAX_DOMINANCE) throw new Error(`GLOOM frame is a flat field: ${gStats.dominantColour} covers ${(gStats.dominantShare * 100).toFixed(1)}% of the playfield (limit ${RENDER_MAX_DOMINANCE * 100}%)`);
@@ -820,8 +841,7 @@ async function runAcceptanceTests() {
       && menaceRect.y - menaceRect.r >= gloomCentral.y && menaceRect.y + menaceRect.r <= gloomCentral.y + gloomCentral.h;
     if (!inCentral) throw new Error(`Menace figure (centre ${menaceRect.x.toFixed(0)},${menaceRect.y.toFixed(0)} r=${menaceRect.r.toFixed(0)}) is not inside the central corridor area`);
     if (menaceRect.r > dims.w * 0.3) throw new Error(`Menace figure radius ${menaceRect.r.toFixed(0)}px exceeds the central-portion clamp`);
-    if (gStats.rect.yellow < Math.PI * menaceRect.r * menaceRect.r * dims.dpr * dims.dpr * 0.2) throw new Error(`Menace rect holds too little body yellow (${gStats.rect.yellow}px for r=${menaceRect.r.toFixed(0)})`);
-    if (gStats.rect.white < 2 || gStats.rect.dark < 2) throw new Error(`Menace is a plain disc, not a figure: eye-white ${gStats.rect.white}px, grin-dark ${gStats.rect.dark}px inside his rect`);
+    assertFigure(menaceRect, gStats, 'First frame');
 
     // Second sample ~5s later: he must have closed in and grown smoothly (still a figure, still clamped),
     // and this deeper mid-corridor frame is the one kept as screenshots/gloom.png
@@ -835,17 +855,20 @@ async function runAcceptanceTests() {
     const lStats = await page.evaluate(analysePlayfield, { region: gloomPlayfield, central: gloomCentral, rect: lateRect });
     await page.screenshot({ path: path.join(screenshotDir, 'gloom.png') });
     console.log(`  📸 Captured screenshot: screenshots/gloom.png (live play, ${rLate.elapsed.toFixed(2)}s into the corridor, Menace at ${(rLate.extra.menaceDist || 0).toFixed(1)} units)`);
-    console.log(`  · frame at ${rLate.elapsed.toFixed(2)}s: ${describeFrame(lStats)}; Menace figure r=${lateRect ? lateRect.r.toFixed(1) : '?'}px → body ${lStats.rect.yellow}, eye-white ${lStats.rect.white}, grin-dark ${lStats.rect.dark} px`);
+    console.log(`  · frame at ${rLate.elapsed.toFixed(2)}s: ${describeFrame(lStats)}; Menace figure rect: ${figureLine(lateRect, lStats)}`);
     if (lStats.distinct < RENDER_MIN_DISTINCT || lStats.dominantShare > RENDER_MAX_DOMINANCE) throw new Error(`Second GLOOM frame fails render sanity: ${describeFrame(lStats)}`);
     if (!lateRect || lateRect.r <= menaceRect.r) throw new Error(`Menace did not grow as he closed in (r ${menaceRect.r.toFixed(1)} → ${lateRect ? lateRect.r.toFixed(1) : '?'}px)`);
     if (lateRect.r > dims.w * 0.3 || lStats.centralYellowShare > MENACE_MAX_CENTRAL_SHARE) throw new Error(`Menace exceeds the central-portion clamp in the second frame (r=${lateRect.r.toFixed(0)}px, ${(lStats.centralYellowShare * 100).toFixed(1)}% of the central area)`);
-    if (lStats.rect.white < 2 || lStats.rect.dark < 2) throw new Error(`Menace is a plain disc in the second frame: eye-white ${lStats.rect.white}px, grin-dark ${lStats.rect.dark}px`);
+    assertFigure(lateRect, lStats, 'Second frame');
+    // His shoes stand on the corridor floor: the shoe line sits below the horizon (the floor at his depth) and
+    // moves down the screen as he closes, by at least the projection's own floor drop between the two depths
+    if (!(lateRect.feetY > menaceRect.feetY + 10) || lateRect.feetY <= gloomPlayfield.h / 2) throw new Error(`Menace is not standing on the floor: shoe line y=${menaceRect.feetY.toFixed(0)} → ${lateRect.feetY.toFixed(0)} (horizon ≈ ${gloomPlayfield.h / 2})`);
 
     await page.evaluate(() => window.__RM_GAME__.forceFlipSurvive());
     await page.waitForTimeout(250);
     if ((await page.evaluate(() => window.__RM_GAME__.getState())) !== 'playing') throw new Error('Did not return to playing after the render check');
 
-    console.log(`  ✓ PASS: GLOOM corridor frames render (${gStats.distinct} / ${lStats.distinct} colours, max ${(Math.max(gStats.dominantShare, lStats.dominantShare) * 100).toFixed(1)}% dominance) with the Menace as a figure in the central corridor (eyes + grin present), growing r=${menaceRect.r.toFixed(0)} → ${lateRect.r.toFixed(0)}px as he closes.`);
+    console.log(`  ✓ PASS: GLOOM corridor frames render (${gStats.distinct} / ${lStats.distinct} colours, max ${(Math.max(gStats.dominantShare, lStats.dominantShare) * 100).toFixed(1)}% dominance) with the Tripo sprite Menace as a figure in the central corridor (body yellow, white gloves / eyes and red shoes all present), standing on the floor and growing r=${menaceRect.r.toFixed(0)} → ${lateRect.r.toFixed(0)}px as he closes.`);
     passedCount++;
 
     // Check 21: Render sanity for the other three flips — a mid-play frame of each is a real picture

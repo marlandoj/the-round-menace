@@ -7296,6 +7296,78 @@ GLOOM_BLASTER.img.onload = () => { GLOOM_BLASTER.ready = GLOOM_BLASTER.img.natur
 GLOOM_BLASTER.img.onerror = () => { GLOOM_BLASTER.ready = false; };
 GLOOM_BLASTER.img.src = 'art/gloom-blaster.png';
 
+// Round 10: the GLOOM Menace is the operator-provided Tripo character (art/gloom-menace-1..3.png: a transparent
+// render of the original 3D Round Menace; frame 2 is the full-front hero, frames 1 and 3 slight yaws either side).
+// The three frames cycle as a stride (1-2-3-2) on the existing billboard. Each frame is calibrated once on decode:
+// the body circle (centre and radius, from the yellow body's extent) and the shoe line (the bottom of the alpha), so
+// the renderer can scale him by body radius and stand him on the floor by his shoes. The hit flash is a pre-tinted
+// copy (white composited inside the alpha), and the distance dim is a composite pass over a scratch copy; the
+// sprite is never redrawn in code. `ready` flips only when all three frames decoded; if any fails to load the
+// Round 9 code-drawn character (drawMenaceFigure) draws instead.
+const GLOOM_MENACE = { frames: [], ready: false, loaded: 0, failed: false, scratch: null, cycle: [0, 1, 2, 1] };
+GLOOM_MENACE.calibrate = (img) => {
+  const w = img.naturalWidth, h = img.naturalHeight;
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const g = c.getContext('2d');
+  g.drawImage(img, 0, 0);
+  const meta = { cx: w / 2, cy: w * 0.35, r: w * 0.35, bottom: h, w, h };
+  try {
+    const d = g.getImageData(0, 0, w, h).data;
+    let x0 = w, x1 = -1, top = h, bottom = -1;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = (y * w + x) * 4;
+        if (d[i + 3] < 128) continue;
+        if (y > bottom) bottom = y;
+        const r = d[i], gg = d[i + 1], b = d[i + 2];
+        // The render's body yellow: a yellow hue in any shading (dark gold in shadow, pale gold in the highlight)
+        if (r >= 110 && gg >= 70 && b <= 100 && r > gg + 20 && gg > b + 35 && gg >= r * 0.62 && b < gg * 0.55) {
+          if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < top) top = y;
+        }
+      }
+    }
+    if (x1 > x0 + 10 && bottom > 0) {
+      meta.r = (x1 - x0) / 2; meta.cx = (x0 + x1) / 2; meta.cy = top + meta.r; meta.bottom = bottom + 1;
+    }
+  } catch (e) { /* a tainted canvas (file:// without the flag): keep the proportional defaults */ }
+  // Hit-flash copy: the frame washed white inside its own alpha (composite, not a redraw)
+  const flash = document.createElement('canvas');
+  flash.width = w; flash.height = h;
+  const fg = flash.getContext('2d');
+  fg.drawImage(img, 0, 0);
+  fg.globalCompositeOperation = 'source-atop';
+  fg.fillStyle = 'rgba(255, 255, 255, 0.55)';
+  fg.fillRect(0, 0, w, h);
+  // Mip levels (1/2 and 1/4) so the far-corridor downscale stays clean
+  const mip = (src) => {
+    const out = [src];
+    let cw = w, ch = h, from = src;
+    for (let k = 0; k < 2; k++) {
+      cw = Math.round(cw / 2); ch = Math.round(ch / 2);
+      const m = document.createElement('canvas');
+      m.width = cw; m.height = ch;
+      const mg = m.getContext('2d');
+      mg.imageSmoothingEnabled = true; mg.imageSmoothingQuality = 'high';
+      mg.drawImage(from, 0, 0, cw, ch);
+      out.push(m); from = m;
+    }
+    return out;
+  };
+  return { img, meta, mips: mip(img), flashMips: mip(flash) };
+};
+[1, 2, 3].forEach((n, i) => {
+  const img = new Image();
+  img.onload = () => {
+    if (!(img.naturalWidth > 0)) { GLOOM_MENACE.failed = true; return; }
+    GLOOM_MENACE.frames[i] = GLOOM_MENACE.calibrate(img);
+    GLOOM_MENACE.loaded++;
+    GLOOM_MENACE.ready = !GLOOM_MENACE.failed && GLOOM_MENACE.loaded === 3;
+  };
+  img.onerror = () => { GLOOM_MENACE.failed = true; GLOOM_MENACE.ready = false; };
+  img.src = `art/gloom-menace-${n}.png`;
+});
+
 class GloomRun {
   constructor(game, ghostIndex) {
     this.game = game;
@@ -7340,7 +7412,7 @@ class GloomRun {
     this.player = { x: start.x + 0.5, y: start.y + 0.5, a: -Math.PI / 2, vx: 0, vy: 0, bob: 0, moving: 0, hurt: 0 };
     this.menace = {
       x: mstart.x + 0.5, y: mstart.y + 0.5, speed: 1.05 * cfg.menaceSpeedMultiplier, gain: 0.02,
-      path: [], repath: 0, stun: 0, hitFlash: 0, stride: 0, frozen: false, knock: null
+      path: [], repath: 0, stun: 0, hitFlash: 0, stride: 0, frozen: false, knock: null, walking: false
     };
     this.startGap = Math.hypot(this.menace.x - this.player.x, this.menace.y - this.player.y);
     this.menaceDist = this.startGap;
@@ -7583,7 +7655,8 @@ class GloomRun {
     const p = this.player, m = this.menace;
     return {
       menaceDist: this.menaceDist,
-      menaceScreen: this.menaceScreen ? { x: this.menaceScreen.x, y: this.menaceScreen.y, r: this.menaceScreen.r } : null,
+      menaceScreen: this.menaceScreen ? { x: this.menaceScreen.x, y: this.menaceScreen.y, r: this.menaceScreen.r, sprite: !!this.menaceScreen.sprite, frame: this.menaceScreen.sprite ? this.menaceScreen.frame + 1 : 0, feetY: this.menaceScreen.sprite ? this.menaceScreen.feetY : null } : null,
+      menaceSprite: GLOOM_MENACE.ready, menaceSpriteFrames: GLOOM_MENACE.loaded,
       nerve: this.nerve, ammo: this.pellets, hits: this.hitsLanded, turned: this.turned,
       px: p.x, py: p.y, angle: p.a, mx: m.x, my: m.y, menaceStun: m.stun,
       doors: this.doors.map(d => ({ x: d.x, y: d.y, open: d.open, opened: d.opened })),
@@ -7658,8 +7731,29 @@ class GloomRun {
     const scale = this.planeDist / depth;                       // render px per world unit at his depth
     const sx = (this.RW / 2 + lateral * scale) * 2;
     const r = Math.min(this.W * 0.28, Math.max(3, 0.42 * scale * 2));
-    const sy = (this.RH / 2 + this.bobOffset()) * 2 + r * 0.05;
-    return { x: sx, y: sy, r, depth, scale };
+    const horizon = (this.RH / 2 + this.bobOffset()) * 2;
+    const sy = horizon + r * 0.05;
+    const base = { x: sx, y: sy, r, depth, scale, sprite: false };
+    if (!GLOOM_MENACE.ready) return base;                      // Round 9 code-drawn figure: centred on the horizon
+    // Round 10 sprite: anchored by his shoes on the corridor floor at his depth (eye height is 0.5 of a wall), so
+    // the body centre sits (shoe line - body centre) × scale above it. Past the Round 5 clamp the floor line keeps
+    // dropping while he stops growing, so his shoes are held just under the bottom edge rather than leaving the
+    // frame. The stride hop lifts the whole figure a little on each step (the shadow stays on the floor).
+    const frame = GLOOM_MENACE.frames[this.menaceFrame()];
+    const k = r / frame.meta.r;
+    const floorY = horizon + scale;
+    const hop = m.walking ? Math.abs(Math.sin(m.stride)) * 0.06 * r : 0;
+    const feetY = Math.min(floorY, this.viewH + r * 0.35) - hop;
+    const cy = feetY - (frame.meta.bottom - frame.meta.cy) * k;
+    return { x: sx, y: cy, r, depth, scale, sprite: true, frame: this.menaceFrame(), k, floorY, feetY, hop };
+  }
+
+  // Which sprite frame the stride is on: 1-2-3-2 as he walks (a quarter turn of stride phase per frame, and stride
+  // advances with distance covered, so the cycle rate follows his speed); the full-front hero frame when he stands
+  menaceFrame() {
+    const m = this.menace;
+    if (!m.walking) return 1;
+    return GLOOM_MENACE.cycle[Math.floor(m.stride / (Math.PI / 2)) & 3];
   }
 
   bobOffset() {
@@ -7774,6 +7868,7 @@ class GloomRun {
 
   updateMenace(dt) {
     const m = this.menace, p = this.player;
+    m.walking = false;                       // set below only when he actually covers ground this tick
     if (m.frozen) { this.menaceDist = Math.hypot(m.x - p.x, m.y - p.y); return; }
     m.speed += m.gain * dt;
     if (m.stun > 0) m.stun -= dt;
@@ -7800,7 +7895,7 @@ class GloomRun {
       const step = Math.min(dist, m.speed * dt);
       if (dist > 1e-4) {
         const nx = m.x + dx / dist * step, ny = m.y + dy / dist * step;
-        if (!this.blocked(nx, ny)) { m.x = nx; m.y = ny; m.stride += step * 7; }   // doors hold him until they slide
+        if (!this.blocked(nx, ny)) { m.x = nx; m.y = ny; m.stride += step * 7; m.walking = step > 0; }   // doors hold him until they slide
       }
       if (dist < 0.1 && m.path.length) m.path.shift();
     }
@@ -8326,6 +8421,54 @@ class GloomRun {
         const ms = this.menaceScreen;
         if (!ms) continue;
         const l = Math.min(1, this.light(ms.depth, mf) + 0.25);
+        if (ms.sprite) {
+          // Round 10: the Tripo sprite frame. One composite pass into a scratch canvas at the drawn size (the
+          // pre-tinted flash copy while a hit lands, then the distance dim inside his alpha), blitted per
+          // visible column run. Floor shadow under his shoes first.
+          const frame = GLOOM_MENACE.frames[ms.frame];
+          const meta = frame.meta, k = ms.k;
+          const dw = meta.w * k, dh = meta.h * k;
+          const left = ms.x - meta.cx * k, top = ms.feetY - meta.bottom * k;
+          const dpr = this.game.dpr || 1;
+          const hit = m.hitFlash > 0;
+          const mips = hit ? frame.flashMips : frame.mips;
+          let src = mips[0];
+          for (const mm of mips) if (mm.height >= dh * dpr) src = mm;  // the smallest level still at or above the drawn size
+          const sc = GLOOM_MENACE.scratch || (GLOOM_MENACE.scratch = document.createElement('canvas'));
+          const sw = Math.max(1, Math.ceil(dw * dpr)), sh = Math.max(1, Math.ceil(dh * dpr));
+          if (sc.width !== sw || sc.height !== sh) { sc.width = sw; sc.height = sh; }
+          const g = sc.getContext('2d');
+          g.clearRect(0, 0, sw, sh);
+          g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+          g.drawImage(src, 0, 0, sw, sh);
+          if (l < 1) {
+            g.globalCompositeOperation = 'source-atop';
+            g.fillStyle = '#0a0907';
+            g.globalAlpha = (1 - l) * 0.55;
+            g.fillRect(0, 0, sw, sh);
+            g.globalAlpha = 1;
+            g.globalCompositeOperation = 'source-over';
+          }
+          const halfW = Math.max(meta.cx, meta.w - meta.cx) * k;
+          menaceDrawn = this.drawOccluded(ctx, ms.x, halfW, ms.depth, () => {
+            ctx.save();
+            ctx.globalAlpha = 0.35 * (1 - ms.hop / ms.r);
+            ctx.fillStyle = '#000';
+            ctx.beginPath(); ctx.ellipse(ms.x, Math.min(ms.floorY, this.viewH + ms.r * 0.35), ms.r * (1 - ms.hop / ms.r * 0.5), ms.r * 0.2, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.restore();
+            ctx.save();
+            ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+            ctx.drawImage(sc, 0, 0, sw, sh, left, top, dw, dh);
+            if (hit) {
+              // The bright rim of the Round 9 hit flash, over the sprite around his body
+              ctx.strokeStyle = '#fde047';
+              ctx.lineWidth = ms.r * 0.12;
+              ctx.beginPath(); ctx.arc(ms.x, ms.y, ms.r * 1.04, 0, Math.PI * 2); ctx.stroke();
+            }
+            ctx.restore();
+          });
+          continue;
+        }
         menaceDrawn = this.drawOccluded(ctx, ms.x, ms.r * 1.8, ms.depth, () => {
           // Floor shadow under his shoes, then the character in unit space scaled to his body radius
           ctx.save();
