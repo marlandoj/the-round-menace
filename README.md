@@ -123,6 +123,32 @@ Rebuilt as a real two-kart race seen from a chase camera that sits behind the gh
 ### Battery
 `test/acceptance.js` changed in screenshot timing only: the Grand Prix capture (check 18) now steers for 0.3 s and waits 1.5 s so the frame is a mid-race moment with both karts whole in shot. The `npm test` command is byte-identical. The Grand Prix module reports both kart rects and `bothInFrame` through `getFlip().extra`; Block Kingdom reports the ghost/Menace positions and `bothInFrame` too.
 
+## Round 8 — Engine-first rebuilds of all four flips (clean-room)
+
+Marlando's own playtest of Round 7: "every flip game seems off… reverse engineer the original games and then re-brand them using the Round Menace characters." Round 8 rebuilds the inside of every flip as a working re-implementation of its original's **engine** — physics, camera, controls, level grammar, HUD grammar — written from scratch in original code, then skinned with the Round 7 art and the Round Menace cast. Behaviour was studied, assets never: no copied code, sprites, tiles, textures, music, names, logos or level layouts; every level is an original layout on the engine's grammar. The flip contract is unchanged (corner pellet entry, frozen maze time, +200 unbenched on survival, "ONE DOWN." on a catch, the same music states) and `npm test` is byte-identical.
+
+### Block Kingdom — tile platformer engine
+- **Level and physics.** An original ~2,400 px tile layout on a 24 px grid (solid, empty, star `?` blocks, breakable `B` bricks, pipes, pits, a sloped section). Run with acceleration and skid, a variable-height jump (release cuts it short), gravity with a short coyote window and jump buffering; the body moves axis-separated against the grid, so landings, head bumps and wall hits are real collisions.
+- **Blocks and minions.** Bumping a block from below plays the bump animation; a star block releases its pickup, a strong hit shatters a brick. Sprout minions patrol ledges and can be **stomped** (a bounce and a flattened disc) — a side-on touch costs the run's one safety pip, a second costs the run.
+- **The Menace and the goal.** He runs the same level on the same platformer physics (runs, jumps gaps, hops ledges) and his contact is the catch; the banner pole at the end is the goal with a flag-slide flourish. Smooth side-scroll camera with lookahead toward movement; Round 7 parallax kept.
+
+### Green Valley — momentum runner engine
+- **Momentum physics.** The ground is a cosine-interpolated heightfield with real grades: uphill bleeds speed, downhill builds it, inertia carries into the air; speed builds over distance toward a top speed. Two half-pipe dips and one full **loop** traversed on angular momentum — too slow and she falls out of it. Springs launch, spikes catch.
+- **Rings as health.** Rings along the route; the Menace rolls in ball form on the same momentum rules, and his contact **scatters** her rings in an arc (re-collectable for a moment); a touch with none left is the catch. Camera leads in proportion to speed; the Maze Gate is the finish. HUD: rings, time, surge chain.
+
+### GLOOM — raycast maze-shooter engine
+- **A true raycaster.** Per-column DDA over an original 14×14 grid maze; procedural 64×64 wall textures (four tech-base panel variants in the Round 7 gritty family, a chevron door), per-pixel floor and ceiling casting, distance lighting and a muzzle light that lights the corridor on a shot. Rendered at half resolution into a buffer and scaled up for the chunky look.
+- **Movement and doors.** Free movement — forward / back (Up/Down, W/S), turn (Left/Right), strafe (A/D, swipe), with circle-vs-grid sliding collision and head bob; sliding doors open as she approaches and close behind. A pellet-blaster viewmodel with bob and recoil; limited pellets as ammo (pickups in the maze).
+- **The Menace.** A sprite enemy pathing toward her by breadth-first search, occluded per column by the depth buffer, scaled with the Round 5 clamp as he closes, driven back by hits. The exit teleporter across the maze is survival; his touch is the catch. Status-bar grammar kept: NERVE, ghost portrait, PELLETS.
+
+### Phantom Grand Prix — pseudo-3D kart engine
+- **Mode-7 ground.** A top-down track map (closed Catmull-Rom circuit with real corners — original shape — kerbs, boost pads, grid, start line, verge, infield pond) is rasterised once and re-sampled per screen pixel under perspective from a chase camera whose yaw eases toward the kart's travel direction; sprites (karts, item cubes, coins, bombs, trees, signs, stands, flags, the arch) project through the same camera and sort by depth.
+- **Kart handling.** Throttle, braking, grip steering that scales with speed, and **hop-to-drift**: hop with the wheel turned, hold the slide (the wheel tightens or loosens it), charge through two spark stages, release to fire a boost. Off the asphalt the kart slows unless it is boosting; a fence holds it on the circuit.
+- **Items and the field.** Item cubes grant a speed surge, a pellet bomb to drop behind, or a shield (Down/S or d-pad down uses the held item, otherwise brakes); pellet coins on the racing line add score and a little top speed, five in a row give a rush. Four karts — the ghost, the Menace and two squad ghosts in original kart dress — with spline-following AI, corner braking, drifting and rubber-banding; live 1st–4th positions; one lap. Finishing ahead of the Menace is survival, him taking the flag first is the catch; his rams and bombs spin her out. HUD grammar kept: position plate, speed, lap/time, PELLETS and RAMS counters, item slot, a track map and the rear-view mirror.
+
+### Battery
+All 21 existing checks pass; `npm test` is byte-identical. `test/acceptance.js` gains four engine checks that prove behaviour: (22) a stomp flattens a minion and a bumped block releases its pickup; (23) a Menace hit scatters rings and a downhill measurably builds speed over the flat; (24) turning in place changes the rendered view and a door opens on approach; (25) a held drift releases a measurable speed boost.
+
 ## Round 7 — Visual richness pass on all four flips
 
 The Round 3 panel passed every flip at a median 19/25 with the same ceiling on each: AAA feel 3, with all twelve judges naming flat vector shading, sparse worlds and narrow palettes. Round 7 is a rendering/art pass only — gameplay, routing, music and the maze are untouched, `test/acceptance.js` is untouched, and the art stays original (genre grammar and palette family move toward each reference; no traced shapes, sprites, layouts, logos or names). Everything is still procedural canvas inside the one `index.html`.
@@ -201,7 +227,7 @@ Music starts only after the first user gesture, ducks under the catch and flip s
 
 ## Running Automated Acceptance Checks
 
-The project includes headless Playwright test coverage: the 10 Round 1 checks, the 3 Round 2 checks, the 2 Round 3 checks, the 4 Round 4 checks, and the 2 Round 5 pixel-level render checks (21 total checks).
+The project includes headless Playwright test coverage: the 10 Round 1 checks, the 3 Round 2 checks, the 2 Round 3 checks, the 4 Round 4 checks, the 2 Round 5 pixel-level render checks, and the 4 Round 8 engine checks (25 total checks).
 
 ```bash
 npm test
@@ -229,6 +255,10 @@ The test suite automatically validates:
 19. Phantom Grand Prix caught path: forced catch in fresh Grand Prix flip benches that ghost and returns to playing; zero console errors across all 19 state checks.
 20. GLOOM render sanity (the battery gets eyes): enters GLOOM through the bottom-left pellet, strafes and fires, and at ~4s of live corridor play reads the canvas pixels of the playfield (the view above GLOOM's status bar) in-page: at least 40 distinct colours (quantised to 32 levels per channel), no single colour over 55% of the region, the Menace's body yellow measurably present in the central corridor area (≥ 80 px) but never over 45% of it, the renderer's reported Menace rect inside the central area with body yellow, eye white and grin dark all present inside it (a figure, not a disc). A second sample ~5s later must pass the same thresholds with a strictly larger figure, and that frame is kept as `screenshots/gloom.png`. On the Round 4 build this check fails: the Menace was a frame-filling disc (yellow far over 45% of the central area) and the renderer reported no figure.
 21. Render sanity for the other three flips: the same distinct-colour and dominance thresholds applied to a ~4s mid-play frame of Green Valley, Block Kingdom and Phantom Grand Prix; zero console errors across all 21 checks.
+22. Block Kingdom engine: the ghost dropped onto a patrolling minion registers a stomp that flattens it without costing her safety; standing under a star block and jumping bumps it, releases its pickup and leaves the block spent.
+23. Green Valley engine: the Menace rolled into her from behind scatters her rings (she holds fewer than she was handed, loose rings in play); from the same start speed, 0.7s on the flat vs 0.7s down the long hill shows the downhill measurably faster.
+24. GLOOM engine: holding the turn key with the Menace frozen turns the view (radians turned reported) and changes the centre of the rendered frame; walking up to the first door on its open axis slides it open.
+25. Phantom Grand Prix engine: a hop with the wheel turned starts a drift, holding it charges a stage, and releasing it fires a boost that lifts the speed measurably above both the held speed and the plain top speed; zero console errors across all 25 checks.
 
 Screenshots of title, gameplay, the flip transition, Green Valley, Block Kingdom (banner and mid-level), GLOOM mid-corridor, Phantom Grand Prix mid-race, maze clear, and game over screens are saved into `screenshots/`. Since Round 6 the three fixed flips' frames (`valley.png`, `kingdom.png`, `grandprix.png`) are peak-action captures with both the ghost and the Menace in shot.
 

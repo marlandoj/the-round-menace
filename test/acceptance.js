@@ -33,7 +33,7 @@ async function runAcceptanceTests() {
 
   const indexPath = `file://${path.resolve(__dirname, '../index.html')}`;
   let passedCount = 0;
-  let totalCount = 21;
+  let totalCount = 25;
 
   // Screenshot directory
   const screenshotDir = path.resolve(__dirname, '../screenshots');
@@ -43,7 +43,7 @@ async function runAcceptanceTests() {
 
   try {
     // Check 1: Page loads with zero console errors
-    console.log('[Check 1/21] Loading game page...');
+    console.log('[Check 1/25] Loading game page...');
     await page.goto(indexPath, { waitUntil: 'load' });
     await page.waitForTimeout(500);
 
@@ -59,7 +59,7 @@ async function runAcceptanceTests() {
     console.log('  📸 Captured screenshot: screenshots/title.png');
 
     // Check 2: Game starts from PLAY
-    console.log('\n[Check 2/21] Starting game from PLAY button...');
+    console.log('\n[Check 2/25] Starting game from PLAY button...');
     await page.click('#btn-play');
     await page.waitForTimeout(400);
 
@@ -76,7 +76,7 @@ async function runAcceptanceTests() {
     console.log('  📸 Captured screenshot: screenshots/gameplay.png');
 
     // Check 3: Menace eats pellets autonomously
-    console.log('\n[Check 3/21] Testing autonomous Menace pellet eating...');
+    console.log('\n[Check 3/25] Testing autonomous Menace pellet eating...');
     const initialPellets = await page.evaluate(() => window.__RM_GAME__.getPellets().remaining);
     // Let Menace move and eat for 2 seconds
     await page.waitForTimeout(2000);
@@ -89,7 +89,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 4: Possession switching works for all four ghosts (1-4 and squad bar clicks)
-    console.log('\n[Check 4/21] Testing possession switching across all 4 squad ghosts...');
+    console.log('\n[Check 4/25] Testing possession switching across all 4 squad ghosts...');
     const ghostNames = ['Ember', 'Rosé', 'Tide', 'Goldie'];
     for (let i = 0; i < 4; i++) {
       // Test key press
@@ -110,7 +110,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 5: Touch input moves the possessed ghost
-    console.log('\n[Check 5/21] Testing touch input steering...');
+    console.log('\n[Check 5/25] Testing touch input steering...');
     // Ensure ghost 0 is possessed and positioned at open corridor (5, 5)
     await page.evaluate(() => {
       window.__RM_GAME__.possess(0);
@@ -130,7 +130,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 6: A catch registers when a ghost is steered onto Menace
-    console.log('\n[Check 6/21] Testing ghost catch detection...');
+    console.log('\n[Check 6/25] Testing ghost catch detection...');
     // The hunting squad may have caught him by chance during checks 3–5; a catch (or a flip
     // return) grants him 1s of flashing immunity during which collisions are ignored. Wait it
     // out so the staged catch below is judged on its own merits.
@@ -167,7 +167,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 7: Fright mode flips on power pellet and ghost can be eaten & benched
-    console.log('\n[Check 7/21] Testing Fright Mode & ghost benching...');
+    console.log('\n[Check 7/25] Testing Fright Mode & ghost benching...');
     await page.evaluate(() => window.__RM_GAME__.triggerFright(5.0));
     await page.waitForTimeout(200);
 
@@ -194,7 +194,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 8: Win / Maze Clear screen reachable
-    console.log('\n[Check 8/21] Testing Win / Maze Clear screen...');
+    console.log('\n[Check 8/25] Testing Win / Maze Clear screen...');
     await page.evaluate(() => window.__RM_GAME__.forceWin());
     await page.waitForTimeout(300);
 
@@ -210,7 +210,7 @@ async function runAcceptanceTests() {
     console.log('  📸 Captured screenshot: screenshots/win.png');
 
     // Check 9: Lose screen reachable
-    console.log('\n[Check 9/21] Testing Game Over screen...');
+    console.log('\n[Check 9/25] Testing Game Over screen...');
     await page.evaluate(() => window.__RM_GAME__.forceLose());
     await page.waitForTimeout(300);
 
@@ -226,7 +226,7 @@ async function runAcceptanceTests() {
     console.log('  📸 Captured screenshot: screenshots/gameover.png');
 
     // Check 10: Squad exits the house and hunts (regression: ghosts once looped in the house pocket)
-    console.log('\n[Check 10/21] Testing squad house exit and hunting range...');
+    console.log('\n[Check 10/25] Testing squad house exit and hunting range...');
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(400);
     await page.click('#btn-play');
@@ -307,7 +307,7 @@ async function runAcceptanceTests() {
     // ===== Round 2 checks: the Green Valley Flip and the soundtrack =====
 
     // Check 11: Flip triggers on a real power-pellet pickup; forced survival returns to playing unbenched
-    console.log('\n[Check 11/21] Testing the Green Valley Flip on a real power-pellet pickup...');
+    console.log('\n[Check 11/25] Testing the Green Valley Flip on a real power-pellet pickup...');
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(400);
     const musicBeforeGesture = await page.evaluate(() => window.__RM_GAME__.getMusicState());
@@ -378,7 +378,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 12: Flip caught path benches that ghost and returns to playing
-    console.log('\n[Check 12/21] Testing the flip caught path (bench + return to maze)...');
+    console.log('\n[Check 12/25] Testing the flip caught path (bench + return to maze)...');
     await page.evaluate(() => window.__RM_GAME__.triggerFlip());
     await page.waitForTimeout(300);
     const freshFlipState = await page.evaluate(() => window.__RM_GAME__.getState());
@@ -402,7 +402,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 13: Soundtrack states + zero console errors across the whole battery
-    console.log('\n[Check 13/21] Testing soundtrack states and console cleanliness...');
+    console.log('\n[Check 13/25] Testing soundtrack states and console cleanliness...');
     if (musicBeforeGesture !== 'off') throw new Error(`Music should be off before the first gesture, got "${musicBeforeGesture}"`);
     if (musicAfterPlay !== 'maze') throw new Error(`Music should read "maze" after PLAY, got "${musicAfterPlay}"`);
     if (musicDuringFlip !== 'valley') throw new Error(`Music should read "valley" during the flip, got "${musicDuringFlip}"`);
@@ -434,7 +434,7 @@ async function runAcceptanceTests() {
 
     // Check 14: The top-right pellet routes to Block Kingdom; forced survival returns to playing unbenched with the bonus;
     // the music reads "kingdom" during the segment.
-    console.log('\n[Check 14/21] Testing flip routing (top-right pellet → Block Kingdom) and kingdom survival...');
+    console.log('\n[Check 14/25] Testing flip routing (top-right pellet → Block Kingdom) and kingdom survival...');
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(400);
     await page.click('#btn-play');
@@ -513,7 +513,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 15: Kingdom caught path benches that ghost and returns to playing
-    console.log('\n[Check 15/21] Testing the Block Kingdom caught path (bench + return to maze)...');
+    console.log('\n[Check 15/25] Testing the Block Kingdom caught path (bench + return to maze)...');
     await page.evaluate(() => window.__RM_GAME__.triggerFlip('kingdom'));
     await page.waitForTimeout(300);
     const freshKingdom = await page.evaluate(() => window.__RM_GAME__.getFlip());
@@ -542,7 +542,7 @@ async function runAcceptanceTests() {
     // ===== Round 4 checks: GLOOM corridor shooter flip & Phantom Grand Prix kart racer flip =====
 
     // Check 16: GLOOM routing and survival (bottom-left pellet)
-    console.log('\n[Check 16/21] Testing GLOOM routing and survival (bottom-left pellet)...');
+    console.log('\n[Check 16/25] Testing GLOOM routing and survival (bottom-left pellet)...');
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(400);
     await page.click('#btn-play');
@@ -604,7 +604,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 17: GLOOM caught path
-    console.log('\n[Check 17/21] Testing GLOOM caught path (bench + return to maze)...');
+    console.log('\n[Check 17/25] Testing GLOOM caught path (bench + return to maze)...');
     await page.evaluate(() => window.__RM_GAME__.triggerFlip('gloom'));
     await page.waitForTimeout(300);
     const freshGloom = await page.evaluate(() => window.__RM_GAME__.getFlip());
@@ -629,7 +629,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 18: Phantom Grand Prix routing and survival (bottom-right pellet)
-    console.log('\n[Check 18/21] Testing Phantom Grand Prix routing and survival (bottom-right pellet)...');
+    console.log('\n[Check 18/25] Testing Phantom Grand Prix routing and survival (bottom-right pellet)...');
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(400);
     await page.click('#btn-play');
@@ -691,7 +691,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 19: Grand Prix caught path
-    console.log('\n[Check 19/21] Testing Phantom Grand Prix caught path (bench + return to maze)...');
+    console.log('\n[Check 19/25] Testing Phantom Grand Prix caught path (bench + return to maze)...');
     await page.evaluate(() => window.__RM_GAME__.triggerFlip('grandprix'));
     await page.waitForTimeout(300);
     const freshGP = await page.evaluate(() => window.__RM_GAME__.getFlip());
@@ -778,7 +778,7 @@ async function runAcceptanceTests() {
     const describeFrame = s => `${s.distinct} distinct colours, dominant ${s.dominantColour} at ${(s.dominantShare * 100).toFixed(1)}%`;
 
     // Check 20: GLOOM render sanity — a real frame of live corridor play shows a corridor and a Menace figure
-    console.log('\n[Check 20/21] GLOOM render sanity (pixel analysis of a live mid-corridor frame)...');
+    console.log('\n[Check 20/25] GLOOM render sanity (pixel analysis of a live mid-corridor frame)...');
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(400);
     await page.click('#btn-play');
@@ -846,7 +846,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 21: Render sanity for the other three flips — a mid-play frame of each is a real picture
-    console.log('\n[Check 21/21] Render sanity for Green Valley, Block Kingdom and Phantom Grand Prix...');
+    console.log('\n[Check 21/25] Render sanity for Green Valley, Block Kingdom and Phantom Grand Prix...');
     const otherFlips = [
       { kind: 'valley', name: 'Green Valley' },
       { kind: 'kingdom', name: 'Block Kingdom' },
@@ -883,6 +883,161 @@ async function runAcceptanceTests() {
     if (consoleErrors.length > 0) throw new Error(`Console errors during the battery: ${consoleErrors.join(' | ')}`);
 
     console.log(`  ✓ PASS: All three flips render real mid-play frames (distinct colours / max dominance: ${otherResults.join(', ')}); 0 console errors across all 21 checks.`);
+    passedCount++;
+
+    // ===== Round 8 checks: the rebuilt ENGINES — each proves a behaviour, not a state =====
+    const D = (cmd, arg) => page.evaluate(([c, a]) => window.__RM_GAME__.flipDebug(c, a), [cmd, arg]);
+    const K = (code, down) => page.evaluate(([c, d]) => window.__RM_GAME__.flipKey(c, d), [code, down]);
+    const F = () => page.evaluate(() => window.__RM_GAME__.getFlip());
+    const startEngine = async (kind) => {
+      await page.waitForFunction(() => window.__RM_GAME__.getState() === 'playing', { timeout: 3000 });
+      await page.evaluate(k => window.__RM_GAME__.triggerFlip(k), kind);
+      await page.waitForFunction(() => window.__RM_GAME__.getFlip().phase === 'run', { timeout: 3000 });
+    };
+    const leaveEngine = async () => { await page.evaluate(() => window.__RM_GAME__.forceFlipSurvive()); await page.waitForTimeout(250); };
+
+    // Check 22: Block Kingdom engine — a stomp flattens a minion; a bumped block releases its pickup
+    console.log('\n[Check 22/25] Block Kingdom engine: a stomp flattens a minion and a bumped block releases its pickup...');
+    await startEngine('kingdom');
+    await D('freezeMenace', true);
+    let kf = await F();
+    const minion = kf.extra.minions.find(m => m.alive);
+    if (!minion) throw new Error('Block Kingdom has no living minion to stomp');
+    const stompsBefore = kf.extra.stomps, squashedBefore = kf.extra.squashed;
+    await D('placeGhost', { x: minion.x, y: minion.top - 70, vx: 0, vy: 0 });
+    await page.waitForTimeout(600);
+    kf = await F();
+    const stomped = kf.extra.minions.find(m => Math.abs(m.x - minion.x) < 100);
+    if (kf.extra.stomps <= stompsBefore || kf.extra.squashed <= squashedBefore) throw new Error(`Dropping onto a minion did not register a stomp (stomps ${stompsBefore} -> ${kf.extra.stomps}, squashed ${squashedBefore} -> ${kf.extra.squashed})`);
+    if (!stomped || stomped.alive) throw new Error('The stomped minion is still walking');
+    if (kf.extra.safety <= 0) throw new Error('A clean stomp cost the ghost her safety');
+    // Block bump: stand under a star block and jump into it
+    await D('hold', true);
+    const qBlock = await D('findTile', '?');
+    if (!qBlock) throw new Error('No star block in the Block Kingdom layout');
+    await D('placeGhost', { x: qBlock.x, y: qBlock.y + 24 * 3, vx: 0, vy: 0 });
+    await page.waitForTimeout(250);
+    kf = await F();
+    const releasedBefore = kf.extra.released, bumpsBefore = kf.extra.bumps, pickupsBefore = kf.extra.pickups;
+    await page.evaluate(() => window.__RM_GAME__.flipJump());
+    await page.waitForTimeout(700);
+    await page.evaluate(() => window.__RM_GAME__.flipJumpRelease());
+    kf = await F();
+    const tileAfter = await D('tile', { c: qBlock.c, r: qBlock.r });
+    if (kf.extra.bumps <= bumpsBefore) throw new Error(`Jumping under the star block did not bump it (bumps ${bumpsBefore} -> ${kf.extra.bumps})`);
+    if (kf.extra.released <= releasedBefore || kf.extra.pickups <= pickupsBefore) throw new Error(`The bumped block released nothing (released ${releasedBefore} -> ${kf.extra.released}, pickups in play ${pickupsBefore} -> ${kf.extra.pickups})`);
+    if (tileAfter === '?') throw new Error('The star block still reads as unbumped after releasing its pickup');
+    await leaveEngine();
+    console.log(`  ✓ PASS: Stomp flattened the minion at x=${minion.x.toFixed(0)} (stomps ${stompsBefore} -> ${kf.extra.stomps}, safety kept); the star block at (${qBlock.c},${qBlock.r}) bumped and released its pickup (released ${releasedBefore} -> ${kf.extra.released}, tile now "${tileAfter}").`);
+    passedCount++;
+
+    // Check 23: Green Valley engine — a hit scatters rings; a downhill measurably builds speed over the flat
+    console.log('\n[Check 23/25] Green Valley engine: a Menace hit scatters rings, downhill builds speed over flat...');
+    await startEngine('valley');
+    await D('freezeMenace', true);
+    await D('place', { x: 300, speed: 200, rings: 12 });
+    await D('freezeMenace', false);
+    await D('placeMenace', { x: 262, speed: 420 });
+    let vf = null, scatterWaited = 0;
+    while (scatterWaited < 2000) {
+      await page.waitForTimeout(100);
+      scatterWaited += 100;
+      vf = await F();
+      if (!vf.active || vf.extra.scattered > 0) break;
+      if (scatterWaited === 1000) await D('placeMenace', { x: vf.extra.ghostX - 30, speed: 420 });
+    }
+    if (!vf.active || vf.phase !== 'run') throw new Error(`The valley run ended while staging the hit (active ${vf.active}, phase ${vf.phase})`);
+    if (vf.extra.scattered <= 0 || vf.extra.hits <= 0) throw new Error(`The Menace's contact did not scatter her rings (scattered ${vf.extra.scattered}, hits ${vf.extra.hits}, rings ${vf.extra.rings})`);
+    if (vf.extra.rings >= 12) throw new Error(`She kept all 12 rings through the hit (rings ${vf.extra.rings})`);
+    const scatterNote = `scattered ${vf.extra.scattered} rings in ${scatterWaited}ms (holding ${vf.extra.rings} now, ${vf.extra.looseRings} loose)`;
+    await D('freezeMenace', true);
+    const terrain = await D('terrain', null);
+    await D('place', { x: terrain.flatX, speed: 230 });
+    await page.waitForTimeout(700);
+    vf = await F();
+    const flatSpeed = vf.extra.speed, flatGrade = vf.extra.grade;
+    await D('place', { x: terrain.downhillX, speed: 230 });
+    await page.waitForTimeout(700);
+    vf = await F();
+    const downSpeed = vf.extra.speed, downGrade = vf.extra.grade;
+    if (!(downGrade > 0.05)) throw new Error(`The downhill stretch is not a downhill (grade ${downGrade.toFixed(3)})`);
+    if (!(downSpeed > flatSpeed * 1.15)) throw new Error(`Downhill did not build speed over the flat (flat ${flatSpeed.toFixed(0)} vs downhill ${downSpeed.toFixed(0)} from the same 230 start)`);
+    await leaveEngine();
+    console.log(`  ✓ PASS: ${scatterNote}; from the same 230 start, flat ran ${flatSpeed.toFixed(0)} (grade ${flatGrade.toFixed(2)}) vs downhill ${downSpeed.toFixed(0)} (grade ${downGrade.toFixed(2)}) after 0.7s.`);
+    passedCount++;
+
+    // Check 24: GLOOM engine — turning in place changes the rendered view; a door opens on approach
+    console.log('\n[Check 24/25] GLOOM engine: turning in place changes the rendered view, a door opens on approach...');
+    await startEngine('gloom');
+    await D('freezeMenace', true);
+    const sampleCentre = () => page.evaluate(() => {
+      const c = document.getElementById('gameCanvas');
+      const w = c.width, h = c.height;
+      const d = c.getContext('2d').getImageData(Math.floor(w * 0.25), Math.floor(h * 0.15), Math.floor(w * 0.5), Math.floor(h * 0.5)).data;
+      const out = [];
+      for (let i = 0; i < d.length; i += 4 * 97) out.push(d[i], d[i + 1], d[i + 2]);
+      return out;
+    });
+    await page.waitForTimeout(150);
+    const viewBefore = await sampleCentre();
+    await K('ArrowLeft', true);
+    await page.waitForTimeout(400);
+    await K('ArrowLeft', false);
+    await page.waitForTimeout(60);
+    const viewAfter = await sampleCentre();
+    let viewDiff = 0;
+    for (let i = 0; i < viewBefore.length; i++) viewDiff += Math.abs(viewBefore[i] - viewAfter[i]);
+    const meanDiff = viewDiff / viewBefore.length;
+    let gf = await F();
+    if (!(gf.extra.turned > 0.3)) throw new Error(`Holding the turn key did not turn the view (turned ${gf.extra.turned.toFixed(2)} rad)`);
+    if (!(meanDiff > 6)) throw new Error(`Turning in place left the centre of the frame unchanged (mean per-channel change ${meanDiff.toFixed(1)})`);
+    const turnNote = `turned ${gf.extra.turned.toFixed(2)} rad, centre pixels changed by ${meanDiff.toFixed(1)} per channel`;
+    // Door: stand two tiles from the first door on its open axis, facing it, and walk forward
+    const doors = await D('doors', null);
+    const mazeRows = await D('map', null);
+    if (!doors || !doors.length) throw new Error('GLOOM has no doors');
+    const door = doors[0];
+    const openNorth = mazeRows[door.y - 1][door.x] !== '#';
+    await D('place', openNorth ? { x: door.x + 0.5, y: door.y - 1.5, angle: Math.PI / 2 } : { x: door.x - 1.5, y: door.y + 0.5, angle: 0 });
+    await page.waitForTimeout(100);
+    const doorBefore = (await D('doors', null))[0].open;
+    await K('ArrowUp', true);
+    await page.waitForTimeout(500);
+    await K('ArrowUp', false);
+    const doorAfter = (await D('doors', null))[0].open;
+    gf = await F();
+    if (!(doorBefore < 0.05)) throw new Error(`The door was already open before the approach (${doorBefore.toFixed(2)})`);
+    if (!(doorAfter > 0.2)) throw new Error(`The door did not open on approach (open ${doorBefore.toFixed(2)} -> ${doorAfter.toFixed(2)})`);
+    await leaveEngine();
+    console.log(`  ✓ PASS: ${turnNote}; the door at (${door.x},${door.y}) slid from ${doorBefore.toFixed(2)} to ${doorAfter.toFixed(2)} open as she walked up to it.`);
+    passedCount++;
+
+    // Check 25: Phantom Grand Prix engine — a held drift releases a measurable speed boost
+    console.log('\n[Check 25/25] Phantom Grand Prix engine: a held drift releases a measurable speed boost...');
+    await startEngine('grandprix');
+    await D('freezeRivals', true);
+    const trackInfo = await D('track', null);
+    await D('place', { s: 300, speed: 250, lane: -0.5 });
+    await page.waitForTimeout(150);
+    await K('ArrowRight', true);
+    await K('Space', true);                      // hop with the wheel turned: the drift starts on landing
+    await page.waitForTimeout(220);
+    await K('ArrowRight', false);
+    await K('ArrowLeft', true);                  // counter-steer keeps the slide running down the road
+    await page.waitForTimeout(1300);
+    let pf = await F();
+    if (!pf.extra.drifting) throw new Error(`The hop with the wheel turned did not start a drift (driftT ${pf.extra.driftT.toFixed(2)}, releases ${pf.extra.driftReleases})`);
+    if (pf.extra.driftStage < 1) throw new Error(`Holding the drift for ${pf.extra.driftT.toFixed(2)}s did not charge it (stage ${pf.extra.driftStage})`);
+    const holdSpeed = pf.extra.speed, holdStage = pf.extra.driftStage, holdT = pf.extra.driftT;
+    await K('Space', false);                     // release fires the boost
+    await K('ArrowLeft', false);
+    await page.waitForTimeout(120);
+    pf = await F();
+    if (!(pf.extra.boost > 0)) throw new Error('Releasing the charged drift did not fire a boost');
+    if (!(pf.extra.speed > holdSpeed * 1.05 && pf.extra.speed > trackInfo.topSpeed)) throw new Error(`The drift boost is not measurable (held at ${holdSpeed.toFixed(0)}, after release ${pf.extra.speed.toFixed(0)}, plain top speed ${trackInfo.topSpeed})`);
+    await leaveEngine();
+    if (consoleErrors.length > 0) throw new Error(`Console errors during the engine checks: ${consoleErrors.join(' | ')}`);
+    console.log(`  ✓ PASS: Drift held ${holdT.toFixed(2)}s (stage ${holdStage}) at ${holdSpeed.toFixed(0)}; release fired a ${pf.extra.boost.toFixed(2)}s boost to ${pf.extra.speed.toFixed(0)} (plain top speed ${trackInfo.topSpeed}); 0 console errors across all 25 checks.`);
     passedCount++;
 
   } catch (err) {
