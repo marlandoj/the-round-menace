@@ -36,7 +36,7 @@ async function runAcceptanceTests() {
 
   const indexPath = `file://${path.resolve(__dirname, '../index.html')}`;
   let passedCount = 0;
-  let totalCount = 26;
+  let totalCount = 27;
 
   // Screenshot directory
   const screenshotDir = path.resolve(__dirname, '../screenshots');
@@ -46,7 +46,7 @@ async function runAcceptanceTests() {
 
   try {
     // Check 1: Page loads with zero console errors
-    console.log('[Check 1/26] Loading game page...');
+    console.log('[Check 1/27] Loading game page...');
     await page.goto(indexPath, { waitUntil: 'load' });
     await page.waitForTimeout(500);
 
@@ -62,7 +62,7 @@ async function runAcceptanceTests() {
     console.log('  📸 Captured screenshot: screenshots/title.png');
 
     // Check 2: Game starts from PLAY
-    console.log('\n[Check 2/26] Starting game from PLAY button...');
+    console.log('\n[Check 2/27] Starting game from PLAY button...');
     await page.click('#btn-play');
     await page.waitForTimeout(400);
 
@@ -79,7 +79,7 @@ async function runAcceptanceTests() {
     console.log('  📸 Captured screenshot: screenshots/gameplay.png');
 
     // Check 3: Menace eats pellets autonomously
-    console.log('\n[Check 3/26] Testing autonomous Menace pellet eating...');
+    console.log('\n[Check 3/27] Testing autonomous Menace pellet eating...');
     const initialPellets = await page.evaluate(() => window.__RM_GAME__.getPellets().remaining);
     // Let Menace move and eat for 2 seconds
     await page.waitForTimeout(2000);
@@ -92,7 +92,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 4: Possession switching works for all four ghosts (1-4 and squad bar clicks)
-    console.log('\n[Check 4/26] Testing possession switching across all 4 squad ghosts...');
+    console.log('\n[Check 4/27] Testing possession switching across all 4 squad ghosts...');
     const ghostNames = ['Ember', 'Rosé', 'Tide', 'Goldie'];
     for (let i = 0; i < 4; i++) {
       // Test key press
@@ -113,7 +113,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 5: Touch input moves the possessed ghost
-    console.log('\n[Check 5/26] Testing touch input steering...');
+    console.log('\n[Check 5/27] Testing touch input steering...');
     // Ensure ghost 0 is possessed and positioned at open corridor (5, 5)
     await page.evaluate(() => {
       window.__RM_GAME__.possess(0);
@@ -133,7 +133,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 6: A catch registers when a ghost is steered onto Menace
-    console.log('\n[Check 6/26] Testing ghost catch detection...');
+    console.log('\n[Check 6/27] Testing ghost catch detection...');
     // The hunting squad may have caught him by chance during checks 3–5; a catch (or a flip
     // return) grants him 1s of flashing immunity during which collisions are ignored. Wait it
     // out so the staged catch below is judged on its own merits.
@@ -170,7 +170,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 7: Fright mode flips on power pellet and ghost can be eaten & benched
-    console.log('\n[Check 7/26] Testing Fright Mode & ghost benching...');
+    console.log('\n[Check 7/27] Testing Fright Mode & ghost benching...');
     await page.evaluate(() => window.__RM_GAME__.triggerFright(5.0));
     await page.waitForTimeout(200);
 
@@ -197,7 +197,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 8: Win / Maze Clear screen reachable
-    console.log('\n[Check 8/26] Testing Win / Maze Clear screen...');
+    console.log('\n[Check 8/27] Testing Win / Maze Clear screen...');
     await page.evaluate(() => window.__RM_GAME__.forceWin());
     await page.waitForTimeout(300);
 
@@ -213,7 +213,7 @@ async function runAcceptanceTests() {
     console.log('  📸 Captured screenshot: screenshots/win.png');
 
     // Check 9: Lose screen reachable
-    console.log('\n[Check 9/26] Testing Game Over screen...');
+    console.log('\n[Check 9/27] Testing Game Over screen...');
     await page.evaluate(() => window.__RM_GAME__.forceLose());
     await page.waitForTimeout(300);
 
@@ -229,7 +229,7 @@ async function runAcceptanceTests() {
     console.log('  📸 Captured screenshot: screenshots/gameover.png');
 
     // Check 10: Squad exits the house and hunts (regression: ghosts once looped in the house pocket)
-    console.log('\n[Check 10/26] Testing squad house exit and hunting range...');
+    console.log('\n[Check 10/27] Testing squad house exit and hunting range...');
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(400);
     await page.click('#btn-play');
@@ -310,7 +310,7 @@ async function runAcceptanceTests() {
     // ===== Round 2 checks: the Green Valley Flip and the soundtrack =====
 
     // Check 11: Flip triggers on a real power-pellet pickup; forced survival returns to playing unbenched
-    console.log('\n[Check 11/26] Testing the Green Valley Flip on a real power-pellet pickup...');
+    console.log('\n[Check 11/27] Testing the Green Valley Flip on a real power-pellet pickup...');
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(400);
     const musicBeforeGesture = await page.evaluate(() => window.__RM_GAME__.getMusicState());
@@ -381,7 +381,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 12: Flip caught path benches that ghost and returns to playing
-    console.log('\n[Check 12/26] Testing the flip caught path (bench + return to maze)...');
+    console.log('\n[Check 12/27] Testing the flip caught path (bench + return to maze)...');
     await page.evaluate(() => window.__RM_GAME__.triggerFlip());
     await page.waitForTimeout(300);
     const freshFlipState = await page.evaluate(() => window.__RM_GAME__.getState());
@@ -405,7 +405,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 13: Soundtrack states + zero console errors across the whole battery
-    console.log('\n[Check 13/26] Testing soundtrack states and console cleanliness...');
+    console.log('\n[Check 13/27] Testing soundtrack states and console cleanliness...');
     if (musicBeforeGesture !== 'off') throw new Error(`Music should be off before the first gesture, got "${musicBeforeGesture}"`);
     if (musicAfterPlay !== 'maze') throw new Error(`Music should read "maze" after PLAY, got "${musicAfterPlay}"`);
     if (musicDuringFlip !== 'valley') throw new Error(`Music should read "valley" during the flip, got "${musicDuringFlip}"`);
@@ -437,7 +437,7 @@ async function runAcceptanceTests() {
 
     // Check 14: The top-right pellet routes to Block Kingdom; forced survival returns to playing unbenched with the bonus;
     // the music reads "kingdom" during the segment.
-    console.log('\n[Check 14/26] Testing flip routing (top-right pellet → Block Kingdom) and kingdom survival...');
+    console.log('\n[Check 14/27] Testing flip routing (top-right pellet → Block Kingdom) and kingdom survival...');
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(400);
     await page.click('#btn-play');
@@ -516,7 +516,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 15: Kingdom caught path benches that ghost and returns to playing
-    console.log('\n[Check 15/26] Testing the Block Kingdom caught path (bench + return to maze)...');
+    console.log('\n[Check 15/27] Testing the Block Kingdom caught path (bench + return to maze)...');
     await page.evaluate(() => window.__RM_GAME__.triggerFlip('kingdom'));
     await page.waitForTimeout(300);
     const freshKingdom = await page.evaluate(() => window.__RM_GAME__.getFlip());
@@ -545,7 +545,7 @@ async function runAcceptanceTests() {
     // ===== Round 4 checks: GLOOM corridor shooter flip & Phantom Grand Prix kart racer flip =====
 
     // Check 16: GLOOM routing and survival (bottom-left pellet)
-    console.log('\n[Check 16/26] Testing GLOOM routing and survival (bottom-left pellet)...');
+    console.log('\n[Check 16/27] Testing GLOOM routing and survival (bottom-left pellet)...');
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(400);
     await page.click('#btn-play');
@@ -607,7 +607,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 17: GLOOM caught path
-    console.log('\n[Check 17/26] Testing GLOOM caught path (bench + return to maze)...');
+    console.log('\n[Check 17/27] Testing GLOOM caught path (bench + return to maze)...');
     await page.evaluate(() => window.__RM_GAME__.triggerFlip('gloom'));
     await page.waitForTimeout(300);
     const freshGloom = await page.evaluate(() => window.__RM_GAME__.getFlip());
@@ -632,7 +632,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 18: Phantom Grand Prix routing and survival (bottom-right pellet)
-    console.log('\n[Check 18/26] Testing Phantom Grand Prix routing and survival (bottom-right pellet)...');
+    console.log('\n[Check 18/27] Testing Phantom Grand Prix routing and survival (bottom-right pellet)...');
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(400);
     await page.click('#btn-play');
@@ -694,7 +694,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 19: Grand Prix caught path
-    console.log('\n[Check 19/26] Testing Phantom Grand Prix caught path (bench + return to maze)...');
+    console.log('\n[Check 19/27] Testing Phantom Grand Prix caught path (bench + return to maze)...');
     await page.evaluate(() => window.__RM_GAME__.triggerFlip('grandprix'));
     await page.waitForTimeout(300);
     const freshGP = await page.evaluate(() => window.__RM_GAME__.getFlip());
@@ -791,7 +791,7 @@ async function runAcceptanceTests() {
     const describeFrame = s => `${s.distinct} distinct colours, dominant ${s.dominantColour} at ${(s.dominantShare * 100).toFixed(1)}%`;
 
     // Check 20: GLOOM render sanity — a real frame of live corridor play shows a corridor and a Menace figure
-    console.log('\n[Check 20/26] GLOOM render sanity (pixel analysis of a live mid-corridor frame)...');
+    console.log('\n[Check 20/27] GLOOM render sanity (pixel analysis of a live mid-corridor frame)...');
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(400);
     await page.click('#btn-play');
@@ -872,7 +872,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 21: Render sanity for the other three flips — a mid-play frame of each is a real picture
-    console.log('\n[Check 21/26] Render sanity for Green Valley, Block Kingdom and Phantom Grand Prix...');
+    console.log('\n[Check 21/27] Render sanity for Green Valley, Block Kingdom and Phantom Grand Prix...');
     const otherFlips = [
       { kind: 'valley', name: 'Green Valley' },
       { kind: 'kingdom', name: 'Block Kingdom' },
@@ -923,7 +923,7 @@ async function runAcceptanceTests() {
     const leaveEngine = async () => { await page.evaluate(() => window.__RM_GAME__.forceFlipSurvive()); await page.waitForTimeout(250); };
 
     // Check 22: Block Kingdom engine — a stomp flattens a minion; a bumped block releases its pickup
-    console.log('\n[Check 22/26] Block Kingdom engine: a stomp flattens a minion and a bumped block releases its pickup...');
+    console.log('\n[Check 22/27] Block Kingdom engine: a stomp flattens a minion and a bumped block releases its pickup...');
     await startEngine('kingdom');
     await D('freezeMenace', true);
     let kf = await F();
@@ -958,7 +958,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 23: Green Valley engine — a hit scatters rings; a downhill measurably builds speed over the flat
-    console.log('\n[Check 23/26] Green Valley engine: a Menace hit scatters rings, downhill builds speed over flat...');
+    console.log('\n[Check 23/27] Green Valley engine: a Menace hit scatters rings, downhill builds speed over flat...');
     await startEngine('valley');
     await D('freezeMenace', true);
     await D('place', { x: 300, speed: 200, rings: 12 });
@@ -993,7 +993,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 24: GLOOM engine — turning in place changes the rendered view; a door opens on approach
-    console.log('\n[Check 24/26] GLOOM engine: turning in place changes the rendered view, a door opens on approach...');
+    console.log('\n[Check 24/27] GLOOM engine: turning in place changes the rendered view, a door opens on approach...');
     await startEngine('gloom');
     await D('freezeMenace', true);
     const sampleCentre = () => page.evaluate(() => {
@@ -1039,7 +1039,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 25: Phantom Grand Prix engine — a held drift releases a measurable speed boost
-    console.log('\n[Check 25/26] Phantom Grand Prix engine: a held drift releases a measurable speed boost...');
+    console.log('\n[Check 25/27] Phantom Grand Prix engine: a held drift releases a measurable speed boost...');
     await startEngine('grandprix');
     await D('freezeRivals', true);
     const trackInfo = await D('track', null);
@@ -1076,7 +1076,7 @@ async function runAcceptanceTests() {
     //     Each flip he triggers is survived through the hook (all four hunters stay on the board). He must eat at
     //     least 2 DISTINCT power pellets before his second catch, inside a bounded window of maze time — the proof
     //     that the flips are reachable in a normal game.
-    console.log('\n[Check 26/26] Menace brain: head-on avoidance trials and an AI-vs-AI power-pellet soak...');
+    console.log('\n[Check 26/27] Menace brain: head-on avoidance trials and an AI-vs-AI power-pellet soak...');
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(400);
     await page.click('#btn-play');
@@ -1169,6 +1169,74 @@ async function runAcceptanceTests() {
     if (consoleErrors.length > 0) throw new Error(`Console errors during the brain check: ${consoleErrors.join(' | ')}`);
 
     console.log(`  ✓ PASS: Head-on avoidance ${avoided}/${brainTrials.length} trials; AI-vs-AI soak reached ${powersEaten.size} distinct power pellets in ${(mazeMs / 1000).toFixed(1)}s of maze time with ${soakCatches} catch${soakCatches === 1 ? '' : 'es'} — the flips are reachable; 0 console errors across all 26 checks.`);
+    passedCount++;
+
+    // ===== Round 11 check: Phantom Grand Prix physics proof =====
+    // (a) A forced spin-out is a FLAT yaw: the renderer must draw a sequence of at least 8 distinct yaw frames
+    //     across the spin, all stepping the same way round, and the canvas transform the kart body is drawn with
+    //     must carry zero in-plane rotation (and zero shear) on every one of those frames. The renderer records,
+    //     for every frame of the ghost's spin, the sprite frame index it chose and ctx.getTransform() as it stood
+    //     at the drawImage call (rotation = atan2(b, a), shear = c / d); flipDebug('spinTrace') returns the log.
+    // (b) Two karts set overlapping at speed (the ghost behind and faster, a squad kart ahead and slower, both on
+    //     the centre line) must separate to at least the sum of their contact radii within the step, and the
+    //     rammed kart must be shoved (a measurable gain of run / sideways push and a yaw wobble), never spun.
+    console.log('\n[Check 27/27] Phantom Grand Prix physics: a spin-out cycles yaw frames flat with zero in-plane rotation; overlapping karts separate and a soft contact shoves, never spins...');
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForTimeout(600);
+    await page.click('#btn-play');
+    await page.waitForTimeout(300);
+    await startEngine('grandprix');
+    await D('freezeRivals', true);
+    const spr = await D('sprites', null);
+    if (!spr || !spr.kartsReady) throw new Error(`The kart sprite frames did not load (${spr ? spr.kartFrames : '?'} of ${spr ? spr.kartTotal : '?'} decoded, failed ${spr ? spr.kartFailed : '?'})`);
+    // The frame convention, calibrated against the contact sheet: 00 rear, 04 left flank (nose to the camera's
+    // left, yaw -90°), 08 front, 12 right flank (nose to the camera's right, yaw +90°)
+    for (const [yawDeg, want] of [[0, 0], [-90, 4], [180, 8], [90, 12], [-67.5, 3], [45, 14]]) {
+      const got = await D('frameFor', yawDeg * Math.PI / 180);
+      if (got !== want) throw new Error(`Frame convention: yaw ${yawDeg}° maps to frame ${got}, expected ${want}`);
+    }
+    // (a) the spin
+    await D('place', { s: 900, speed: 240 });
+    await page.waitForTimeout(150);
+    const spinStart = await D('spin', { dir: 1 });
+    if (!spinStart || !(spinStart.spin > 0)) throw new Error('Forcing a spin-out on the ghost did not start one');
+    await page.waitForFunction(() => { const f = window.__RM_GAME__.getFlip(); return !f.active || f.extra.spin <= 0; }, { timeout: 4000 });
+    await page.waitForTimeout(80);
+    const tr = await D('spinTrace', null);
+    if (!tr || tr.samples < 8) throw new Error(`The renderer logged only ${tr ? tr.samples : 0} frames across the spin`);
+    const seq = tr.frames.filter((f, i, a) => i === 0 || f !== a[i - 1]);
+    console.log(`  · spin: ${spinStart.spinDur}s, direction ${tr.spinDir > 0 ? '+' : '-'}; ${tr.samples} rendered frames logged, ${tr.distinctFrames} distinct yaw frames in sequence (${tr.frameChanges} changes, ${tr.changesInSpinDirection} stepping the spin's way); ${tr.turns.toFixed(2)} turns of yaw; drawn by the ${tr.spritePath ? 'sprite' : 'vector fallback'} path`);
+    console.log(`  · frame sequence: ${seq.join(' ')}`);
+    console.log(`  · canvas transform at the kart draw across the spin: max |rotation| ${tr.maxCanvasRotation.toExponential(2)} rad, max |shear| ${tr.maxCanvasShear.toExponential(2)}; heading ${tr.headingBefore.toFixed(3)} → ${tr.headingAfter.toFixed(3)} rad`);
+    if (!tr.spritePath) throw new Error('The spin was drawn by the vector fallback, not the sprite frames');
+    if (tr.distinctFrames < 8) throw new Error(`Only ${tr.distinctFrames} distinct yaw frames across the spin (need ≥ 8)`);
+    if (tr.changesInSpinDirection < tr.frameChanges * 0.85) throw new Error(`The yaw frames did not cycle one way round: ${tr.changesInSpinDirection} of ${tr.frameChanges} changes step the spin's way`);
+    if (!(tr.maxCanvasRotation <= 1e-9)) throw new Error(`The kart was rotated in the screen plane during the spin (max |rotation| ${tr.maxCanvasRotation} rad) — the roll is back`);
+    if (!(tr.maxCanvasShear <= 1e-9)) throw new Error(`The kart was sheared during the spin (max |shear| ${tr.maxCanvasShear})`);
+    if (!(tr.turns > 1.9 && tr.turns < 2.1)) throw new Error(`The spin's yaw was ${tr.turns.toFixed(2)} turns (expected about 2)`);
+    if (Math.abs(tr.headingAfter - tr.headingBefore) > 0.4) throw new Error(`The spin changed the kart's heading (${tr.headingBefore.toFixed(3)} → ${tr.headingAfter.toFixed(3)} rad)`);
+    // (b) the overlap
+    const ov = await D('overlap', { s: 900, gap: 14, lateral: 6, speed: 250, rivalSpeed: 120 });
+    if (!ov || !(ov.d0 < ov.minSeparation)) throw new Error(`Overlap staging failed (d0 ${ov ? ov.d0 : '?'}, min separation ${ov ? ov.minSeparation : '?'})`);
+    await page.waitForTimeout(250);
+    const contact = await D('contact', null);
+    const karts = await D('karts', null);
+    const pk = karts.find(k => k.id === ov.player), rk = karts.find(k => k.id === ov.rival);
+    const dNow = Math.hypot(rk.x - pk.x, rk.y - pk.y);
+    console.log(`  · overlap: ${ov.player} at ${ov.playerSpeed} behind ${ov.rival} at ${ov.rivalSpeed}, ${ov.d0.toFixed(1)} units apart (contact radius ${ov.radius}, sum ${ov.minSeparation})`);
+    if (!contact) throw new Error('No kart-kart contact was resolved from the overlap');
+    console.log(`  · contact: ${contact.rammer} → ${contact.rammed}, closing ${contact.closing.toFixed(1)}; separation ${contact.dBefore.toFixed(1)} → ${contact.dAfter.toFixed(1)} in the step, ${dNow.toFixed(1)} now; rammer lost ${contact.loss.toFixed(1)}, rammed gained ${contact.gain.toFixed(1)} along the normal; spun ${contact.spun}, wobble ${contact.wobble} (${contact.wobbleDir > 0 ? '+' : '-'})`);
+    console.log(`  · after 250 ms: ${pk.id} run ${pk.v.toFixed(1)} spin ${pk.spin.toFixed(2)}; ${rk.id} run ${rk.v.toFixed(1)} sideways shove ${rk.shove.toFixed(1)} spin ${rk.spin.toFixed(2)} wobble ${rk.wobble ? `amp ${rk.wobble.amp.toFixed(2)} rad at ${rk.wobble.t.toFixed(2)}/${rk.wobble.dur}s` : 'done'}`);
+    if (contact.rammer !== ov.player || contact.rammed !== ov.rival) throw new Error(`The wrong kart was treated as the rammer (${contact.rammer} → ${contact.rammed})`);
+    if (!(contact.dAfter >= ov.minSeparation - 0.01)) throw new Error(`The karts did not separate to the sum of their radii in the step (${contact.dAfter.toFixed(2)} < ${ov.minSeparation})`);
+    if (!(dNow >= ov.minSeparation - 0.5)) throw new Error(`The karts are overlapping again after 250 ms (${dNow.toFixed(2)} < ${ov.minSeparation})`);
+    if (contact.spun || rk.spin > 0 || pk.spin > 0) throw new Error('A soft contact spun a kart');
+    if (!contact.wobble || !(contact.gain > 0)) throw new Error(`The rammed kart was not shoved (gain ${contact.gain}, wobble ${contact.wobble})`);
+    if (!(rk.v > ov.rivalSpeed + 20)) throw new Error(`The rammed kart did not take the shove (run ${ov.rivalSpeed} → ${rk.v.toFixed(1)})`);
+    if (!(pk.v > ov.playerSpeed * 0.7)) throw new Error(`The rammer lost most of its run (${ov.playerSpeed} → ${pk.v.toFixed(1)})`);
+    await leaveEngine();
+    if (consoleErrors.length > 0) throw new Error(`Console errors during the physics check: ${consoleErrors.join(' | ')}`);
+    console.log(`  ✓ PASS: Spin-out drew ${tr.distinctFrames} distinct yaw frames in sequence over ${tr.turns.toFixed(2)} turns with zero in-plane rotation (max ${tr.maxCanvasRotation.toExponential(1)} rad); overlapping karts separated ${contact.dBefore.toFixed(1)} → ${contact.dAfter.toFixed(1)} (≥ ${ov.minSeparation}) and the rammed kart was shoved (run ${ov.rivalSpeed} → ${rk.v.toFixed(0)}, wobble, no spin); 0 console errors across all 27 checks.`);
     passedCount++;
 
   } catch (err) {

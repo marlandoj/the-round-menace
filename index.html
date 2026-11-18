@@ -8785,6 +8785,96 @@ class GloomRun {
 // survival; him taking the flag first is the catch. Round 7 sky and kart art kept as the skin.
 // Controls: Left/Right (A/D, screen halves, d-pad) steer · Space/Up (W, d-pad up) hop, hold to drift,
 // release to boost · Down/S (d-pad down, swipe down) use item, or brake with no item · X/Shift use item.
+//
+// Round 11: the Tripo Grand Prix asset set (operator-provided, art/gp-*.png). One chibi kart rendered from 16 yaw
+// angles (22.5° steps) in five hue-anchored colourways — ember / rose / tide / goldie for the four ghosts, menace for
+// him — plus one cartoon tree at three azimuths and a bleacher of ghost spectators (front and angled). Loaded once
+// at page load; every kart frame is calibrated on decode (alpha bounding box: the bottom edge is the tyre contact
+// line, the horizontal centre is the kart's axis). FRAME CONVENTION (calibrated against art/gp-kart-contact.png):
+// frame 00 = dead rear, 04 = the kart's LEFT flank (nose to the camera's left), 08 = dead front, 12 = RIGHT flank
+// (nose to the camera's right). In this engine the heading relative to the camera, yaw = kart.a - camA, is positive
+// when the nose swings toward the camera's RIGHT (the camera's right vector is heading + 90°), so the frame is
+//   frame = (16 - round(yaw / 22.5°)) mod 16      i.e. index increases as the nose swings toward the camera's LEFT
+// — which in this world's map-canvas coordinates (y down) is a DECREASING heading angle; seen from above with the
+// usual y-up compass it is a clockwise yaw. `ready` flips when every kart frame has decoded; if any kart frame fails
+// the Round 7 vector kart (drawKart) draws instead. The tree and crowd sprites fall back to the vector props on
+// their own flags.
+const GP_SPRITES = {
+  colourways: ['ember', 'rose', 'tide', 'goldie', 'menace'],
+  karts: {}, kartLoaded: 0, kartFailed: false, kartTotal: 80, ready: false,
+  trees: [], treeLoaded: 0, treeFailed: false, treesReady: false,
+  crowd: {}, crowdLoaded: 0, crowdFailed: false, crowdReady: false,
+  // Driver head anchor per yaw frame: seat x / y as fractions of the frame's alpha box (from the left / the top),
+  // and `cut` — the fraction of the head radius below the seat point that stays visible before the tub hides the
+  // rest (null = the whole dome shows, rear views where the head rides above the seat back).
+  seat: [
+    [0.50, 0.25, null], [0.50, 0.25, null], [0.52, 0.23, null], [0.56, 0.22, 0.8],
+    [0.59, 0.22, 0.7], [0.58, 0.20, 0.55], [0.57, 0.17, 0.45], [0.53, 0.15, 0.4],
+    [0.50, 0.14, 0.4], [0.47, 0.15, 0.4], [0.43, 0.17, 0.45], [0.42, 0.20, 0.55],
+    [0.41, 0.22, 0.7], [0.44, 0.22, 0.8], [0.48, 0.23, null], [0.50, 0.25, null]
+  ]
+};
+// Yaw (radians, positive = nose toward the camera's right) -> frame index 0..15
+GP_SPRITES.frameFor = (yaw) => {
+  const step = Math.PI / 8;
+  const i = Math.round(-yaw / step);
+  return ((i % 16) + 16) % 16;
+};
+GP_SPRITES.calibrate = (img) => {
+  const w = img.naturalWidth, h = img.naturalHeight;
+  const meta = { x0: 0, x1: w - 1, y0: 0, y1: h - 1, w, h, bw: w, bh: h, cx: w / 2 };
+  try {
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    const g = c.getContext('2d');
+    g.drawImage(img, 0, 0);
+    const d = g.getImageData(0, 0, w, h).data;
+    let x0 = w, x1 = -1, y0 = h, y1 = -1;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      if (d[(y * w + x) * 4 + 3] < 40) continue;
+      if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+    }
+    if (x1 > x0 + 10 && y1 > y0 + 10) { meta.x0 = x0; meta.x1 = x1; meta.y0 = y0; meta.y1 = y1; meta.bw = x1 - x0 + 1; meta.bh = y1 - y0 + 1; meta.cx = (x0 + x1 + 1) / 2; }
+  } catch (e) { /* a tainted canvas (file:// without the flag): the frame is tight-trimmed, keep the full box */ }
+  return { img, meta };
+};
+GP_SPRITES.colourways.forEach(cw => {
+  GP_SPRITES.karts[cw] = new Array(16).fill(null);
+  for (let f = 0; f < 16; f++) {
+    const img = new Image();
+    img.onload = () => {
+      if (!(img.naturalWidth > 0)) { GP_SPRITES.kartFailed = true; return; }
+      GP_SPRITES.karts[cw][f] = GP_SPRITES.calibrate(img);
+      GP_SPRITES.kartLoaded++;
+      GP_SPRITES.ready = !GP_SPRITES.kartFailed && GP_SPRITES.kartLoaded === GP_SPRITES.kartTotal;
+    };
+    img.onerror = () => { GP_SPRITES.kartFailed = true; GP_SPRITES.ready = false; };
+    img.src = `art/gp-kart-${cw}-${String(f).padStart(2, '0')}.png`;
+  }
+});
+[0, 120, 240].forEach((az, i) => {
+  const img = new Image();
+  img.onload = () => {
+    if (!(img.naturalWidth > 0)) { GP_SPRITES.treeFailed = true; return; }
+    GP_SPRITES.trees[i] = img;
+    GP_SPRITES.treeLoaded++;
+    GP_SPRITES.treesReady = !GP_SPRITES.treeFailed && GP_SPRITES.treeLoaded === 3;
+  };
+  img.onerror = () => { GP_SPRITES.treeFailed = true; GP_SPRITES.treesReady = false; };
+  img.src = `art/gp-tree-v${az}.png`;
+});
+['front', 'angle'].forEach(kind => {
+  const img = new Image();
+  img.onload = () => {
+    if (!(img.naturalWidth > 0)) { GP_SPRITES.crowdFailed = true; return; }
+    GP_SPRITES.crowd[kind] = img;
+    GP_SPRITES.crowdLoaded++;
+    GP_SPRITES.crowdReady = !GP_SPRITES.crowdFailed && GP_SPRITES.crowdLoaded === 2;
+  };
+  img.onerror = () => { GP_SPRITES.crowdFailed = true; GP_SPRITES.crowdReady = false; };
+  img.src = `art/gp-crowd-${kind}.png`;
+});
+
 class GrandPrixRun {
   constructor(game, ghostIndex) {
     this.game = game;
@@ -8852,10 +8942,17 @@ class GrandPrixRun {
         steer: 0, hop: 0, hopZ: 0, drifting: 0, driftT: 0, driftStage: 0, slip: 0, boost: 0,
         spin: 0, stun: 0, shield: 0, item: null, roulette: 0, offroad: false, braking: false, bump: 0,
         wheel: 0, lean: 0, lastPadS: -1, coins: 0,
+        // Round 11: a spin-out is a flat yaw (spinYaw, visual, two turns easing out), a soft bump is a yaw wobble
+        // through the neighbouring frames, and a shove is a decaying lateral velocity (px, py) on top of the run
+        spinYaw: 0, spinDir: 1, spinDur: 0.85, spinImmune: 0, wobble: null, px: 0, py: 0, frame: 0,
         fx: { exhaust: [], smoke: [], sparks: [], timer: 0 }, screen: null,
         ai: null
       }, opts);
     };
+    this.kartRadius = 24;                    // Contact radius per kart (world units); karts separate to ≥ 2R
+    this.spinTrace = [];                     // Frames drawn across the ghost's last spin-out (check 27 reads it)
+    this.lastContact = null;                 // The last kart-kart contact resolved (check 27 reads it)
+    this.coastRivals = false;                // Staging: AI karts coast with neutral input instead of their AI
     this.player = mk('player', 0.5, 150, { driver: 'ghost', ghost: game.ghosts[ghostIndex], plate: '01' });
     this.menace = mk('menace', -0.5, 70, { driver: 'menace', plate: '00', ai: { lane: -0.5, laneT: 0, skill: 1.0, bomb: 3.2, throwAnim: 0 } });
     this.rivals = [
@@ -9175,10 +9272,12 @@ class GrandPrixRun {
       const r = rng();
       this.props.push({ x: q.x, y: q.y, kind: r < 0.62 ? 'tree' : r < 0.8 ? 'sign' : 'tyres', v: Math.floor(rng() * 4), s });
     }
-    // Grandstands on the start straight
+    // Grandstands on the start straight. Round 11: v = 0 is the front bleacher facing the track; v = 1 the angled
+    // bleacher where the stand sits at a corner (the road bends there, so the stand is turned toward the bend)
     for (const s of [this.L - 240, this.L - 120, 60, 180, 300]) {
-      const q = this.pointAt(s, -(this.halfW + 118));
-      this.props.push({ x: q.x, y: q.y, kind: 'stand', v: 0, s });
+      const q = this.pointAt(s, -(this.halfW + 150));
+      const curv = Math.max(Math.abs(this.pathAt(s).curv), Math.abs(this.pathAt(s + 60).curv), Math.abs(this.pathAt(s - 60).curv));
+      this.props.push({ x: q.x, y: q.y, kind: 'stand', v: curv > 0.0009 ? 1 : 0, s });
     }
     // Flag poles flanking the line
     for (const side of [-1, 1]) {
@@ -9256,8 +9355,19 @@ class GrandPrixRun {
       driftReleases: this.driftReleases, lastBoostSpeed: this.lastBoostSpeed, topSpeed: this.topSpeed,
       offroad: p.offroad, x: p.x, y: p.y, heading: p.a, lateral: this.lateralAt(p.x, p.y, p.s),
       menaceScreen: this.menaceScreen, playerScreen: this.playerScreen,
-      bothInFrame: !!(this.menaceScreen && this.playerScreen && this.menaceScreen.inFrame && this.playerScreen.inFrame)
+      bothInFrame: !!(this.menaceScreen && this.playerScreen && this.menaceScreen.inFrame && this.playerScreen.inFrame),
+      // Round 11: the yaw frame the ghost's kart was last drawn with, her spin state, and the sprite path
+      frame: p.frame, spin: p.spin, spinYaw: p.spinYaw, spriteKarts: GP_SPRITES.ready, spriteTrees: GP_SPRITES.treesReady, spriteCrowd: GP_SPRITES.crowdReady,
+      kartRadius: this.kartRadius, lastContact: this.lastContact
     };
+  }
+
+  // Heading of a kart relative to the camera, wrapped to (-π, π]: positive = nose toward the camera's right
+  relYaw(k) {
+    let yaw = k.a - this.camA;
+    while (yaw > Math.PI) yaw -= Math.PI * 2;
+    while (yaw < -Math.PI) yaw += Math.PI * 2;
+    return yaw;
   }
 
   // Test / tuning hooks
@@ -9270,8 +9380,79 @@ class GrandPrixRun {
       if (arg.speed !== undefined) p.v = arg.speed;
       p.vx = Math.cos(p.a) * p.v; p.vy = Math.sin(p.a) * p.v;
       p.drifting = 0; p.driftT = 0; p.driftStage = 0; p.slip = 0; p.boost = 0; p.hop = 0; p.spin = 0;
+      p.spinYaw = 0; p.wobble = null; p.px = 0; p.py = 0;
       return { x: p.x, y: p.y, a: p.a, s: p.s };
     }
+    // ----- Round 11 physics-proof hooks (check 27) -----
+    if (cmd === 'spin') {
+      // Force a spin-out on the ghost's kart (the hard-ram path), shield off so it lands
+      p.shield = 0; p.spin = 0; p.spinImmune = 0;
+      this.hitKart(p, 'ram', arg && arg.dir ? arg.dir : 1);
+      return { spin: p.spin, spinDur: p.spinDur, spinDir: p.spinDir, heading: p.a };
+    }
+    if (cmd === 'spinTrace') {
+      // Every frame the renderer drew the ghost's kart during her last spin-out: the yaw frame index, the yaw it was
+      // chosen from, and the canvas transform it was drawn with (rotation = atan2(b, a), shear = c / d)
+      const tr = this.spinTrace;
+      let distinct = 0, forward = 0, steps = 0;
+      for (let i = 1; i < tr.length; i++) {
+        if (tr[i].frame === tr[i - 1].frame) continue;
+        distinct++;
+        const dfr = ((tr[i].frame - tr[i - 1].frame) % 16 + 16) % 16;
+        const dir = tr[0].spinDir;
+        steps++;
+        if ((dir < 0 && dfr >= 1 && dfr <= 6) || (dir > 0 && dfr >= 10 && dfr <= 15)) forward++;
+      }
+      const maxRot = tr.reduce((m, e) => Math.max(m, Math.abs(e.rot)), 0);
+      const maxShear = tr.reduce((m, e) => Math.max(m, Math.abs(e.shear)), 0);
+      const turns = tr.length ? tr[tr.length - 1].spinYawTotal / (Math.PI * 2) : 0;
+      return {
+        samples: tr.length, distinctFrames: distinct + (tr.length ? 1 : 0), frameChanges: distinct, changesInSpinDirection: forward,
+        maxCanvasRotation: maxRot, maxCanvasShear: maxShear, turns, spinDir: tr.length ? tr[0].spinDir : 0,
+        headingBefore: this.spinHeading, headingAfter: p.a, spinning: p.spin > 0, spritePath: tr.length ? tr[0].sprite : null,
+        frames: tr.map(e => e.frame), entries: tr.slice(0, 200)
+      };
+    }
+    if (cmd === 'overlap') {
+      // Set the ghost's kart overlapping a squad kart at speed: the ghost behind and faster (she is the rammer),
+      // the squad kart ahead and slower (the rammed), both on the centre line, the rest of the field parked far
+      // away and the AI off (the squad kart coasts with neutral input). Returns the starting overlap.
+      const r = this.rivals[0];
+      const s = arg && arg.s !== undefined ? arg.s : 600;
+      const gap = arg && arg.gap !== undefined ? arg.gap : 14;
+      const lat = arg && arg.lateral !== undefined ? arg.lateral : 6;
+      this.coastRivals = true;
+      this.frozenRivals = false;
+      this.lastContact = null;
+      const park = (k, ps, lane) => { const q = this.pointAt(ps, lane * this.halfW); k.x = q.x; k.y = q.y; k.a = q.a; k.s = this.nearestS(q.x, q.y); k.prog = k.s; k.v = 0; k.vx = 0; k.vy = 0; k.px = 0; k.py = 0; k.spin = 0; k.spinYaw = 0; k.wobble = null; k.shield = 0; k.boost = 0; k.drifting = 0; k.hitT = 0; };
+      park(this.menace, s + this.L * 0.5, -0.5);
+      park(this.rivals[1], s + this.L * 0.5, 0.5);
+      park(p, s, 0);
+      p.v = arg && arg.speed !== undefined ? arg.speed : 250; p.vx = Math.cos(p.a) * p.v; p.vy = Math.sin(p.a) * p.v; p.spinImmune = 0;
+      const q = this.pointAt(s + gap, lat);
+      r.x = q.x; r.y = q.y; r.a = q.a; r.s = this.nearestS(q.x, q.y); r.prog = r.s;
+      r.v = arg && arg.rivalSpeed !== undefined ? arg.rivalSpeed : 120; r.vx = Math.cos(r.a) * r.v; r.vy = Math.sin(r.a) * r.v;
+      r.px = 0; r.py = 0; r.spin = 0; r.spinYaw = 0; r.wobble = null; r.shield = 0; r.boost = 0; r.drifting = 0; r.hitT = 0; r.spinImmune = 0;
+      this.ramCooldown = 0;
+      return { d0: Math.hypot(r.x - p.x, r.y - p.y), radius: this.kartRadius, minSeparation: this.kartRadius * 2, player: p.id, rival: r.id, playerSpeed: p.v, rivalSpeed: r.v };
+    }
+    if (cmd === 'contact') return this.lastContact;
+    if (cmd === 'karts') {
+      return this.karts.map(k => ({
+        id: k.id, x: k.x, y: k.y, v: k.v, a: k.a, s: k.s, lateral: this.lateralAt(k.x, k.y, k.s), spin: k.spin, spinYaw: k.spinYaw,
+        wobble: k.wobble ? { t: k.wobble.t, dur: k.wobble.dur, amp: k.wobble.amp, dir: k.wobble.dir } : null,
+        shove: Math.hypot(k.px, k.py), frame: k.frame
+      }));
+    }
+    if (cmd === 'sprites') {
+      return {
+        kartsReady: GP_SPRITES.ready, kartFrames: GP_SPRITES.kartLoaded, kartTotal: GP_SPRITES.kartTotal, kartFailed: GP_SPRITES.kartFailed,
+        treesReady: GP_SPRITES.treesReady, crowdReady: GP_SPRITES.crowdReady,
+        convention: 'frame = (16 - round(yaw / 22.5deg)) mod 16; yaw = heading - camera yaw, positive = nose toward the camera right; 00 rear, 04 left flank, 08 front, 12 right flank',
+        playerFrame: p.frame, playerYaw: this.relYaw(p)
+      };
+    }
+    if (cmd === 'frameFor') return GP_SPRITES.frameFor(arg);
     if (cmd === 'placeMenace') {
       const m = this.menace;
       const q = this.pointAt(arg.s, (arg.lane || 0) * this.halfW);
@@ -9327,7 +9508,7 @@ class GrandPrixRun {
     // --- AI karts ---
     for (const k of [this.menace, ...this.rivals]) {
       if (this.frozenRivals) continue;
-      this.stepKart(k, this.aiInput(k, dt), dt);
+      this.stepKart(k, this.coastRivals ? { steer: 0, drift: false, brake: false } : this.aiInput(k, dt), dt);
     }
 
     this.updateCollisions(dt);
@@ -9382,9 +9563,15 @@ class GrandPrixRun {
       }
     } else k.hopZ = 0;
 
-    // Spin-out: no control, speed scrubs off, the kart pirouettes
+    if (k.spinImmune > 0) k.spinImmune -= dt;
+    // Spin-out: no control, speed scrubs off, and the kart spins FLAT on the road — a yaw of two full turns that
+    // eases out with the speed (the heading itself is untouched, so it comes out facing the way it was going;
+    // the renderer cycles the yaw frames through spinYaw). No roll, no in-plane rotation, ever.
     if (k.spin > 0) {
       k.spin -= dt;
+      const u = Math.max(0, Math.min(1, 1 - k.spin / k.spinDur));
+      k.spinYaw = k.spinDir * Math.PI * 4 * (1 - (1 - u) * (1 - u));
+      if (k.spin <= 0) { k.spinYaw = 0; k.spinImmune = 2.5; }
       k.v = Math.max(k.v - 260 * dt, this.topSpeed * 0.18);
       if (k.drifting) { k.drifting = 0; k.driftT = 0; k.driftStage = 0; }
     } else {
@@ -9415,10 +9602,15 @@ class GrandPrixRun {
     if (k.v > top) k.v -= (k.v - top) * Math.min(1, dt * (k.offroad ? 3.2 : 1.6));
     if (k.drifting) k.v = Math.max(k.v - 10 * dt, 0);
 
-    // Move along the travel direction (heading minus slip)
+    // Move along the travel direction (heading minus slip), plus any shove still carrying the kart sideways
     const ta = k.a - k.slip;
     k.vx = Math.cos(ta) * k.v; k.vy = Math.sin(ta) * k.v;
-    k.x += k.vx * dt; k.y += k.vy * dt;
+    k.x += (k.vx + k.px) * dt; k.y += (k.vy + k.py) * dt;
+    const shoveDecay = Math.max(0, 1 - dt * 4);
+    k.px *= shoveDecay; k.py *= shoveDecay;
+    if (Math.abs(k.px) < 0.5 && Math.abs(k.py) < 0.5) { k.px = 0; k.py = 0; }
+    // A soft bump's yaw wobble: a damped swing through the neighbouring frames, visual only
+    if (k.wobble) { k.wobble.t += dt; if (k.wobble.t >= k.wobble.dur) k.wobble = null; }
     k.wheel += k.v * dt / 14;
     k.lean += ((k.drifting ? k.drifting * 1.4 : input.steer * 0.9) - k.lean) * Math.min(1, dt * 6);
 
@@ -9637,45 +9829,100 @@ class GrandPrixRun {
     }
   }
 
-  hitKart(k, cause) {
+  // A spin-out (the hard cases only: a hard Menace ram, a pellet bomb). `dir` is the yaw direction (+1 / -1).
+  hitKart(k, cause, dir) {
     if (k.shield > 0) { k.shield = 0; k.bump = 0.4; if (k === this.player) this.flash('SHIELD POPPED', '#a78bfa', 0.6); return; }
     if (k.spin > 0) return;
     k.spin = 0.85;
+    k.spinDur = 0.85;
+    k.spinDir = dir || (this.rng() < 0.5 ? -1 : 1);
+    k.spinYaw = 0;
+    k.wobble = null;
     k.drifting = 0; k.driftT = 0; k.driftStage = 0; k.boost = 0;
     if (k === this.player) {
+      this.spinTrace = [];
+      this.spinHeading = k.a;
       this.screenShake = 0.5;
       this.flash(cause === 'bomb' ? 'PELLET BOMB!' : 'RAMMED!', '#ff3344', 0.8);
       if (this.game.sound.playKartHit) this.game.sound.playKartHit();
     }
   }
 
-  // ----- Kart-kart contact: push apart, trade a little speed; a hard Menace ram spins the ghost -----
+  // Apply a velocity change (world vector) to a kart: the part along its heading changes the run, the rest is a
+  // lateral shove that decays over the next half second
+  nudge(k, dvx, dvy) {
+    const cx = Math.cos(k.a), sy = Math.sin(k.a);
+    const along = dvx * cx + dvy * sy;
+    k.v = Math.max(0, k.v + along);
+    k.px += dvx - along * cx;
+    k.py += dvy - along * sy;
+  }
+
+  // ----- Kart-kart contact (Round 11 collision care) -----
+  // 1. Positional separation along the contact normal: the two karts are pushed apart to the sum of their radii
+  //    every frame they touch (the Menace, heavier, moves less), so karts never overlap or stack.
+  // 2. One momentum exchange per contact, from the closing speed along the normal: the rammer (the kart closing
+  //    on the other) keeps most of its run and loses a quarter of the closing speed; the rammed kart takes the
+  //    shove — two thirds of the closing speed along the normal, as a change of run plus a decaying sideways push.
+  // 3. The shoved kart gets a brief yaw WOBBLE through the neighbouring frames (visual, damped, half a second).
+  //    Only the existing hard cases spin: the Menace ramming the ghost at a closing speed over 70 (and bombs,
+  //    handled in updateItems). A glancing or soft touch is a shove, never a spin and never a roll.
   updateCollisions(dt) {
-    const K = this.karts;
+    const K = this.karts, R = this.kartRadius;
     for (let i = 0; i < K.length; i++) for (let j = i + 1; j < K.length; j++) {
-      const a = K[i], b = K[j];
-      const dx = b.x - a.x, dy = b.y - a.y;
-      const d = Math.hypot(dx, dy);
-      if (d > 46 || d === 0) continue;
-      const nx = dx / d, ny = dy / d, push = (48 - d) / 2;
-      a.x -= nx * push; a.y -= ny * push; b.x += nx * push; b.y += ny * push;
-      const closing = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny;        // > 0: a runs into b
+      let a = K[i], b = K[j];
+      let dx = b.x - a.x, dy = b.y - a.y;
+      let d = Math.hypot(dx, dy);
+      if (d > R * 2 || d === 0) continue;
+      const dBefore = d;
+      // Orient the pair so `a` is the kart closing on `b` (the rammer)
+      let nx = dx / d, ny = dy / d;
+      let closing = ((a.vx + a.px) - (b.vx + b.px)) * nx + ((a.vy + a.py) - (b.vy + b.py)) * ny;
+      if (closing < 0) { const t = a; a = b; b = t; nx = -nx; ny = -ny; closing = -closing; }
+      // Separation along the normal, mass-weighted (the Menace is 1.8 karts)
+      const ma = a === this.menace ? 1.8 : 1, mb = b === this.menace ? 1.8 : 1;
+      const overlap = R * 2 - d;
+      a.x -= nx * overlap * (mb / (ma + mb)); a.y -= ny * overlap * (mb / (ma + mb));
+      b.x += nx * overlap * (ma / (ma + mb)); b.y += ny * overlap * (ma / (ma + mb));
+      d = Math.hypot(b.x - a.x, b.y - a.y);
       // One impulse per contact (a short cooldown per kart), never a drain for every frame of overlap
-      if (closing > 0 && (a.hitT || 0) <= 0 && (b.hitT || 0) <= 0) {
+      if (closing > 2 && (a.hitT || 0) <= 0 && (b.hitT || 0) <= 0) {
         a.hitT = b.hitT = 0.3;
-        const heavyA = a === this.menace, heavyB = b === this.menace;
-        a.v = Math.max(0, a.v - closing * (heavyA ? 0.08 : 0.22));
-        b.v = Math.max(0, b.v - closing * (heavyB ? 0.03 : 0.08) + closing * 0.14);
+        const loss = closing * 0.25 * (ma > 1 ? 0.5 : 1);     // the rammer keeps most of its run
+        const gain = closing * 0.65 * (mb > 1 ? 0.5 : 1);     // the rammed kart takes the shove
+        this.nudge(a, -nx * loss, -ny * loss);
+        this.nudge(b, nx * gain, ny * gain);
         a.bump = b.bump = 0.3;
+        // Which way the shoved kart wobbles: the side the hit came from, relative to its heading
+        const side = Math.sign(-nx * Math.sin(b.a) + ny * Math.cos(b.a)) || 1;
         const pm = (a === this.player && b === this.menace) || (b === this.player && a === this.menace);
-        if (pm && (this.ramCooldown || 0) <= 0) {
+        const hardRam = a === this.menace && b === this.player && closing > 70 && b.spinImmune <= 0;   // he runs into her, hard
+        let spun = false;
+        if (hardRam && (this.ramCooldown || 0) <= 0) {
           this.ramCooldown = 1.0;
           this.rams++;
           this.screenShake = Math.max(this.screenShake, 0.35);
-          const menaceRams = a === this.menace && b === this.player && closing > 70;   // he runs into her, hard
-          if (menaceRams) this.hitKart(this.player, 'ram');
-          else { this.flash(a === this.player ? 'RAM!' : 'SHOVED!', '#ff3344', 0.5); if (this.game.sound.playKartHit) this.game.sound.playKartHit(); }
+          const spinBefore = b.spin;
+          this.hitKart(b, 'ram', side);
+          spun = b.spin > 0 && spinBefore <= 0;
         }
+        if (!spun) {
+          b.wobble = { t: 0, dur: 0.5, amp: Math.min(0.55, 0.22 + closing / 400), dir: side };
+          if (pm && (this.ramCooldown || 0) <= 0) {
+            this.ramCooldown = 1.0;
+            this.rams++;
+            this.screenShake = Math.max(this.screenShake, 0.35);
+            this.flash(a === this.player ? 'RAM!' : 'SHOVED!', '#ff3344', 0.5);
+            if (this.game.sound.playKartHit) this.game.sound.playKartHit();
+          } else if (b === this.player && (this.ramCooldown || 0) <= 0) {
+            this.ramCooldown = 0.6;
+            this.screenShake = Math.max(this.screenShake, 0.2);
+            this.flash('SHOVED!', '#fbbf24', 0.4);
+          }
+        }
+        this.lastContact = { t: this.elapsed, rammer: a.id, rammed: b.id, closing, loss, gain, dBefore, dAfter: d, spun, wobble: !spun, wobbleDir: side, hard: hardRam };
+      } else if (this.lastContact && this.lastContact.rammer === a.id && this.lastContact.rammed === b.id) {
+        this.lastContact.dAfter = d;
       }
     }
     if ((this.ramCooldown || 0) > 0) this.ramCooldown -= dt;
@@ -9887,19 +10134,24 @@ class GrandPrixRun {
     this.drawScreenFx(ctx, time);
   }
 
+  // Round 11: a kart is the Tripo sprite frame nearest its heading relative to the camera (22.5° steps). The visual
+  // yaw is that heading plus the spin-out's flat yaw (two turns easing out) plus a soft bump's wobble — all of it
+  // expressed by WHICH FRAME is drawn; the canvas transform under the kart is translate + scale only, never a
+  // rotation or a shear. The driver's head is overlaid at the seat, anchored per frame. If the kart frames did not
+  // load, the Round 7 vector kart draws instead (drawKart), flat, its heading shown by its shear.
   drawKartSprite(ctx, k, pt, time) {
     const s = Math.max(0.06, Math.min(1.7, pt.scale * this.kartScaleK));
-    let yaw = k.a - this.camA;
-    while (yaw > Math.PI) yaw -= Math.PI * 2;
-    while (yaw < -Math.PI) yaw += Math.PI * 2;
+    const baseYaw = this.relYaw(k);
+    let wob = 0;
+    if (k.wobble) { const u = k.wobble.t / k.wobble.dur; wob = k.wobble.dir * k.wobble.amp * Math.sin(u * Math.PI * 3) * (1 - u); }
+    const yaw = baseYaw + k.spinYaw + wob;
+    const frame = GP_SPRITES.frameFor(yaw);
+    k.frame = frame;
     const hopY = -k.hopZ * pt.scale;
-    const o = {
-      driver: k.driver, ghost: k.ghost, plate: k.plate,
-      lean: k.lean, roll: 0, spin: k.spin > 0 ? time * 20 : 0, yaw: Math.max(-0.9, Math.min(0.9, yaw)),
-      hot: k.boost > 0, fx: k.fx, throwing: k.ai && k.ai.throwAnim > 0 ? k.ai.throwAnim : 0,
-      wheelSpin: k.wheel, turn: k.drifting ? k.drifting * 0.5 + k.lean * 0.2 : k.lean * 0.45, braking: k.braking,
-      scared: k === this.player && (this.menace.prog - k.prog) < 0 && (this.menace.prog - k.prog) > -140
-    };
+    const cw = k.driver === 'menace' ? 'menace' : (['ember', 'rose', 'tide', 'goldie'][k.ghost ? k.ghost.id : this.ghostIndex] || 'ember');
+    const set = GP_SPRITES.ready ? GP_SPRITES.karts[cw] : null;
+    const fr = set ? set[frame] : null, ref = set ? set[0] : null;
+    const scared = k === this.player && (((this.menace.prog - k.prog) < 0 && (this.menace.prog - k.prog) > -140) || k.spin > 0);
     // Shadow stays on the road while the kart hops
     if (k.hopZ > 0.5) {
       ctx.save();
@@ -9907,7 +10159,24 @@ class GrandPrixRun {
       ctx.beginPath(); ctx.ellipse(pt.x, pt.y + 10 * s, 70 * s, 16 * s, 0, 0, Math.PI * 2); ctx.fill();
       ctx.restore();
     }
-    this.drawKart(ctx, pt.x, pt.y + hopY, s, o);
+    this._lastDrawXf = null;
+    if (fr && ref) {
+      this.drawSpriteKart(ctx, k, pt.x, pt.y + hopY, s, fr, ref, frame, yaw, scared, time);
+    } else {
+      const o = {
+        driver: k.driver, ghost: k.ghost, plate: k.plate,
+        lean: k.lean, roll: 0, spin: 0, yaw: Math.max(-0.9, Math.min(0.9, Math.sin(yaw) * 0.9)),
+        hot: k.boost > 0, fx: k.fx, throwing: k.ai && k.ai.throwAnim > 0 ? k.ai.throwAnim : 0,
+        wheelSpin: k.wheel, turn: k.drifting ? k.drifting * 0.5 + k.lean * 0.2 : k.lean * 0.45, braking: k.braking,
+        scared
+      };
+      this.drawKart(ctx, pt.x, pt.y + hopY, s, o);
+    }
+    // Spin trace: what the renderer drew the ghost's kart with, every frame of her spin-out (check 27 reads it)
+    if (k === this.player && k.spin > 0 && this.spinTrace.length < 400) {
+      const xf = this._lastDrawXf || { rot: 0, shear: 0 };
+      this.spinTrace.push({ t: this.elapsed, frame, yawDeg: yaw * 180 / Math.PI, spinYawTotal: k.spinYaw, spinDir: k.spinDir, spin: k.spin, rot: xf.rot, shear: xf.shear, sprite: !!(fr && ref) });
+    }
     // Shield bubble
     if (k.shield > 0) {
       ctx.save();
@@ -9919,8 +10188,163 @@ class GrandPrixRun {
       ctx.restore();
     }
     const rect = this.kartRect(pt.x, pt.y + hopY, s);
+    rect.frame = frame;
+    rect.sprite = !!(fr && ref);
     if (k === this.player) this.playerScreen = rect;
     else if (k === this.menace) this.menaceScreen = rect;
+  }
+
+  // The sprite kart: (x, y) is the kart's ground point, s = 1 at the ghost's own grid distance. The frame's alpha
+  // box is scaled so the rear frame is 136 kart units wide (the Round 7 kart's width), its bottom edge — the tyre
+  // contact line — sits 30 units below the ground point (the kart's near edge is closer to the camera), and the
+  // same scale serves every yaw frame so a side view is longer than a rear view, as a kart is.
+  drawSpriteKart(ctx, k, x, y, s, fr, ref, frame, yaw, scared, time) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(s, s);
+    const sideness = Math.abs(Math.sin(yaw));
+    // Soft contact shadow, longer under a side view
+    const sh = ctx.createRadialGradient(4, 12, 8, 4, 12, 74);
+    sh.addColorStop(0, 'rgba(0,0,0,0.5)'); sh.addColorStop(0.5, 'rgba(0,0,0,0.34)'); sh.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = sh;
+    ctx.beginPath(); ctx.ellipse(4, 12, 66 + 22 * sideness, 18, 0, 0, Math.PI * 2); ctx.fill();
+    // Tyre smoke and exhaust trail behind the kart (kart-local space, under the body)
+    const fx = k.fx;
+    for (const e of fx.smoke) { ctx.fillStyle = `rgba(226, 232, 240, ${0.55 * (e.life / e.maxLife)})`; ctx.beginPath(); ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2); ctx.fill(); }
+    for (const e of fx.exhaust) { ctx.fillStyle = e.hot ? `rgba(125, 211, 252, ${e.alpha * (e.life / e.maxLife)})` : `rgba(203, 213, 225, ${e.alpha * (e.life / e.maxLife)})`; ctx.beginPath(); ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2); ctx.fill(); }
+
+    const K = 136 / ref.meta.bw;
+    const m = fr.meta;
+    const dw = m.bw * K, dh = m.bh * K;
+    const dx = -dw / 2, dy = 30 - dh;
+    const seat = GP_SPRITES.seat[frame];
+    const hx = dx + seat[0] * dw, hy = dy + seat[1] * dh;
+    // The transform the kart body is drawn with: translate + scale only (rotation = atan2(b, a), shear = c / d)
+    const xf = ctx.getTransform();
+    this._lastDrawXf = { rot: Math.atan2(xf.b, xf.a), shear: xf.d ? xf.c / xf.d : 0 };
+    ctx.drawImage(fr.img, m.x0, m.y0, m.bw, m.bh, dx, dy, dw, dh);
+
+    // The driver in the seat
+    this.drawDriverHead(ctx, k, hx, hy, 15, yaw, seat[2], scared, time);
+
+    // Hot exhausts flame when the rear shows
+    if (k.boost > 0 && Math.cos(yaw) > 0.3) {
+      ctx.fillStyle = '#38bdf8';
+      ctx.shadowColor = '#38bdf8';
+      ctx.shadowBlur = 12;
+      for (const ex of [-16, 16]) { ctx.beginPath(); ctx.moveTo(ex - 6, 2); ctx.lineTo(ex, 24 + Math.random() * 12); ctx.lineTo(ex + 6, 2); ctx.closePath(); ctx.fill(); }
+      ctx.shadowBlur = 0;
+    }
+    // Drift sparks off the rear tyres
+    for (const sp of fx.sparks) {
+      ctx.fillStyle = sp.color;
+      ctx.globalAlpha = 0.35;
+      ctx.beginPath(); ctx.arc(sp.x, sp.y, 6, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.beginPath(); ctx.arc(sp.x, sp.y, 3, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // The driver's head at the seat: the possessed ghost's dome in her colour with eyes (Ember's pointed hood, Rosé's
+  // bow), or the Menace's yellow dome with angry brows and his grin. From behind only the back of the dome (and the
+  // Menace's goggle band) shows; the eyes slide toward the nose side as the kart turns. `cut` hides the part of the
+  // dome below the seat point that the tub covers in side and front views. A small lean stays on the head only.
+  drawDriverHead(ctx, k, hx, hy, r, yaw, cut, scared, time) {
+    const menace = k.driver === 'menace';
+    const ghost = k.ghost || this.game.ghosts[this.ghostIndex];
+    const col = menace ? '#fbc531' : (ghost ? ghost.color : '#ec4899');
+    const face = -Math.cos(yaw);             // 1 = facing the camera, -1 = facing away
+    const side = Math.sin(yaw);              // the nose's direction on screen (+ = right)
+    ctx.save();
+    ctx.translate(hx + k.lean * 2.5, hy);
+    ctx.rotate(k.lean * 0.06);
+    if (cut !== null && cut !== undefined) { ctx.beginPath(); ctx.rect(-r * 2, -r * 2, r * 4, r * 2 + r * cut); ctx.clip(); }
+    // Dome
+    ctx.fillStyle = col;
+    ctx.shadowColor = menace ? 'rgba(255, 51, 68, 0.9)' : col;
+    ctx.shadowBlur = menace ? 10 : 6;
+    ctx.beginPath();
+    if (!menace && ghost && ghost.id === 0) {
+      ctx.moveTo(-r, r * 0.45);
+      ctx.lineTo(-r, -r * 0.1);
+      ctx.quadraticCurveTo(-r * 0.9, -r * 0.95, side * r * 0.25, -r * 1.35);
+      ctx.quadraticCurveTo(r * 0.9, -r * 0.95, r, -r * 0.1);
+      ctx.lineTo(r, r * 0.45);
+    } else {
+      ctx.moveTo(-r, r * 0.45);
+      ctx.lineTo(-r, 0);
+      ctx.arc(0, 0, r, Math.PI, Math.PI * 2);
+      ctx.lineTo(r, r * 0.45);
+    }
+    ctx.quadraticCurveTo(r * 0.5, r * 0.75, 0, r * 0.6);
+    ctx.quadraticCurveTo(-r * 0.5, r * 0.75, -r, r * 0.45);
+    ctx.closePath();
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    const hl = ctx.createRadialGradient(-r * 0.35, -r * 0.45, r * 0.1, 0, 0, r * 1.1);
+    hl.addColorStop(0, 'rgba(255,255,255,0.35)'); hl.addColorStop(0.55, 'rgba(255,255,255,0)'); hl.addColorStop(1, 'rgba(0,0,0,0.28)');
+    ctx.fillStyle = hl;
+    ctx.fill();
+    if (menace) {
+      // Goggle band round the back of his head
+      ctx.fillStyle = '#ef4444';
+      ctx.fillRect(-r * 0.95, -r * 0.62, r * 1.9, r * 0.2);
+      if (face <= -0.25) {
+        ctx.fillStyle = '#0f172a';
+        ctx.beginPath(); ctx.arc(-r * 0.35, -r * 0.52, r * 0.22, 0, Math.PI * 2); ctx.arc(r * 0.35, -r * 0.52, r * 0.22, 0, Math.PI * 2); ctx.fill();
+      }
+    } else if (ghost && ghost.id === 1) {
+      // Rosé's bow on the side of her hood
+      ctx.fillStyle = '#ff79b0';
+      ctx.beginPath(); ctx.arc(-r * 0.55 - side * r * 0.2, -r * 0.6, r * 0.2, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#ff2a85';
+      ctx.beginPath(); ctx.arc(-r * 0.42 - side * r * 0.2, -r * 0.6, r * 0.1, 0, Math.PI * 2); ctx.arc(-r * 0.68 - side * r * 0.2, -r * 0.6, r * 0.1, 0, Math.PI * 2); ctx.fill();
+    }
+    // Face: eyes (and brows / grin) when the driver is not facing away
+    if (face > -0.25) {
+      const open = Math.max(0, Math.min(1, (face + 0.25) / 1.25));
+      const ex = side * r * 0.38, sep = r * 0.06 + r * 0.3 * open, ey = -r * 0.1;
+      const er = (scared ? 0.27 : 0.21) * r;
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath(); ctx.ellipse(ex - sep, ey, er * (0.6 + 0.4 * open), er, 0, 0, Math.PI * 2); ctx.ellipse(ex + sep, ey, er * (0.6 + 0.4 * open), er, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#0f172a';
+      const pr = (scared ? 0.08 : 0.1) * r, px = side * r * 0.05;
+      ctx.beginPath(); ctx.arc(ex - sep + px, ey, pr, 0, Math.PI * 2); ctx.arc(ex + sep + px, ey, pr, 0, Math.PI * 2); ctx.fill();
+      if (menace) {
+        // Angry brows slanting in, and the grin
+        ctx.strokeStyle = '#7c2d12';
+        ctx.lineWidth = r * 0.14;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(ex - sep - er * 1.1, ey - er * 1.7); ctx.lineTo(ex - sep + er * 0.5, ey - er * 1.05);
+        ctx.moveTo(ex + sep + er * 1.1, ey - er * 1.7); ctx.lineTo(ex + sep - er * 0.5, ey - er * 1.05);
+        ctx.stroke();
+        ctx.fillStyle = '#3b0a0a';
+        ctx.beginPath(); ctx.arc(ex * 0.8, r * 0.18, r * 0.42 * (0.5 + 0.5 * open), 0.1, Math.PI - 0.1); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(ex * 0.8 - r * 0.38 * (0.5 + 0.5 * open), r * 0.2, r * 0.76 * (0.5 + 0.5 * open), r * 0.09);
+      } else if (scared) {
+        ctx.fillStyle = '#0f172a';
+        ctx.beginPath(); ctx.ellipse(ex * 0.8, r * 0.3, r * 0.14, r * 0.12, 0, 0, Math.PI * 2); ctx.fill();
+      } else if (ghost && (ghost.id === 1 || ghost.id === 3)) {
+        ctx.strokeStyle = ghost.id === 1 ? '#be185d' : '#b45309';
+        ctx.lineWidth = r * 0.08;
+        ctx.beginPath(); ctx.arc(ex * 0.8, r * 0.22, r * 0.18, 0.2, Math.PI - 0.2); ctx.stroke();
+      }
+    }
+    // The Menace cocks a pellet bomb over his head mid-throw
+    if (menace && k.ai && k.ai.throwAnim > 0) {
+      const t = k.ai.throwAnim / 0.5;
+      const bx = (side >= 0 ? -1 : 1) * r * 1.1, by = -r * 1.1 - t * r * 0.6;
+      ctx.fillStyle = '#0f172a';
+      ctx.beginPath(); ctx.arc(bx, by, r * 0.42, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#ffd32a';
+      ctx.fillRect(bx - r * 0.42, by - r * 0.08, r * 0.84, r * 0.16);
+      ctx.fillStyle = '#f97316';
+      ctx.beginPath(); ctx.arc(bx + r * 0.25, by - r * 0.5, r * 0.12, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
   }
 
   // Trackside props in original dress; sizes in world units through the projection scale
@@ -9929,7 +10353,21 @@ class GrandPrixRun {
     const dim = Math.min(1, Math.max(0, (pt.z - 1400) / 1000));
     ctx.save();
     ctx.translate(pt.x, pt.y);
-    if (pr.kind === 'tree') {
+    const treeImg = pr.kind === 'tree' && GP_SPRITES.treesReady ? GP_SPRITES.trees[pr.v % 3] : null;
+    const standImg = pr.kind === 'stand' && GP_SPRITES.crowdReady ? (pr.v ? GP_SPRITES.crowd.angle : GP_SPRITES.crowd.front) : null;
+    if (treeImg) {
+      // Round 11: the Tripo cartoon tree, one of three azimuths per instance, trunk base on the ground point
+      const th = (104 + pr.v * 10) * u, tw = th * treeImg.naturalWidth / treeImg.naturalHeight;
+      ctx.fillStyle = 'rgba(0,0,0,0.28)';
+      ctx.beginPath(); ctx.ellipse(0, 0, tw * 0.42, tw * 0.13, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.drawImage(treeImg, -tw / 2, -th + 3 * u, tw, th);
+    } else if (standImg) {
+      // Round 11: a bleacher of ghost spectators — the front sprite faces the track, the angled one sits at a corner
+      const w = 196 * u, h = w * standImg.naturalHeight / standImg.naturalWidth;
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.beginPath(); ctx.ellipse(0, 0, w * 0.5, w * 0.11, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.drawImage(standImg, -w / 2, -h + 4 * u, w, h);
+    } else if (pr.kind === 'tree') {
       const h = (86 + pr.v * 10) * u, w = (34 + pr.v * 4) * u;
       ctx.fillStyle = 'rgba(0,0,0,0.28)';
       ctx.beginPath(); ctx.ellipse(0, 0, w * 0.9, w * 0.3, 0, 0, Math.PI * 2); ctx.fill();
@@ -9999,7 +10437,7 @@ class GrandPrixRun {
         ctx.fillRect(dir > 0 ? 2 * u + i * fw / 4 : -2 * u - (i + 1) * fw / 4, -h + j * fh / 3 + wave, fw / 4 + 0.5, fh / 3 + 0.5);
       }
     }
-    if (dim > 0) { ctx.globalAlpha = dim * 0.5; ctx.fillStyle = '#fff3bd'; ctx.fillRect(-160 * u, -140 * u, 320 * u, 150 * u); }
+    if (dim > 0) { ctx.globalAlpha = dim * 0.5; ctx.fillStyle = '#fff3bd'; ctx.fillRect(-160 * u, -240 * u, 320 * u, 250 * u); }
     ctx.restore();
   }
 
@@ -10258,8 +10696,11 @@ class GrandPrixRun {
     sh.addColorStop(0, 'rgba(0,0,0,0.5)'); sh.addColorStop(0.5, 'rgba(0,0,0,0.34)'); sh.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = sh;
     ctx.beginPath(); ctx.ellipse(4, 12, 74, 18, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.rotate(o.spin ? o.spin : o.lean * 0.1 + o.roll);
+    // Round 11: no in-plane rotation of the kart, ever (the old roll on a spin-out was the bug). The vector kart is
+    // the load-failure fallback; its heading relative to the camera is shown by a shear, and a spin-out slews that
+    // shear back and forth flat on the road.
     if (o.yaw) ctx.transform(1, 0, -o.yaw * 0.42, 1, 0, 0);   // Heading relative to the camera: a drifting kart is seen angled
+    { const xf = ctx.getTransform(); this._lastDrawXf = { rot: Math.atan2(xf.b, xf.a), shear: xf.d ? xf.c / xf.d : 0 }; }
     const fx = o.fx;
     // Tyre smoke and exhaust trail behind the kart
     for (const e of fx.smoke) { ctx.fillStyle = `rgba(226, 232, 240, ${0.55 * (e.life / e.maxLife)})`; ctx.beginPath(); ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2); ctx.fill(); }
