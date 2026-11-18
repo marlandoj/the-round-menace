@@ -3934,9 +3934,15 @@ function routeFlip(col, row) {
   return { requested, kind, fellBack: kind !== requested };
 }
 
-// 3b. GREEN VALLEY — the side-scrolling chase the top-left power pellet throws the possessed ghost into.
-// Original canvas art only: layered parallax hills, grass, flowers, simple trees, rocks and logs.
-// The ghost auto-runs right; the Menace pursues from the left curled into a rolling ball.
+// 3b. GREEN VALLEY — the momentum runner the top-left power pellet throws the possessed ghost into.
+// Round 8: a clean-room re-implementation of the 16-bit momentum-platformer ENGINE in original code and art:
+// the ground is a smooth heightfield with real grades (uphill bleeds speed, downhill builds it), a half-pipe
+// dip and one full LOOP the runner traverses on angular momentum (and falls out of if too slow); speed builds
+// over distance toward a top speed, with inertia carried into the air; rings are the health — the Menace,
+// rolling in ball form on the same momentum rules, scatters them on contact (re-collectable for a moment),
+// and a touch with none left is the catch; springs launch, spikes catch; the camera leads with speed.
+// Controls: hold-forward run; JUMP (hold for height, release to cut); DOWN curls into a roll (faster downhill,
+// faster fall); hold LEFT to brake.
 class ValleyRun {
   constructor(game, ghostIndex) {
     this.game = game;
@@ -3953,44 +3959,61 @@ class ValleyRun {
     this.bannerColor = '#ff3344';
     this.exitBanner = 'BACK THROUGH THE GATE';
     this.surviveText = 'Gate reached! Survival +200';
-    this.pressToJump = false;               // Valley jumps are a fixed height: tap = jump
+    this.pressToJump = true;                // Hold to rise: jump on the press, release cuts the jump
 
-    this.runSpeed = 170;                    // Ghost auto-run (logical px / s)
-    this.duration = 22;                     // Seconds of clean running to the MAZE GATE
-    this.gateX = this.runSpeed * this.duration;
+    // Engine tuning (px, px/s, px/s²)
+    this.topSpeed = 230;                    // Hold-forward speed built on the flat
+    this.accel = 220;                       // Toward topSpeed on the flat
+    this.maxSpeed = 560;                    // Cap for downhill / spring momentum
+    this.slopeAccel = 1000;                 // × grade: gravity along the ground
+    this.overspeedDrag = 110;               // Bleed above topSpeed on the flat
+    this.brakeDecel = 700;
     this.gravity = 1500;
-    this.jumpV = 640;                       // One jump height (~136 px) clears every obstacle (max 28 px)
+    this.jumpV = 560;
+    this.jumpCutV = 170;
+    this.loopG = 350;                       // Tangential gravity inside the loop
+    this.loopEntrySpeed = 300;              // Slower than this and the runner just runs along the bottom
+    this.runSpeed = this.topSpeed;          // Kept for the HUD estimate
     this.tearInDuration = 0.7;
 
     this.phase = 'tear_in';                 // tear_in -> run -> survived | caught
     this.phaseT = 0;
     this.elapsed = 0;
     this.outcome = null;
-    this.camX = -200;
+
+    this.baseY = this.H * 0.74;
+    this.buildCourse();
+    this.gateX = this.courseLength;
+    this.duration = this.gateX / 190;       // Clean-run seconds to the MAZE GATE (HUD estimate)
+
+    this.ghost = {
+      x: 40, y: 0, vx: 0, vy: 0, w: 26, h: 34, grounded: true, rolling: false, jumpHeld: false, holdT: 0,
+      inLoop: false, theta: 0, loopV: 0, rings: 0, hurtTimer: 0, dust: 0, runT: 0, spin: 0, brake: 0, input: 0,
+      speedNow: 0, grade: 0, fellOut: 0, hits: 0, springs: 0, loops: 0
+    };
+    this.menace = {
+      x: -220, y: 0, vx: 0, vy: 0, r: 22, grounded: true, inLoop: false, theta: 0, loopV: 0,
+      top: this.topSpeed * 0.94,            // His own top speed starts just below hers...
+      gain: cfg.valleyMenaceGain,           // ...and gains steadily
+      slowTimer: 0, rot: 0, squash: 0, speedNow: 0, dustTimer: 0, frozen: false
+    };
+    this.ghost.y = this.groundY(this.ghost.x);
+    this.menace.y = this.groundY(this.menace.x) - this.menace.r;
+    this.camX = -120;
+    this.nearPulse = 0;
+
+    this.collected = 0;                     // Rings banked this run (score)
+    this.chain = 0;                         // Rings toward the next surge (10)
+    this.surges = 0;
+    this.scattered = 0;                     // Rings knocked loose by hits
+    this.surgeFx = 0;
+    this.hitFx = 0;
+    this.particles = [];
+    this.pops = [];
+    this.looseRings = [];
 
     this.rng = ValleyRun.makeRng(7919 + game.mazeIndex * 131 + game.pelletsEatenByMenace * 7);
-
-    this.ghost = { x: 0, y: 0, vy: 0, grounded: true, w: 26, h: 34, stumbleTimer: 0, fastFall: false, dust: 0, runT: 0, speedNow: this.runSpeed };
-    this.menace = {
-      x: -230, y: 0, r: 22,
-      speed: this.runSpeed * 0.93,          // Starts just below the ghost's run speed...
-      gain: cfg.valleyMenaceGain,           // ...and gains steadily
-      slowTimer: 0, rot: 0, squash: 0, speedNow: 0
-    };
-    this.nearPulse = 0;                      // Near-catch screen pulse (0..1)
-
-    this.obstacles = [];
-    this.pellets = [];
-    this.collected = 0;
-    this.chain = 0;                          // Pellets toward the next surge (10)
-    this.surges = 0;
-    this.surgeFx = 0;
-    this.particles = [];
-
-    this.buildCourse();
     this.buildScenery();
-    this.ghost.y = this.groundY(0);
-    this.menace.y = this.groundY(this.menace.x) - this.menace.r;
   }
 
   // Small deterministic PRNG so a course is reproducible for its seed
@@ -4004,113 +4027,105 @@ class ValleyRun {
     };
   }
 
-  // Gently rolling ground with two signature steep slope sections (a long climb-and-drop and a short ramp)
+  // ===== Course (fixed original layout) =====
+  // The heightfield is a cosine-interpolated profile over control points [x, drop] (drop > 0 is lower ground),
+  // with the loop, half-pipes, springs, spikes and ring lines placed along it.
+  buildCourse() {
+    this.profile = [
+      [0, 0], [500, 0], [700, -48], [900, 0],               // a first hill
+      [1070, 82], [1250, 0],                                // half-pipe dip
+      [1500, 0], [1900, 112], [2240, 112],                  // the long downhill into the loop's flat
+      [2620, 0], [3080, 0],                                 // the climb back up
+      [3240, 70], [3400, 0],                                // a second, shallower dip
+      [3900, 0], [4400, 0]
+    ];
+    this.courseLength = 3900;
+    this.loop = { cx: 2060, r: 70 };
+    this.loop.cy = this.groundY(this.loop.cx) - this.loop.r;
+    this.springs = [{ x: 1320, t: 0 }, { x: 2760, t: 0 }];
+    this.spikes = [{ x0: 1420, x1: 1480 }, { x0: 2920, x1: 2975 }, { x0: 3560, x1: 3610 }];
+
+    // Rings: lines on the flats and slopes, arcs over the spikes, a circle inside the loop
+    this.rings = [];
+    const add = (x, lift) => this.rings.push({ x, lift, taken: false });
+    const line = (x0, x1, step, lift) => { for (let x = x0; x <= x1; x += step) add(x, lift); };
+    line(220, 420, 40, 30);
+    line(620, 780, 40, 36);
+    line(960, 1200, 40, 32);
+    for (let k = 0; k < 6; k++) add(1380 + k * 32, 60 + Math.sin(k / 5 * Math.PI) * 70);
+    line(1560, 1840, 40, 34);
+    for (let k = 0; k < 8; k++) {
+      const a = k / 8 * Math.PI * 2;
+      this.rings.push({ x: this.loop.cx + Math.cos(a) * (this.loop.r - 26), lift: 0, absY: this.loop.cy + Math.sin(a) * (this.loop.r - 26), taken: false });
+    }
+    line(2300, 2560, 40, 34);
+    for (let k = 0; k < 6; k++) add(2880 + k * 30, 60 + Math.sin(k / 5 * Math.PI) * 70);
+    line(3020, 3180, 40, 32);
+    line(3300, 3480, 36, 36);
+    for (let k = 0; k < 5; k++) add(3540 + k * 30, 56 + Math.sin(k / 4 * Math.PI) * 66);
+    line(3680, 3800, 40, 30);
+  }
+
+  // Ground height at world x (screen y): cosine interpolation between profile points
   groundY(x) {
-    let y = this.H * 0.78 + Math.sin(x * 0.0042) * 20 + Math.sin(x * 0.0115 + 1.9) * 9;
-    if (x >= 1000 && x <= 1800) {
-      const slopeT = (x - 1000) / 800;
-      y -= Math.sin(slopeT * Math.PI) * 82;
+    const p = this.profile;
+    if (x <= p[0][0]) return this.baseY + p[0][1];
+    for (let i = 1; i < p.length; i++) {
+      if (x <= p[i][0]) {
+        const [x0, d0] = p[i - 1], [x1, d1] = p[i];
+        const t = (x - x0) / (x1 - x0);
+        const s = 0.5 - 0.5 * Math.cos(t * Math.PI);
+        return this.baseY + d0 + (d1 - d0) * s;
+      }
     }
-    if (x >= 2700 && x <= 3200) {
-      const slopeT = (x - 2700) / 500;
-      y -= Math.sin(slopeT * Math.PI) * 58;
-    }
-    return y;
+    return this.baseY + p[p.length - 1][1];
   }
 
   // Grade under a point: positive = downhill in the run direction (y grows), negative = climbing
   slopeAt(x) {
-    return (this.groundY(x + 10) - this.groundY(x - 10)) / 20;
-  }
-
-  buildCourse() {
-    let x = 520;
-    while (x < this.gateX - 420) {
-      const type = this.rng() < 0.5 ? 'rock' : 'log';
-      const w = type === 'rock' ? 30 : 46;
-      const h = type === 'rock' ? 26 : 20;
-      this.obstacles.push({ x, w, h, type, hit: false, smashed: false, seed: this.rng() });
-
-      // An arc of pellets over the obstacle: jump to collect
-      for (let k = 0; k < 5; k++) {
-        const px = x - 70 + k * 35;
-        const lift = 46 + Math.sin((k / 4) * Math.PI) * 50;
-        this.pellets.push({ x: px, lift, taken: false });
-      }
-
-      // Sometimes a low run of pellets between obstacles
-      if (this.rng() < 0.5) {
-        const start = x + 130;
-        const n = 4 + Math.floor(this.rng() * 3);
-        for (let k = 0; k < n; k++) this.pellets.push({ x: start + k * 30, lift: 30, taken: false });
-      }
-
-      x += 330 + this.rng() * 170;
-    }
+    return (this.groundY(x + 8) - this.groundY(x - 8)) / 16;
   }
 
   buildScenery() {
+    const L = this.gateX;
     this.clouds = [];
-    for (let i = 0; i < 7; i++) {
-      this.clouds.push({ x: i * 230 + this.rng() * 120, y: 40 + this.rng() * 70, s: 0.7 + this.rng() * 0.8 });
-    }
+    for (let i = 0; i < 7; i++) this.clouds.push({ x: i * 230 + this.rng() * 120, y: 40 + this.rng() * 70, s: 0.7 + this.rng() * 0.8 });
     this.cloudsHigh = [];
-    for (let i = 0; i < 9; i++) {
-      this.cloudsHigh.push({ x: i * 170 + this.rng() * 90, y: 110 + this.rng() * 90, s: 0.45 + this.rng() * 0.4 });
-    }
+    for (let i = 0; i < 9; i++) this.cloudsHigh.push({ x: i * 170 + this.rng() * 90, y: 110 + this.rng() * 90, s: 0.45 + this.rng() * 0.4 });
     this.birds = [];
-    for (let i = 0; i < 6; i++) {
-      this.birds.push({ x: i * 260 + this.rng() * 200, y: 70 + this.rng() * 130, s: 0.7 + this.rng() * 0.6, ph: this.rng() * 6 });
-    }
+    for (let i = 0; i < 6; i++) this.birds.push({ x: i * 260 + this.rng() * 200, y: 70 + this.rng() * 130, s: 0.7 + this.rng() * 0.6, ph: this.rng() * 6 });
     // Round 7: trees come in kinds (tall palm, squat palm, round broadleaf), at three parallax depths
     this.trees = [];
-    for (let x = -200; x < this.gateX * 0.45 + 600; x += 70 + this.rng() * 110) {
-      this.trees.push({ x, s: 0.8 + this.rng() * 0.7, shade: this.rng(), kind: Math.floor(this.rng() * 3) });
-    }
+    for (let x = -200; x < L * 0.45 + 600; x += 70 + this.rng() * 110) this.trees.push({ x, s: 0.8 + this.rng() * 0.7, shade: this.rng(), kind: Math.floor(this.rng() * 3) });
     this.farTrees = [];
-    for (let x = -200; x < this.gateX * 0.2 + 600; x += 50 + this.rng() * 70) {
-      this.farTrees.push({ x, s: 0.5 + this.rng() * 0.4, kind: Math.floor(this.rng() * 3) });
-    }
+    for (let x = -200; x < L * 0.2 + 600; x += 50 + this.rng() * 70) this.farTrees.push({ x, s: 0.5 + this.rng() * 0.4, kind: Math.floor(this.rng() * 3) });
     this.nearTrees = [];
-    for (let x = -200; x < this.gateX * 0.7 + 600; x += 150 + this.rng() * 220) {
-      this.nearTrees.push({ x, s: 1.0 + this.rng() * 0.5, shade: this.rng(), kind: Math.floor(this.rng() * 3) });
-    }
+    for (let x = -200; x < L * 0.7 + 600; x += 150 + this.rng() * 220) this.nearTrees.push({ x, s: 1.0 + this.rng() * 0.5, shade: this.rng(), kind: Math.floor(this.rng() * 3) });
     this.nearBushes = [];
-    for (let x = -200; x < this.gateX * 0.7 + 600; x += 40 + this.rng() * 70) {
-      this.nearBushes.push({ x, r: 11 + this.rng() * 9, lobes: 2 + Math.floor(this.rng() * 3), shade: this.rng() });
-    }
+    for (let x = -200; x < L * 0.7 + 600; x += 40 + this.rng() * 70) this.nearBushes.push({ x, r: 11 + this.rng() * 9, lobes: 2 + Math.floor(this.rng() * 3), shade: this.rng() });
     this.waterfalls = [];
     for (let i = 0; i < 2; i++) this.waterfalls.push({ x: 120 + i * 330 + this.rng() * 120, w: 7 + this.rng() * 5, h: 34 + this.rng() * 22 });
-    this.flowers = [];
     const palette = ['#f472b6', '#fbbf24', '#f87171', '#c084fc', '#f8fafc', '#fb923c'];
-    for (let x = -100; x < this.gateX + 300; x += 26 + this.rng() * 60) {
-      const c = palette[Math.floor(this.rng() * palette.length)];
-      this.flowers.push({ x, c, c2: palette[Math.floor(this.rng() * palette.length)], s: 0.7 + this.rng() * 0.6 });
+    const clear = x => !this.spikes.some(s => x > s.x0 - 30 && x < s.x1 + 30) && !this.springs.some(s => Math.abs(s.x - x) < 36) && Math.abs(x - this.loop.cx) > this.loop.r + 30;
+    this.flowers = [];
+    for (let x = -100; x < L + 300; x += 26 + this.rng() * 60) {
+      if (!clear(x)) continue;
+      this.flowers.push({ x, c: palette[Math.floor(this.rng() * palette.length)], c2: palette[Math.floor(this.rng() * palette.length)], s: 0.7 + this.rng() * 0.6 });
     }
     this.grassTufts = [];
-    for (let x = -100; x < this.gateX + 300; x += 10 + this.rng() * 22) {
-      this.grassTufts.push({ x, h: 5 + this.rng() * 8, lean: this.rng() - 0.5 });
-    }
-    // Round 6 density: sunflowers, carved wooden posts and bushes along the run, mid-ground bushes and extra trees
+    for (let x = -100; x < L + 300; x += 10 + this.rng() * 22) this.grassTufts.push({ x, h: 5 + this.rng() * 8, lean: this.rng() - 0.5 });
     this.sunflowers = [];
-    for (let x = 160; x < this.gateX + 200; x += 170 + this.rng() * 260) {
-      const near = this.obstacles.some(o => Math.abs(o.x - x) < 70);
-      if (!near) this.sunflowers.push({ x, h: 34 + this.rng() * 26, s: 0.8 + this.rng() * 0.5, sway: this.rng() * 6 });
-    }
+    for (let x = 160; x < L + 200; x += 170 + this.rng() * 260) if (clear(x)) this.sunflowers.push({ x, h: 34 + this.rng() * 26, s: 0.8 + this.rng() * 0.5, sway: this.rng() * 6 });
     this.posts = [];
-    for (let x = 320; x < this.gateX - 300; x += 520 + this.rng() * 420) {
-      const near = this.obstacles.some(o => Math.abs(o.x - x) < 70) || this.sunflowers.some(f => Math.abs(f.x - x) < 40);
-      if (!near) this.posts.push({ x, h: 44 + this.rng() * 18, face: Math.floor(this.rng() * 3) });
+    for (let x = 320; x < L - 300; x += 520 + this.rng() * 420) {
+      if (clear(x) && !this.sunflowers.some(f => Math.abs(f.x - x) < 40)) this.posts.push({ x, h: 44 + this.rng() * 18, face: Math.floor(this.rng() * 3) });
     }
     this.bushes = [];
-    for (let x = -200; x < this.gateX + 300; x += 120 + this.rng() * 200) {
-      const near = this.obstacles.some(o => Math.abs(o.x - x) < 60) || this.posts.some(f => Math.abs(f.x - x) < 50);
-      if (!near) this.bushes.push({ x, r: 12 + this.rng() * 9, lobes: 2 + Math.floor(this.rng() * 2), shade: this.rng() });
+    for (let x = -200; x < L + 300; x += 120 + this.rng() * 200) {
+      if (clear(x) && !this.posts.some(f => Math.abs(f.x - x) < 50)) this.bushes.push({ x, r: 12 + this.rng() * 9, lobes: 2 + Math.floor(this.rng() * 2), shade: this.rng() });
     }
     this.midBushes = [];
-    for (let x = -200; x < this.gateX * 0.45 + 600; x += 60 + this.rng() * 90) {
-      this.midBushes.push({ x, r: 10 + this.rng() * 10, shade: this.rng() });
-    }
+    for (let x = -200; x < L * 0.45 + 600; x += 60 + this.rng() * 90) this.midBushes.push({ x, r: 10 + this.rng() * 10, shade: this.rng() });
     this.sparkles = [];
     for (let i = 0; i < 26; i++) this.sparkles.push({ x: this.rng() * 600, ph: this.rng() * 6 });
   }
@@ -4118,50 +4133,15 @@ class ValleyRun {
   puff(x, y, n, color) {
     for (let i = 0; i < n; i++) this.particles.push(new Particle(x, y, color));
   }
+  pop(x, y, text, color = '#fde047') { this.pops.push({ x, y, text, color, t: 0 }); }
 
-  // Player input
-  jump() {
-    if (this.phase !== 'run' || !this.ghost.grounded) return false;
-    this.ghost.grounded = false;
-    this.ghost.vy = -this.jumpV;
-    this.ghost.fastFall = false;
-    this.puff(this.ghost.x, this.ghost.y, 5, '#d9f99d');
-    return true;
-  }
-
-  jumpRelease() { /* fixed-height jump: nothing to release */ }
-
-  fastFall() {
-    if (this.phase !== 'run' || this.ghost.grounded) return false;
-    this.ghost.fastFall = true;
-    this.ghost.vy = Math.max(this.ghost.vy, 220);
-    return true;
-  }
-
-  // HUD meter contract
-  progress() { return Math.max(0, Math.min(1, this.ghost.x / this.gateX)); }
-  menaceProgress() { return Math.max(0, Math.min(1, this.menace.x / this.gateX)); }
-  remainingSeconds() { return Math.max(0, (this.gateX - this.ghost.x) / this.runSpeed); }
-
-  surge() {
-    const m = this.menace;
-    this.surges++;
-    m.x -= 110;
-    m.slowTimer = Math.max(m.slowTimer, 0.8);
-    this.surgeFx = 0.7;
-    this.game.sound.playSurge();
-    this.game.showNotification('SURGE! The Menace is pushed back!');
-    this.game.shakeDuration = 0.12;
-    this.game.shakeIntensity = 5;
-  }
-
-  // Tan dust puffs that grow and fade (feet, landings, the rolling Menace)
+  // Tan dust puffs that grow and fade
   dust(x, y, n, big) {
     for (let i = 0; i < n; i++) {
       this.particles.push({
         x: x + (Math.random() - 0.5) * 10, y: y - Math.random() * 4,
-        vx: -30 - Math.random() * 50, vy: -14 - Math.random() * 22,
-        r: (big ? 5 : 3) + Math.random() * 3, life: 0.42 + Math.random() * 0.2, maxLife: 0.6,
+        vx: -26 - Math.random() * 40, vy: -12 - Math.random() * 20,
+        r: (big ? 5 : 3) + Math.random() * 3, life: 0.4 + Math.random() * 0.2, maxLife: 0.6,
         update(pdt) { this.life -= pdt; this.x += this.vx * pdt; this.y += this.vy * pdt; this.vy += 18 * pdt; this.r += pdt * 9; },
         draw(pctx) {
           const a = Math.max(0, this.life / this.maxLife);
@@ -4172,11 +4152,10 @@ class ValleyRun {
     }
   }
 
-  // Four-point sparkle stars for pellet pickups
   sparkleBurst(x, y) {
     for (let s = 0; s < 8; s++) {
       const ang = (s / 8) * Math.PI * 2 + Math.random() * 0.4;
-      const spd = 60 + Math.random() * 70;
+      const spd = 55 + Math.random() * 65;
       this.particles.push({
         x, y, vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd - 30, life: 0.45, maxLife: 0.45, rot: Math.random() * 3,
         color: s % 2 ? '#ffffff' : '#ffd32a',
@@ -4196,21 +4175,195 @@ class ValleyRun {
         }
       });
     }
-    this.pops = this.pops || [];
-    this.pops.push({ x, y: y - 10, text: '+25', t: 0 });
+  }
+
+  // ===== Player input =====
+  jump() {
+    if (this.phase !== 'run') return false;
+    const g = this.ghost;
+    g.jumpHeld = true;
+    if (g.inLoop || !g.grounded) return false;
+    g.grounded = false;
+    g.vy = -this.jumpV;
+    g.holdT = 0;
+    g.rolling = false;
+    this.puff(g.x, g.y, 5, '#d9f99d');
+    this.dust(g.x, g.y, 4, true);
+    return true;
+  }
+
+  jumpRelease() {
+    const g = this.ghost;
+    g.jumpHeld = false;
+    if (!g.grounded && !g.inLoop && g.vy < -this.jumpCutV) g.vy = -this.jumpCutV;
+  }
+
+  // DOWN: curl into a roll — faster downhill on the ground, a faster drop in the air
+  fastFall() {
+    const g = this.ghost;
+    if (this.phase !== 'run') return false;
+    g.rolling = true;
+    if (!g.grounded && !g.inLoop) g.vy = Math.max(g.vy, 260);
+    return true;
+  }
+
+  steer(dir) { if (this.phase === 'run') this.ghost.input = dir; }
+  steerRelease(dir) { if (this.ghost.input === dir) this.ghost.input = 0; }
+
+  // ===== HUD meter contract =====
+  progress() { return Math.max(0, Math.min(1, this.ghost.x / this.gateX)); }
+  menaceProgress() { return Math.max(0, Math.min(1, this.menace.x / this.gateX)); }
+  remainingSeconds() { return Math.max(0, (this.gateX - this.ghost.x) / Math.max(this.topSpeed, this.ghost.speedNow || 1)); }
+  extraInfo() {
+    const g = this.ghost, m = this.menace;
+    return {
+      speed: g.speedNow, vx: g.vx, vy: g.vy, grade: g.grade, grounded: g.grounded, inLoop: g.inLoop, theta: g.theta, rolling: g.rolling,
+      rings: g.rings, scattered: this.scattered, looseRings: this.looseRings.length, hits: g.hits, fellOut: g.fellOut, loops: g.loops, springs: g.springs,
+      ghostX: g.x, ghostY: g.y, menaceX: m.x, menaceY: m.y, menaceSpeed: m.speedNow, menaceInLoop: m.inLoop, gap: g.x - m.x,
+      ghostScreen: { x: g.x - this.camX, y: g.y }, menaceScreen: { x: m.x - this.camX, y: m.y },
+      bothInFrame: (m.x - this.camX - m.r) >= 0 && (g.x - this.camX + 20) <= this.W
+    };
+  }
+
+  // Test / tuning hooks: place the runner at a speed, hand her rings, park the Menace, find terrain
+  debug(cmd, arg) {
+    const g = this.ghost, m = this.menace;
+    if (cmd === 'place') {
+      g.x = arg.x; g.y = this.groundY(g.x); g.vx = arg.speed !== undefined ? arg.speed : g.vx; g.vy = 0;
+      g.grounded = true; g.inLoop = false; g.rolling = false; g.input = 0;
+      if (arg.rings !== undefined) g.rings = arg.rings;
+      return { x: g.x, y: g.y, vx: g.vx };
+    }
+    if (cmd === 'placeMenace') { m.x = arg.x; m.y = this.groundY(m.x) - m.r; m.vx = arg.speed !== undefined ? arg.speed : m.vx; m.vy = 0; m.grounded = true; m.inLoop = false; return { x: m.x }; }
+    if (cmd === 'freezeMenace') { m.frozen = !!arg; return m.frozen; }
+    if (cmd === 'rings') { g.rings = arg | 0; return g.rings; }
+    if (cmd === 'terrain') {
+      // Representative points: a flat stretch and the top of the long downhill, each with room to run
+      return { flatX: 60, downhillX: 1560, downhillGrade: this.slopeAt(1700), loop: this.loop, spikes: this.spikes, springs: this.springs };
+    }
+    return null;
+  }
+
+  // ===== Simulation =====
+  surge() {
+    const m = this.menace;
+    this.surges++;
+    if (!m.inLoop) { m.x -= 120; m.y = this.groundY(m.x) - m.r; }
+    m.vx *= 0.5;
+    m.slowTimer = Math.max(m.slowTimer, 1.0);
+    this.surgeFx = 0.7;
+    this.game.sound.playSurge();
+    this.game.showNotification('SURGE! The Menace is pushed back!');
+    this.game.shakeDuration = 0.12;
+    this.game.shakeIntensity = 5;
+  }
+
+  enterLoop(b) {
+    b.inLoop = true;
+    b.theta = 0;
+    b.loopV = b.vx;
+    b.grounded = false;
+    b.rolling = false;
+  }
+
+  // One step of angular motion around the loop. theta runs from the bottom (0) up the right side (π/2), over
+  // the top (π) and down the left side (3π/2) back to the bottom (2π). Tangential gravity slows the climb and
+  // speeds the descent; in the upper half the runner needs v² ≥ g·R·(−cos θ) to stay pressed to the track.
+  loopStep(b, dt) {
+    const L = this.loop;
+    b.loopV -= this.loopG * Math.sin(b.theta) * dt;
+    b.theta += (b.loopV / L.r) * dt;
+    b.x = L.cx + Math.sin(b.theta) * L.r;
+    b.y = L.cy + Math.cos(b.theta) * L.r + (b.r ? -b.r : 0);
+    const cosT = Math.cos(b.theta);
+    const stalled = b.loopV <= 20;
+    const slips = cosT < 0 && b.loopV * b.loopV < this.loopG * L.r * (-cosT);
+    if (stalled || slips) {
+      // Falls out of the loop: carries the tangential velocity into free fall
+      b.inLoop = false;
+      b.vx = Math.max(60, b.loopV * Math.cos(b.theta));
+      b.vy = -b.loopV * Math.sin(b.theta);
+      b.grounded = false;
+      b.fellOut = (b.fellOut || 0) + 1;
+      if (b === this.ghost) { this.game.sound.playFall(); this.pop(b.x, b.y - 30, 'TOO SLOW!', '#f87171'); }
+      return;
+    }
+    if (b.theta >= Math.PI * 2) {
+      // Full loop: back on the ground with the momentum kept
+      b.inLoop = false;
+      b.x = L.cx + 4;
+      b.y = this.groundY(b.x) - (b.r || 0);
+      b.vx = b.loopV;
+      b.vy = 0;
+      b.grounded = true;
+      b.loops = (b.loops || 0) + 1;
+      if (b === this.ghost) { this.pop(b.x, b.y - 50, 'LOOP!', '#a3e635'); this.game.score += 100; this.game.updateHUD(); this.game.sound.playValleyPellet(10); }
+    }
+  }
+
+  // Shared ground/air momentum step for a body ({x, y (feet), vx, vy, grounded}). `drive` is its target
+  // forward speed; `dir` the way it wants to go. Returns the x it moved from (for crossing tests).
+  momentumStep(b, dt, drive, dir, opts) {
+    const xPrev = b.x;
+    if (b.grounded) {
+      const grade = this.slopeAt(b.x);
+      b.grade = grade;
+      const target = drive * dir;
+      if (dir >= 0) {
+        if (b.vx < target) b.vx = Math.min(target, b.vx + opts.accel * dt);
+        else if (b.vx > target) b.vx = Math.max(target, b.vx - opts.drag * dt);
+      } else {
+        b.vx = Math.max(target, b.vx - opts.accel * dt);
+      }
+      // Gravity along the ground: downhill builds speed, uphill bleeds it (a rolling body gains more)
+      b.vx += grade * this.slopeAccel * (grade > 0 && (b.rolling || opts.ball) ? 1.25 : 1) * dt;
+      if (dir > 0 && b.vx < opts.floor) b.vx = opts.floor;          // never stalls on a climb
+      if (b.vx > this.maxSpeed) b.vx = this.maxSpeed;
+      b.x += b.vx * dt;
+      b.y = this.groundY(b.x) - (b.r || 0);
+    } else {
+      b.vy += this.gravity * (opts.gravK || 1) * dt;
+      b.x += b.vx * dt;
+      b.y += b.vy * dt;
+      const gy = this.groundY(b.x) - (b.r || 0);
+      if (b.y >= gy && b.vy >= 0) {
+        b.y = gy;
+        b.vy = 0;
+        b.grounded = true;
+        b.landed = true;
+        // A landing on a downhill converts some of the fall into forward speed
+        b.vx += Math.max(0, this.slopeAt(b.x)) * 140;
+        if (b.vx > this.maxSpeed) b.vx = this.maxSpeed;
+      }
+    }
+    return xPrev;
+  }
+
+  scatterRings() {
+    const g = this.ghost;
+    const n = Math.min(g.rings, 20);
+    for (let i = 0; i < n; i++) {
+      const a = -Math.PI / 2 + ((n > 1 ? i / (n - 1) : 0.5) - 0.5) * 1.7;
+      const spd = 150 + Math.random() * 160;
+      this.looseRings.push({ x: g.x, y: g.y - 18, vx: Math.cos(a) * spd + g.vx * 0.3, vy: Math.sin(a) * spd, life: 2.8, t: 0 });
+    }
+    this.scattered += g.rings;
+    g.rings = 0;
+    this.pop(g.x, g.y - 44, 'RINGS!', '#f87171');
   }
 
   update(dt) {
     if (this.outcome) return this.outcome;
     this.phaseT += dt;
 
-    // Particles always animate
     for (let i = this.particles.length - 1; i >= 0; i--) {
       this.particles[i].update(dt);
       if (this.particles[i].life <= 0) this.particles.splice(i, 1);
     }
-    if (this.pops) for (let i = this.pops.length - 1; i >= 0; i--) { this.pops[i].t += dt; if (this.pops[i].t > 0.7) this.pops.splice(i, 1); }
+    for (let i = this.pops.length - 1; i >= 0; i--) { this.pops[i].t += dt; if (this.pops[i].t > 0.7) this.pops.splice(i, 1); }
     if (this.surgeFx > 0) this.surgeFx -= dt;
+    if (this.hitFx > 0) this.hitFx -= dt;
+    for (const s of this.springs) if (s.t > 0) s.t -= dt;
 
     if (this.phase === 'tear_in') {
       if (this.phaseT >= this.tearInDuration) {
@@ -4221,113 +4374,158 @@ class ValleyRun {
     }
 
     this.elapsed += dt;
-    const g = this.ghost;
-    const m = this.menace;
+    const g = this.ghost, m = this.menace;
 
-    // --- Ghost: auto-run right; the slope is real (climbs slow her, drops speed her up); a stumble slows 30% for 1 s ---
-    if (g.stumbleTimer > 0) g.stumbleTimer -= dt;
-    const grade = this.slopeAt(g.x);
-    const slopeFactor = Math.max(0.72, Math.min(1.32, 1 + grade * 1.6));
-    const speed = this.runSpeed * (g.stumbleTimer > 0 ? 0.7 : 1) * (g.grounded ? slopeFactor : 1);
-    g.speedNow = speed;
-    g.x += speed * dt;
-    g.runT += dt * (speed / this.runSpeed) * 13;
-
-    const groundHere = this.groundY(g.x);
-    if (!g.grounded) {
-      g.vy += this.gravity * (g.fastFall ? 2.6 : 1) * dt;
-      g.y += g.vy * dt;
-      if (g.y >= groundHere) {
-        g.y = groundHere;
-        g.grounded = true;
-        g.vy = 0;
-        g.fastFall = false;
+    // --- The runner ---
+    if (g.hurtTimer > 0) g.hurtTimer -= dt;
+    if (g.dust > 0) g.dust -= dt;
+    if (g.brake > 0) g.brake -= dt;
+    g.landed = false;
+    if (g.inLoop) {
+      this.loopStep(g, dt);
+      g.speedNow = g.inLoop ? g.loopV : Math.hypot(g.vx, g.vy);
+      g.spin += g.speedNow * dt / 14;
+    } else {
+      if (g.grounded && g.jumpHeld) g.holdT += dt;
+      const braking = g.input < 0 && g.grounded;
+      if (braking && g.vx > 60) { g.brake = 0.1; if (Math.random() < 0.5) this.dust(g.x + 8, g.y, 1, true); }
+      const floatK = (!g.grounded && g.vy < 0 && g.jumpHeld && g.holdT < 0.25) ? 0.62 : 1;
+      const xPrev = this.momentumStep(g, dt, braking ? 0 : this.topSpeed, braking ? 0 : 1,
+        { accel: this.accel, drag: braking ? this.brakeDecel : this.overspeedDrag, floor: 40, gravK: g.rolling ? 1.5 : floatK });
+      if (!g.grounded) g.holdT += dt;
+      if (g.landed) {
         g.dust = 0.2;
+        g.holdT = 0;
         this.dust(g.x, g.y, 7, true);
         this.puff(g.x, g.y, 4, '#d9f99d');
       }
-    } else {
-      g.y = groundHere;
-      // Dust puffs at pace, kicked up by every stride
-      g.paceTimer = (g.paceTimer || 0) + dt;
-      if (g.paceTimer > 0.1) {
-        g.paceTimer = 0;
-        this.dust(g.x - 12, g.y, 2, false);
+      if (g.grounded && g.rolling && g.vx < 90) g.rolling = false;
+      g.speedNow = g.grounded ? g.vx : Math.hypot(g.vx, g.vy);
+      g.runT += dt * (g.speedNow / this.topSpeed) * 13;
+      g.spin += g.speedNow * dt / 14;
+      // Loop entry: crossing the bottom of the loop with enough speed
+      if (g.grounded && g.vx >= this.loopEntrySpeed && xPrev < this.loop.cx && g.x >= this.loop.cx) this.enterLoop(g);
+      // Dust at pace
+      if (g.grounded && g.vx > 120) {
+        g.paceTimer = (g.paceTimer || 0) + dt;
+        if (g.paceTimer > 0.1) { g.paceTimer = 0; this.dust(g.x - 12, g.y, 2, false); }
+      }
+      // Springs: a launch, carried forward by her momentum
+      for (const s of this.springs) {
+        if (g.grounded && Math.abs(g.x - s.x) < 18) {
+          g.grounded = false;
+          g.vy = -820;
+          g.vx = Math.max(g.vx, 240);
+          g.holdT = 1;
+          g.springs++;
+          s.t = 0.35;
+          this.game.sound.playStomp();
+          this.puff(s.x, g.y, 8, '#fde047');
+          this.pop(s.x, g.y - 40, 'BOING!', '#fde047');
+        }
+      }
+      // Spikes: the feet on a spike row is the catch
+      for (const sp of this.spikes) {
+        if (g.x + 8 > sp.x0 && g.x - 8 < sp.x1 && g.y >= this.groundY(g.x) - 8) {
+          this.outcome = 'caught';
+          this.phase = 'caught';
+          this.game.sound.playFall();
+          return this.outcome;
+        }
       }
     }
-    if (g.dust > 0) g.dust -= dt;
 
-    // --- Obstacles ---
-    for (const ob of this.obstacles) {
-      const top = this.groundY(ob.x) - ob.h;
-      // Ghost clips the obstacle: stumble
-      if (!ob.hit && Math.abs(g.x - ob.x) < (ob.w / 2 + g.w / 2 - 8) && g.y > top + 4) {
-        ob.hit = true;
-        g.stumbleTimer = 1.0;
-        this.game.sound.playStumble();
-        this.puff(g.x, g.y - 12, 10, '#94a3b8');
-        this.dust(g.x, g.y, 5, true);
-        this.game.shakeDuration = 0.1;
-        this.game.shakeIntensity = 4;
-      }
-      // Menace smashes straight through at a small speed cost
-      if (!ob.smashed && m.x + m.r > ob.x - ob.w / 2) {
-        ob.smashed = true;
-        m.slowTimer = Math.max(m.slowTimer, 0.4);
-        m.squash = 0.18;
-        this.game.sound.playSmash();
-        this.puff(ob.x, top + ob.h / 2, 12, ob.type === 'rock' ? '#9ca3af' : '#a16207');
-        this.dust(ob.x, this.groundY(ob.x), 6, true);
-      }
-    }
-
-    // --- Pellets: bold golden rings; +25 each, every 10 grants a surge ---
+    // --- Rings: the runner's health and the surge chain ---
     const gcy = g.y - g.h / 2;
-    for (const p of this.pellets) {
+    for (const p of this.rings) {
       if (p.taken) continue;
-      const py = this.groundY(p.x) - p.lift;
+      const py = p.absY !== undefined ? p.absY : this.groundY(p.x) - p.lift;
       if (Math.abs(p.x - g.x) < 24 && Math.abs(py - gcy) < 30) {
         p.taken = true;
+        g.rings++;
         this.collected++;
         this.chain++;
         this.game.score += 25;
         this.game.updateHUD();
         this.game.sound.playValleyPellet(this.chain);
         this.sparkleBurst(p.x, py);
-        if (this.chain >= 10) {
-          this.chain = 0;
-          this.surge();
-        }
+        if (this.chain >= 10) { this.chain = 0; this.surge(); }
+      }
+    }
+    for (let i = this.looseRings.length - 1; i >= 0; i--) {
+      const r = this.looseRings[i];
+      r.t += dt; r.life -= dt;
+      r.vy += 900 * dt;
+      r.x += r.vx * dt; r.y += r.vy * dt;
+      const gy = this.groundY(r.x) - 8;
+      if (r.y > gy && r.vy > 0) { r.y = gy; r.vy *= -0.55; r.vx *= 0.8; }
+      if (r.life <= 0) { this.looseRings.splice(i, 1); continue; }
+      if (r.t > 0.5 && Math.abs(r.x - g.x) < 22 && Math.abs(r.y - gcy) < 30) {
+        this.looseRings.splice(i, 1);
+        g.rings++;
+        this.game.score += 10;
+        this.game.updateHUD();
+        this.game.sound.playValleyPellet(1);
+        this.sparkleBurst(r.x, r.y);
       }
     }
 
-    // --- The Menace: rolling, grinning, gaining (and a ball rolls faster downhill) ---
-    if (m.slowTimer > 0) m.slowTimer -= dt;
-    m.speed += m.gain * dt;
-    const mGrade = this.slopeAt(m.x);
-    const ms = m.speed * (m.slowTimer > 0 ? 0.8 : 1) * Math.max(0.8, Math.min(1.35, 1 + mGrade * 1.9));
-    m.speedNow = ms;
-    m.x += ms * dt;
-    if (g.x - m.x > 280) m.x = g.x - 280; // Never so far back that he leaves the shot
-    m.y = this.groundY(m.x) - m.r;
-    m.rot += ms * dt / m.r;
-    if (m.squash > 0) m.squash = Math.max(0, m.squash - dt * 0.6);
-    m.dustTimer = (m.dustTimer || 0) + dt;
-    if (m.dustTimer > 0.09) { m.dustTimer = 0; this.dust(m.x - m.r * 0.6, m.y + m.r, 2, true); }
-
-    // Near-catch shake and screen pulse
-    const gap = g.x - m.x;
-    this.nearPulse = gap < 150 ? Math.min(1, (150 - gap) / 110) : 0;
-    if (gap < 150) {
-      this.game.shakeDuration = Math.max(this.game.shakeDuration, 0.08);
-      this.game.shakeIntensity = Math.min(4, (150 - gap) * 0.04);
+    // --- The Menace: a rolling ball on the same momentum rules, gaining over time ---
+    if (!m.frozen) {
+      if (m.slowTimer > 0) m.slowTimer -= dt;
+      m.top += m.gain * dt;
+      m.landed = false;
+      if (m.inLoop) {
+        this.loopStep(m, dt);
+        m.speedNow = m.inLoop ? m.loopV : Math.abs(m.vx);
+      } else {
+        const gap = g.x - m.x;
+        const dir = gap < -50 ? -1 : 1;
+        // Rubber band: a burst of pace when he trails by more than half a screen, never falling out of the shot
+        const band = gap > 230 ? 1.3 : 1;
+        const drive = m.top * band * (m.slowTimer > 0 ? 0.6 : 1);
+        const xPrev = this.momentumStep(m, dt, drive, dir, { accel: 240 * band, drag: 90, floor: 50, ball: true });
+        if (m.grounded && m.vx >= this.loopEntrySpeed && xPrev < this.loop.cx && m.x >= this.loop.cx) this.enterLoop(m);
+        if (m.landed) { m.squash = 0.2; this.dust(m.x, m.y + m.r, 6, true); }
+        m.speedNow = Math.abs(m.vx);
+        if (gap > 310 && !g.inLoop) { m.x = g.x - 310; m.y = this.groundY(m.x) - m.r; m.grounded = true; m.vy = 0; }
+      }
+      m.rot += m.speedNow * dt / m.r;
+      if (m.squash > 0) m.squash = Math.max(0, m.squash - dt * 0.6);
+      m.dustTimer += dt;
+      if (m.grounded && m.dustTimer > 0.09) { m.dustTimer = 0; this.dust(m.x - m.r * 0.6, m.y + m.r, 2, true); }
     }
 
-    // Caught: he touches the ghost
-    if (m.x + m.r >= g.x - g.w / 2 + 4) {
-      this.outcome = 'caught';
-      this.phase = 'caught';
-      return this.outcome;
+    // --- Contact: rings scatter; with none left it is the catch ---
+    const dx = g.x - m.x, dy = (g.y - g.h / 2) - m.y;
+    const gap = g.x - m.x;
+    if (!m.frozen && g.hurtTimer <= 0 && Math.hypot(dx, dy) < m.r + 14) {
+      if (g.rings > 0) {
+        this.scatterRings();
+        g.hits++;
+        g.hurtTimer = 1.6;
+        this.hitFx = 0.3;
+        // She is thrown forward and up; he is knocked back and slowed
+        if (!g.inLoop) { g.grounded = false; g.vy = -340; g.vx = Math.max(g.vx, Math.abs(m.vx) + 80); g.holdT = 1; }
+        if (!m.inLoop) { m.vx *= 0.25; m.x -= 24; m.y = this.groundY(m.x) - m.r; }
+        m.slowTimer = 0.9;
+        m.squash = 0.25;
+        this.game.sound.playStumble();
+        this.game.shakeDuration = 0.16;
+        this.game.shakeIntensity = 7;
+        this.game.showNotification('Hit! Your rings scattered — grab them back!');
+      } else {
+        this.outcome = 'caught';
+        this.phase = 'caught';
+        return this.outcome;
+      }
+    }
+
+    // Near-catch shake and screen pulse
+    this.nearPulse = gap < 150 ? Math.min(1, (150 - gap) / 110) : 0;
+    if (gap < 150 && gap > 0) {
+      this.game.shakeDuration = Math.max(this.game.shakeDuration, 0.08);
+      this.game.shakeIntensity = Math.min(4, (150 - gap) * 0.04);
     }
 
     // Gate reached
@@ -4337,12 +4535,13 @@ class ValleyRun {
       return this.outcome;
     }
 
-    // The chase in-frame: she leads at a third of the screen; the Menace is never cropped at the left edge
-    this.camX = Math.min(g.x - 250, m.x - 90);
+    // Camera leads the runner in proportion to her speed
+    const lead = Math.min(1, g.speedNow / this.maxSpeed) * 90;
+    const target = g.x - this.W * 0.32 - lead;
+    this.camX += (target - this.camX) * Math.min(1, dt * 5);
+    if (this.elapsed < 0.05) this.camX = target;
     return null;
   }
-
-  // ===== Rendering =====
   hillY(worldX, base, amp, freq) {
     return base - Math.abs(Math.sin(worldX * freq)) * amp - Math.sin(worldX * freq * 2.7) * amp * 0.25;
   }
@@ -4483,70 +4682,6 @@ class ValleyRun {
     ctx.beginPath();
     ctx.arc(0, -9, 1.6, 0, Math.PI * 2);
     ctx.fill();
-    ctx.restore();
-  }
-
-  drawObstacle(ctx, ob, sx) {
-    const gy = this.groundY(ob.x);
-    ctx.save();
-    ctx.translate(sx, gy);
-    if (ob.type === 'rock') {
-      if (ob.smashed) {
-        ctx.fillStyle = '#6b7280';
-        [[-12, -4, 6], [0, -3, 5], [11, -5, 6], [-4, -8, 3]].forEach(([x, y, r]) => {
-          ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
-        });
-      } else {
-        ctx.fillStyle = '#6b7280';
-        ctx.strokeStyle = '#374151';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(-15, 0);
-        ctx.lineTo(-11, -18);
-        ctx.lineTo(-2, -26);
-        ctx.lineTo(9, -21);
-        ctx.lineTo(15, -8);
-        ctx.lineTo(14, 0);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-        ctx.fillStyle = 'rgba(255,255,255,0.25)';
-        ctx.beginPath();
-        ctx.moveTo(-8, -16); ctx.lineTo(-3, -22); ctx.lineTo(2, -17);
-        ctx.closePath();
-        ctx.fill();
-      }
-    } else {
-      if (ob.smashed) {
-        ctx.fillStyle = '#92400e';
-        ctx.save(); ctx.rotate(-0.5); ctx.fillRect(-26, -12, 20, 10); ctx.restore();
-        ctx.save(); ctx.translate(8, 0); ctx.rotate(0.4); ctx.fillRect(0, -12, 20, 10); ctx.restore();
-      } else {
-        ctx.fillStyle = '#92400e';
-        ctx.strokeStyle = '#5a2a0a';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.roundRect ? ctx.roundRect(-23, -20, 46, 20, 9) : ctx.rect(-23, -20, 46, 20);
-        ctx.fill();
-        ctx.stroke();
-        // Bark lines
-        ctx.strokeStyle = 'rgba(0,0,0,0.25)';
-        ctx.lineWidth = 1.2;
-        ctx.beginPath();
-        ctx.moveTo(-14, -15); ctx.lineTo(6, -15);
-        ctx.moveTo(-6, -7); ctx.lineTo(14, -7);
-        ctx.stroke();
-        // End grain
-        ctx.fillStyle = '#d6a15c';
-        ctx.beginPath();
-        ctx.ellipse(-19, -10, 4, 8, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = '#a16207';
-        ctx.beginPath();
-        ctx.ellipse(-19, -10, 2, 4, 0, 0, Math.PI * 2);
-        ctx.stroke();
-      }
-    }
     ctx.restore();
   }
 
@@ -4731,6 +4866,119 @@ class ValleyRun {
     ctx.beginPath(); ctx.arc(x - b.r * 0.4, y - b.r * 0.55, b.r * 0.28, 0, Math.PI * 2); ctx.fill();
   }
 
+
+  // The loop: a steel-blue banked track with a checkered band and two struts (original dress)
+  drawLoop(ctx, cam, time) {
+    const L = this.loop;
+    const sx = L.cx - cam, sy = L.cy, r = L.r;
+    if (sx < -r - 40 || sx > this.W + r + 40) return;
+    ctx.save();
+    // Struts down to the ground
+    ctx.strokeStyle = '#3f4f6b';
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.moveTo(sx - r * 0.75, sy + r * 0.66); ctx.lineTo(sx - r * 1.15, this.groundY(L.cx - r * 1.15) + 2);
+    ctx.moveTo(sx + r * 0.75, sy + r * 0.66); ctx.lineTo(sx + r * 1.15, this.groundY(L.cx + r * 1.15) + 2);
+    ctx.stroke();
+    // Track band
+    ctx.strokeStyle = '#5b6b86';
+    ctx.lineWidth = 16;
+    ctx.beginPath(); ctx.arc(sx, sy, r + 8, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = '#8ea0bf';
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(sx, sy, r + 15, 0, Math.PI * 2); ctx.stroke();
+    // Checkered segments around the outer band
+    for (let i = 0; i < 16; i++) {
+      ctx.strokeStyle = i % 2 ? '#f97316' : '#f8fafc';
+      ctx.lineWidth = 5;
+      ctx.beginPath(); ctx.arc(sx, sy, r + 13, i * Math.PI / 8 + 0.02, (i + 1) * Math.PI / 8 - 0.02); ctx.stroke();
+    }
+    // Inner lip the runner rides on
+    ctx.strokeStyle = '#cbd5e1';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(sx, sy, r + 1, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+  }
+
+  drawSpring(ctx, s, sx, gy) {
+    const squash = s.t > 0 ? Math.sin((s.t / 0.35) * Math.PI) * 0.5 : 0;
+    ctx.save();
+    ctx.translate(sx, gy);
+    ctx.fillStyle = '#7f1d1d';
+    ctx.fillRect(-16, -5, 32, 6);
+    const h = 16 * (1 - squash);
+    ctx.strokeStyle = '#facc15';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    for (let k = 0; k <= 4; k++) { const y = -5 - h * k / 4; ctx.moveTo(k % 2 ? -11 : 11, y); ctx.lineTo(k % 2 ? 11 : -11, y - h / 4); }
+    ctx.stroke();
+    ctx.fillStyle = '#ef4444';
+    ctx.fillRect(-16, -5 - h - 6, 32, 7);
+    ctx.fillStyle = '#fecaca';
+    ctx.fillRect(-13, -5 - h - 5, 26, 2);
+    ctx.restore();
+  }
+
+  drawSpikes(ctx, sp, cam) {
+    const x0 = sp.x0 - cam, x1 = sp.x1 - cam;
+    if (x1 < -10 || x0 > this.W + 10) return;
+    ctx.save();
+    for (let x = sp.x0; x < sp.x1; x += 14) {
+      const gy = this.groundY(x + 7) + 1;
+      const sx = x - cam;
+      ctx.fillStyle = '#334155';
+      ctx.fillRect(sx, gy - 3, 14, 5);
+      ctx.fillStyle = '#cbd5e1';
+      ctx.beginPath(); ctx.moveTo(sx + 1, gy - 2); ctx.lineTo(sx + 7, gy - 24); ctx.lineTo(sx + 13, gy - 2); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#f8fafc';
+      ctx.beginPath(); ctx.moveTo(sx + 3, gy - 2); ctx.lineTo(sx + 7, gy - 22); ctx.lineTo(sx + 7, gy - 2); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#64748b';
+      ctx.beginPath(); ctx.moveTo(sx + 7, gy - 22); ctx.lineTo(sx + 12, gy - 2); ctx.lineTo(sx + 7, gy - 2); ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  drawRing(ctx, sx, py, time, seed, alpha = 1) {
+    const r = 8.5;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = '#ffd32a';
+    ctx.shadowColor = '#ffd32a';
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    ctx.arc(sx, py, r, 0, Math.PI * 2);
+    ctx.arc(sx, py, r - 3.4, 0, Math.PI * 2, true);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    const shineAngle = (time * 6 + seed * 0.08) % (Math.PI * 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(sx + Math.cos(shineAngle) * (r - 1.7), py + Math.sin(shineAngle) * (r - 1.7), 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // The runner curled into a ball (rolling / loop): a disc in her colour with a spinning band and her eyes
+  drawRollingGhost(ctx, gRef, spin) {
+    ctx.save();
+    ctx.fillStyle = gRef.color;
+    ctx.shadowColor = gRef.color;
+    ctx.shadowBlur = 8;
+    ctx.beginPath(); ctx.arc(0, 0, 12, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.save();
+    ctx.rotate(spin);
+    ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+    ctx.lineWidth = 3;
+    for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.arc(0, 0, 9 - i * 3, i * 2.1, i * 2.1 + 1.5); ctx.stroke(); }
+    ctx.restore();
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath(); ctx.arc(-4, -2, 2.6, 0, Math.PI * 2); ctx.arc(4, -2, 2.6, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#0f172a';
+    ctx.beginPath(); ctx.arc(-3, -2, 1.3, 0, Math.PI * 2); ctx.arc(5, -2, 1.3, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+
   draw(ctx, time) {
     const W = this.W, H = this.H;
     const cam = this.camX;
@@ -4749,12 +4997,9 @@ class ValleyRun {
     ctx.fillStyle = '#fff7b0';
     ctx.shadowColor = 'rgba(255, 247, 176, 0.95)';
     ctx.shadowBlur = 34;
-    ctx.beginPath();
-    ctx.arc(W - 80, 86, 28, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.beginPath(); ctx.arc(W - 80, 86, 28, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
 
-    // High wisps (slowest layer), birds, then the big clouds
     ctx.fillStyle = 'rgba(255,255,255,0.7)';
     this.cloudsHigh.forEach(c => {
       let sx = ((c.x - cam * 0.04) % (W + 200));
@@ -4786,13 +5031,10 @@ class ValleyRun {
       ctx.ellipse(sx - 20 * c.s, c.y - 4 * c.s, 20 * c.s, 11 * c.s, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = 'rgba(150, 190, 230, 0.35)';
-      ctx.beginPath();
-      ctx.ellipse(sx + 2 * c.s, c.y + 7 * c.s, 44 * c.s, 5 * c.s, 0, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.beginPath(); ctx.ellipse(sx + 2 * c.s, c.y + 7 * c.s, 44 * c.s, 5 * c.s, 0, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = 'rgba(255,255,255,0.92)';
     });
 
-    // Two mountain ranges on the horizon: a hazy far range and a nearer blue-green range with snow caps
     const waterY = H * 0.56;
     const mountain = (par, base, amp, freq, color, snow, snowFrom) => {
       ctx.fillStyle = color;
@@ -4816,7 +5058,6 @@ class ValleyRun {
     };
     mountain(0.1, 26, 70, 0.0054, '#9fb8e6', 'rgba(255,255,255,0.8)', 82);
     mountain(0.15, 10, 52, 0.0088, '#6f9fd1', 'rgba(255,255,255,0.85)', 56);
-    // Waterfalls off the nearer range into the lake: animated white-blue cascades with mist at the foot
     this.waterfalls.forEach(wf => {
       const sx = ((wf.x - cam * 0.15) % (W + 260) + (W + 260)) % (W + 260) - 130;
       const top = waterY - wf.h;
@@ -4836,11 +5077,8 @@ class ValleyRun {
       ctx.beginPath(); ctx.ellipse(sx, waterY + 1, wf.w * 1.6 + Math.sin(time * 3 + wf.x) * 2, 5, 0, 0, Math.PI * 2); ctx.fill();
     });
 
-    // Lake: a deep band with a sunlit sheen, wave stripes and animated glints
     const water = ctx.createLinearGradient(0, waterY, 0, waterY + 34);
-    water.addColorStop(0, '#3b8cf7');
-    water.addColorStop(0.5, '#2470ea');
-    water.addColorStop(1, '#1b5bd0');
+    water.addColorStop(0, '#3b8cf7'); water.addColorStop(0.5, '#2470ea'); water.addColorStop(1, '#1b5bd0');
     ctx.fillStyle = water;
     ctx.fillRect(0, waterY, W, 34);
     const sheen = ctx.createLinearGradient(W * 0.45, 0, W, 0);
@@ -4862,7 +5100,6 @@ class ValleyRun {
       ctx.moveTo(sx, waterY + 6 + sp.ph * 3 - r); ctx.lineTo(sx + r * 0.4, waterY + 6 + sp.ph * 3); ctx.lineTo(sx, waterY + 6 + sp.ph * 3 + r); ctx.lineTo(sx - r * 0.4, waterY + 6 + sp.ph * 3);
       ctx.closePath(); ctx.fill();
     });
-    // Loop-de-loop silhouettes in the distant backdrop layer
     this.drawLoopSilhouette(ctx, 160 - ((cam * 0.1) % 500), waterY + 8, 1.25);
     this.drawLoopSilhouette(ctx, 520 - ((cam * 0.1) % 500), waterY + 8, 1.05);
 
@@ -4876,7 +5113,7 @@ class ValleyRun {
       this.drawTree(ctx, sx, this.hillY(t.x, H * 0.62, 34, 0.0032) + 2, t.s, 0.3, t.kind);
     });
 
-    // --- Layer 3: Mid hills, bushes and palm trees (the busy mid-ground) ---
+    // --- Layer 3: Mid hills, bushes and palm trees ---
     this.drawHills(ctx, cam * 0.45, H * 0.705, 24, 0.0058, '#43c75e');
     ctx.fillStyle = 'rgba(255,255,255,0.14)';
     for (let sx = 0; sx <= W; sx += 6) { const y = this.hillY(sx + cam * 0.45, H * 0.705, 24, 0.0058); ctx.fillRect(sx, y, 6, 3); }
@@ -4894,14 +5131,11 @@ class ValleyRun {
       if (sx < -40 || sx > W + 40) return;
       this.drawTree(ctx, sx, this.hillY(t.x, H * 0.705, 24, 0.0058) + 3, t.s, t.shade, t.kind);
     });
-    // Near-mid band (0.7 parallax): a hedgerow of bushes, flower clusters and the nearest palms, rooted just
-    // behind the grass edge so the ground cap covers their feet
     this.drawHills(ctx, cam * 0.7, H * 0.755, 12, 0.0078, '#2f9f49');
     this.nearBushes.forEach(b => {
       const sx = b.x - cam * 0.7;
       if (sx < -40 || sx > W + 40) return;
-      const by = this.hillY(b.x, H * 0.755, 12, 0.0078) + 3;
-      this.drawBush(ctx, sx, by, b);
+      this.drawBush(ctx, sx, this.hillY(b.x, H * 0.755, 12, 0.0078) + 3, b);
     });
     this.nearTrees.forEach(t => {
       const sx = t.x - cam * 0.7;
@@ -4909,7 +5143,7 @@ class ValleyRun {
       this.drawTree(ctx, sx, this.hillY(t.x, H * 0.755, 12, 0.0078) + 4, t.s, t.shade, t.kind);
     });
 
-    // --- Layer 4: Foreground textured earth: a varied checker face, pebbles, a thick striped grass stratum ---
+    // --- Layer 4: Foreground textured earth following the heightfield ---
     const hash = (a, b) => { const v = Math.sin(a * 12.9898 + b * 78.233) * 43758.5453; return v - Math.floor(v); };
     ctx.save();
     ctx.beginPath();
@@ -4927,7 +5161,7 @@ class ValleyRun {
     let col = 0;
     for (let px = -patSize; px <= W + patSize; px += patSize, col++) {
       let row = 0;
-      for (let py = H * 0.6; py <= H; py += patSize, row++) {
+      for (let py = H * 0.5; py <= H; py += patSize, row++) {
         ctx.fillStyle = tones[Math.floor(hash(tile0 + col, row) * tones.length)];
         ctx.beginPath();
         ctx.moveTo(px - patOffsetX, py);
@@ -4936,7 +5170,6 @@ class ValleyRun {
         ctx.lineTo(px - patOffsetX + patSize / 2, py + patSize / 2);
         ctx.closePath();
         ctx.fill();
-        // A lit facet on the upper-left of each diamond
         ctx.fillStyle = 'rgba(255, 220, 160, 0.1)';
         ctx.beginPath();
         ctx.moveTo(px - patOffsetX, py);
@@ -4946,17 +5179,15 @@ class ValleyRun {
         ctx.fill();
       }
     }
-    // Pebbles and cracks in the earth, hashed by tile so they ride with the ground
     for (let t = tile0 - 1; t < tile0 + Math.ceil(W / patSize) + 2; t++) {
       const bx = t * patSize - cam;
       for (let k = 0; k < 3; k++) {
         const hx = hash(t, k + 11), hy = hash(k + 17, t);
-        const py = H * 0.62 + hy * (H * 0.36);
+        const py = H * 0.55 + hy * (H * 0.43);
         ctx.fillStyle = k === 0 ? 'rgba(255, 210, 150, 0.35)' : 'rgba(60, 20, 5, 0.4)';
         ctx.beginPath(); ctx.ellipse(bx + hx * patSize, py, 2 + hx * 2.5, 1.4 + hy, 0, 0, Math.PI * 2); ctx.fill();
       }
     }
-    // Topsoil band under the grass line, darker, with roots
     ctx.fillStyle = '#6b2e0b';
     ctx.beginPath();
     ctx.moveTo(0, 0);
@@ -4979,20 +5210,13 @@ class ValleyRun {
     ctx.lineWidth = 15;
     ctx.lineCap = 'round';
     ctx.beginPath();
-    for (let sx = 0; sx <= W; sx += 4) {
-      const y = this.groundY(sx + cam) + 4;
-      if (sx === 0) ctx.moveTo(sx, y); else ctx.lineTo(sx, y);
-    }
+    for (let sx = 0; sx <= W; sx += 4) { const y = this.groundY(sx + cam) + 4; if (sx === 0) ctx.moveTo(sx, y); else ctx.lineTo(sx, y); }
     ctx.stroke();
     ctx.strokeStyle = '#4ade80';
     ctx.lineWidth = 9;
     ctx.beginPath();
-    for (let sx = 0; sx <= W; sx += 4) {
-      const y = this.groundY(sx + cam);
-      if (sx === 0) ctx.moveTo(sx, y); else ctx.lineTo(sx, y);
-    }
+    for (let sx = 0; sx <= W; sx += 4) { const y = this.groundY(sx + cam); if (sx === 0) ctx.moveTo(sx, y); else ctx.lineTo(sx, y); }
     ctx.stroke();
-    // Striped edge: alternating light bands every 12 px of world x, following the slope
     ctx.fillStyle = 'rgba(190, 255, 170, 0.45)';
     const stripeOff = ((cam % 24) + 24) % 24;
     for (let sx = -24 + (24 - stripeOff); sx <= W + 24; sx += 24) {
@@ -5005,13 +5229,9 @@ class ValleyRun {
     ctx.strokeStyle = '#b4f8a0';
     ctx.lineWidth = 3;
     ctx.beginPath();
-    for (let sx = 0; sx <= W; sx += 4) {
-      const y = this.groundY(sx + cam) - 3;
-      if (sx === 0) ctx.moveTo(sx, y); else ctx.lineTo(sx, y);
-    }
+    for (let sx = 0; sx <= W; sx += 4) { const y = this.groundY(sx + cam) - 3; if (sx === 0) ctx.moveTo(sx, y); else ctx.lineTo(sx, y); }
     ctx.stroke();
 
-    // Tufts
     ctx.strokeStyle = '#86efac';
     ctx.lineWidth = 1.8;
     this.grassTufts.forEach(t => {
@@ -5019,16 +5239,12 @@ class ValleyRun {
       if (sx < -10 || sx > W + 10) return;
       const gy = this.groundY(t.x);
       ctx.beginPath();
-      ctx.moveTo(sx, gy + 1);
-      ctx.lineTo(sx + t.lean * 6, gy - t.h - 2);
-      ctx.moveTo(sx + 3, gy + 1);
-      ctx.lineTo(sx + 3 + t.lean * 4, gy - t.h);
-      ctx.moveTo(sx - 3, gy + 1);
-      ctx.lineTo(sx - 3 + t.lean * 5, gy - t.h * 0.7);
+      ctx.moveTo(sx, gy + 1); ctx.lineTo(sx + t.lean * 6, gy - t.h - 2);
+      ctx.moveTo(sx + 3, gy + 1); ctx.lineTo(sx + 3 + t.lean * 4, gy - t.h);
+      ctx.moveTo(sx - 3, gy + 1); ctx.lineTo(sx - 3 + t.lean * 5, gy - t.h * 0.7);
       ctx.stroke();
     });
 
-    // Bushes, flower clusters, sunflowers and carved posts along the run (each with a soft shadow)
     const softShadow = (sx, sy, rx, ry, a) => {
       const g2 = ctx.createRadialGradient(sx, sy, 0, sx, sy, rx);
       g2.addColorStop(0, `rgba(0,0,0,${a})`); g2.addColorStop(0.6, `rgba(0,0,0,${a * 0.6})`); g2.addColorStop(1, 'rgba(0,0,0,0)');
@@ -5045,7 +5261,6 @@ class ValleyRun {
       const sx = f.x - cam;
       if (sx < -16 || sx > W + 16) return;
       const gy = this.groundY(f.x) + 1;
-      // A cluster: the lead flower and two smaller companions
       this.drawFlower(ctx, sx, gy, f.c, f.s);
       this.drawFlower(ctx, sx - 6, gy + 1, f.c2, f.s * 0.7);
       this.drawFlower(ctx, sx + 7, gy, f.c, f.s * 0.8);
@@ -5065,47 +5280,38 @@ class ValleyRun {
       this.drawPost(ctx, sx, gy, p);
     });
 
-    // Gate
+    // Gate, the loop, springs and spikes
     const gateSx = this.gateX - cam;
     if (gateSx > -120 && gateSx < W + 120) this.drawGate(ctx, gateSx);
-
-    // Obstacles with soft contact shadows
-    this.obstacles.forEach(ob => {
-      const sx = ob.x - cam;
-      if (sx < -60 || sx > W + 60) return;
-      const gy = this.groundY(ob.x);
-      softShadow(sx + 4, gy + 2, ob.w * 0.75, 6, 0.42);
-      this.drawObstacle(ctx, ob, sx);
+    this.drawLoop(ctx, cam, time);
+    this.springs.forEach(s => {
+      const sx = s.x - cam;
+      if (sx < -40 || sx > W + 40) return;
+      const gy = this.groundY(s.x);
+      softShadow(sx + 3, gy + 2, 20, 4.5, 0.35);
+      this.drawSpring(ctx, s, sx, gy);
     });
+    this.spikes.forEach(sp => this.drawSpikes(ctx, sp, cam));
 
-    // Pellets: bold golden rings with a spinning shine
-    this.pellets.forEach(p => {
+    // Rings on the course and loose rings bouncing after a hit (blinking out in their last second)
+    this.rings.forEach(p => {
       if (p.taken) return;
       const sx = p.x - cam;
       if (sx < -16 || sx > W + 16) return;
-      const py = this.groundY(p.x) - p.lift + Math.sin(time * 5 + p.x * 0.05) * 2;
-      const r = 8.5;
-      ctx.save();
-      ctx.fillStyle = '#ffd32a';
-      ctx.shadowColor = '#ffd32a';
-      ctx.shadowBlur = 10;
-      ctx.beginPath();
-      ctx.arc(sx, py, r, 0, Math.PI * 2);
-      ctx.arc(sx, py, r - 3.4, 0, Math.PI * 2, true);
-      ctx.fill();
-      ctx.shadowBlur = 0;
-      const shineAngle = (time * 6 + p.x * 0.08) % (Math.PI * 2);
-      ctx.fillStyle = '#ffffff';
-      ctx.beginPath();
-      ctx.arc(sx + Math.cos(shineAngle) * (r - 1.7), py + Math.sin(shineAngle) * (r - 1.7), 2, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
+      const py = (p.absY !== undefined ? p.absY : this.groundY(p.x) - p.lift) + Math.sin(time * 5 + p.x * 0.05) * 2;
+      this.drawRing(ctx, sx, py, time, p.x);
+    });
+    this.looseRings.forEach(r => {
+      const sx = r.x - cam;
+      if (sx < -16 || sx > W + 16) return;
+      if (r.life < 1 && Math.floor(time * 16) % 2) return;
+      this.drawRing(ctx, sx, r.y, time, r.x, 0.95);
     });
 
-    // Speed lines: at full pace they streak behind both runners; a surge fills the screen with them
-    const pace = g.speedNow / this.runSpeed;
+    // Speed lines at pace; a surge fills the screen with them
+    const pace = g.speedNow / this.topSpeed;
     const surging = this.surgeFx > 0;
-    if ((pace >= 0.98 && g.stumbleTimer <= 0) || surging) {
+    if ((pace >= 1.1 && g.grounded) || surging) {
       ctx.save();
       ctx.strokeStyle = surging ? 'rgba(255, 255, 255, 0.7)' : 'rgba(255, 255, 255, 0.45)';
       ctx.lineWidth = 2;
@@ -5115,10 +5321,7 @@ class ValleyRun {
         const ly = (surging ? 90 + i * (H / 18) : g.y - g.h * 1.6 + i * 9) + Math.sin(i * 43 + time * 30) * 2;
         const lx2 = surging ? 40 + Math.random() * 200 : g.x - cam - 26 - Math.random() * 10;
         const len = surging ? 140 + Math.random() * 160 : 26 + Math.random() * 40 + (pace - 1) * 60;
-        ctx.beginPath();
-        ctx.moveTo(lx2, ly);
-        ctx.lineTo(lx2 - len, ly);
-        ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(lx2, ly); ctx.lineTo(lx2 - len, ly); ctx.stroke();
       }
       ctx.restore();
     }
@@ -5126,116 +5329,123 @@ class ValleyRun {
       const p = 1 - this.surgeFx / 0.7;
       ctx.save();
       ctx.globalAlpha = 1 - p;
-      ctx.strokeStyle = '#a3e635';
-      ctx.lineWidth = 5;
-      ctx.shadowColor = '#a3e635';
-      ctx.shadowBlur = 16;
-      ctx.beginPath();
-      ctx.arc(g.x - cam, g.y - 16, 10 + p * 160, 0, Math.PI * 2);
-      ctx.stroke();
+      ctx.strokeStyle = '#a3e635'; ctx.lineWidth = 5; ctx.shadowColor = '#a3e635'; ctx.shadowBlur = 16;
+      ctx.beginPath(); ctx.arc(g.x - cam, g.y - 16, 10 + p * 160, 0, Math.PI * 2); ctx.stroke();
       ctx.restore();
     }
 
-    // The Menace (rolling ball form) — bigger, with a motion blur tail, always in shot and visibly gaining
+    // The Menace (rolling ball form) — with a motion blur tail, always in shot and visibly gaining
     const msx = m.x - cam;
-    if (msx > -60) {
-      const mShadow = ctx.createRadialGradient(msx + 3, m.y + m.r + 2, 0, msx + 3, m.y + m.r + 2, m.r * 1.25);
-      mShadow.addColorStop(0, 'rgba(0, 0, 0, 0.5)'); mShadow.addColorStop(0.6, 'rgba(0, 0, 0, 0.32)'); mShadow.addColorStop(1, 'rgba(0, 0, 0, 0)');
-      ctx.fillStyle = mShadow;
-      ctx.beginPath();
-      ctx.ellipse(msx + 3, m.y + m.r + 2, m.r * 1.25, 8, 0, 0, Math.PI * 2);
-      ctx.fill();
-      // Blur tail: fading afterimages trailing the roll
+    if (msx > -60 && msx < W + 60) {
+      if (!m.inLoop) {
+        const mShadow = ctx.createRadialGradient(msx + 3, this.groundY(m.x) + 2, 0, msx + 3, this.groundY(m.x) + 2, m.r * 1.25);
+        mShadow.addColorStop(0, 'rgba(0, 0, 0, 0.5)'); mShadow.addColorStop(0.6, 'rgba(0, 0, 0, 0.32)'); mShadow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        ctx.fillStyle = mShadow;
+        ctx.beginPath(); ctx.ellipse(msx + 3, this.groundY(m.x) + 2, m.r * 1.25, 8, 0, 0, Math.PI * 2); ctx.fill();
+      }
+      const tailDir = m.vx >= 0 ? 1 : -1;
       for (let k = 3; k >= 1; k--) {
         ctx.save();
         ctx.globalAlpha = 0.1 * (4 - k);
         ctx.fillStyle = '#fbc531';
-        ctx.beginPath();
-        ctx.arc(msx - k * 9 * (m.speedNow / this.runSpeed), m.y, m.r * (1 - k * 0.05), 0, Math.PI * 2);
-        ctx.fill();
+        ctx.beginPath(); ctx.arc(msx - tailDir * k * 9 * Math.min(1.6, m.speedNow / this.topSpeed), m.y, m.r * (1 - k * 0.05), 0, Math.PI * 2); ctx.fill();
         ctx.restore();
       }
       this.game.drawMenaceBall(ctx, msx, m.y, m.r, m.rot, m.squash);
     }
 
-    // The Ghost: scaled up, run cycle (bob + lean + alternating squash), panicked backward glance
+    // The Ghost: run cycle on the ground, curled ball when rolling or in the loop, flicker while hurt
     const gsx = g.x - cam;
     const cyc = Math.sin(g.runT);
-    const shadowK = g.grounded ? 1 : Math.max(0.45, 1 - (this.groundY(g.x) - g.y) / 160);
-    const gShadow = ctx.createRadialGradient(gsx + 3, this.groundY(g.x) + 2, 0, gsx + 3, this.groundY(g.x) + 2, 24 * shadowK);
-    gShadow.addColorStop(0, `rgba(0, 0, 0, ${0.5 * shadowK})`); gShadow.addColorStop(0.6, `rgba(0, 0, 0, ${0.3 * shadowK})`); gShadow.addColorStop(1, 'rgba(0, 0, 0, 0)');
-    ctx.fillStyle = gShadow;
-    ctx.beginPath();
-    ctx.ellipse(gsx + 3, this.groundY(g.x) + 2, 24 * shadowK, 7.5 * shadowK, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Motion trail: two fading afterimages behind her at full pace
-    if (pace >= 0.98 && g.stumbleTimer <= 0) {
-      const ghostRef0 = this.game.ghosts[this.ghostIndex];
-      for (let k = 2; k >= 1; k--) {
+    const ghostRef = this.game.ghosts[this.ghostIndex];
+    const flicker = g.hurtTimer > 0 && Math.floor(time * 18) % 2 === 0;
+    if (!g.inLoop) {
+      const gyh = this.groundY(g.x);
+      const shadowK = g.grounded ? 1 : Math.max(0.45, 1 - (gyh - g.y) / 160);
+      const gShadow = ctx.createRadialGradient(gsx + 3, gyh + 2, 0, gsx + 3, gyh + 2, 24 * shadowK);
+      gShadow.addColorStop(0, `rgba(0, 0, 0, ${0.5 * shadowK})`); gShadow.addColorStop(0.6, `rgba(0, 0, 0, ${0.3 * shadowK})`); gShadow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+      ctx.fillStyle = gShadow;
+      ctx.beginPath(); ctx.ellipse(gsx + 3, gyh + 2, 24 * shadowK, 7.5 * shadowK, 0, 0, Math.PI * 2); ctx.fill();
+    }
+    if (!flicker) {
+      if (g.inLoop || g.rolling) {
         ctx.save();
-        ctx.globalAlpha = 0.12 * (3 - k);
-        ctx.translate(gsx - k * 11, g.y - g.h / 2 + (g.grounded ? -Math.abs(cyc) * 3 : 0));
+        ctx.translate(gsx, g.y - 14);
         ctx.scale(1.8, 1.8);
-        this.game.drawGhostBody(ctx, ghostRef0, 0, { x: -1, y: 0 }, true);
+        this.drawRollingGhost(ctx, ghostRef, g.spin);
+        ctx.restore();
+      } else {
+        if (pace >= 0.98 && g.grounded) {
+          for (let k = 2; k >= 1; k--) {
+            ctx.save();
+            ctx.globalAlpha = 0.12 * (3 - k);
+            ctx.translate(gsx - k * 11, g.y - g.h / 2 - Math.abs(cyc) * 3);
+            ctx.scale(1.8, 1.8);
+            this.game.drawGhostBody(ctx, ghostRef, 0, { x: -1, y: 0 }, true);
+            ctx.restore();
+          }
+        }
+        ctx.save();
+        const bob = g.grounded ? -Math.abs(cyc) * 4 : 0;
+        ctx.translate(gsx, g.y - g.h / 2 + bob);
+        let scX = 1.8, scY = 1.8;
+        if (!g.grounded) {
+          if (g.vy < -80) { scX = 1.55; scY = 2.05; }
+          else if (g.vy > 80) { scX = 1.65; scY = 1.95; }
+        } else if (g.dust > 0) { scX = 2.1; scY = 1.5; }
+        else if (g.brake > 0) { scX = 2.0; scY = 1.6; }
+        else { scX = 1.8 + cyc * 0.1; scY = 1.8 - cyc * 0.1; }
+        ctx.scale(scX, scY);
+        const grade = g.grounded ? Math.atan(g.grade || 0) : 0;
+        if (!g.grounded) ctx.rotate(Math.max(-0.25, Math.min(0.25, g.vy / 2500)));
+        else if (g.brake > 0) ctx.rotate(-0.3);
+        else ctx.rotate(0.14 + cyc * 0.04 + grade * 0.6);
+        this.game.drawGhostBody(ctx, ghostRef, time, { x: -1, y: 0 }, gap < 180 || g.hurtTimer > 0);
         ctx.restore();
       }
     }
-
-    ctx.save();
-    const bob = g.grounded && g.stumbleTimer <= 0 ? -Math.abs(cyc) * 4 : 0;
-    ctx.translate(gsx, g.y - g.h / 2 + bob);
-    let scX = 1.8, scY = 1.8;
-    if (!g.grounded) {
-      if (g.vy < -80) { scX = 1.55; scY = 2.05; }         // Stretch rising
-      else if (g.vy > 80) { scX = 1.65; scY = 1.95; }
-    } else if (g.dust > 0) {
-      scX = 2.1; scY = 1.5;                                 // Squash on landing
-    } else if (g.stumbleTimer <= 0) {
-      scX = 1.8 + cyc * 0.1; scY = 1.8 - cyc * 0.1;          // Stride squash-and-stretch
-    }
-    ctx.scale(scX, scY);
-    if (g.stumbleTimer > 0) ctx.rotate(Math.sin(g.stumbleTimer * 28) * 0.28);
-    else if (!g.grounded) ctx.rotate(Math.max(-0.25, Math.min(0.25, g.vy / 2500)));
-    else ctx.rotate(0.14 + cyc * 0.04);                      // Leaning into the run
-    const ghostRef = this.game.ghosts[this.ghostIndex];
-    this.game.drawGhostBody(ctx, ghostRef, time, { x: -1, y: 0 }, true);
-    ctx.restore();
 
     // Particles and pops (world space)
     ctx.save();
     ctx.translate(-cam, 0);
     this.particles.forEach(p => p.draw(ctx));
-    if (this.pops) {
-      ctx.font = '900 14px system-ui, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      this.pops.forEach(p => {
-        ctx.globalAlpha = 1 - p.t / 0.7;
-        ctx.lineWidth = 4;
-        ctx.strokeStyle = 'rgba(8, 9, 20, 0.8)';
-        ctx.strokeText(p.text, p.x, p.y - p.t * 40);
-        ctx.fillStyle = '#fde047';
-        ctx.fillText(p.text, p.x, p.y - p.t * 40);
-      });
-    }
+    ctx.font = '900 14px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    this.pops.forEach(p => {
+      ctx.globalAlpha = 1 - p.t / 0.7;
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = 'rgba(8, 9, 20, 0.8)';
+      ctx.strokeText(p.text, p.x, p.y - p.t * 40);
+      ctx.fillStyle = p.color;
+      ctx.fillText(p.text, p.x, p.y - p.t * 40);
+    });
     ctx.restore();
 
-    // Progress meter
+    // HUD: progress meter + RINGS / TIME / SURGE plates
     this.drawMeter(ctx);
-
-    // Pellet chain readout
     ctx.save();
     ctx.font = '800 11px system-ui, sans-serif';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'top';
-    ctx.fillStyle = 'rgba(8, 9, 20, 0.6)';
-    ctx.fillRect(W - 112, 50, 104, 18);
-    ctx.fillStyle = '#fde047';
-    ctx.fillText(`SURGE ${this.chain}/10  ·  ${this.collected}`, W - 14, 53);
+    const plate = (y, text, color) => {
+      ctx.fillStyle = 'rgba(8, 9, 20, 0.6)';
+      ctx.fillRect(W - 112, y, 104, 18);
+      ctx.fillStyle = color;
+      ctx.fillText(text, W - 14, y + 3);
+    };
+    const secs = Math.floor(this.elapsed);
+    const ringsBlink = g.rings === 0 && Math.floor(time * 4) % 2 === 0;
+    plate(50, `RINGS  ${g.rings}`, ringsBlink ? '#f87171' : '#fde047');
+    plate(72, `TIME  ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`, '#f8fafc');
+    plate(94, `SURGE ${this.chain}/10  ·  ${Math.round(Math.abs(g.inLoop ? g.loopV : g.vx))} px/s`, '#a3e635');
     ctx.restore();
 
-    // Near-catch pulse: a red vignette that throbs with his approach
+    // Hit flash and the near-catch pulse
+    if (this.hitFx > 0) {
+      ctx.fillStyle = `rgba(255,255,255,${Math.min(0.45, this.hitFx * 1.4)})`;
+      ctx.fillRect(0, 0, W, H);
+    }
     if (this.nearPulse > 0) {
       const throb = 0.75 + 0.25 * Math.sin(time * 11);
       const vg = ctx.createRadialGradient(W / 2, H / 2, H * 0.32, W / 2, H / 2, H * 0.8);
