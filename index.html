@@ -8141,12 +8141,17 @@ class GloomRun {
   }
 }
 
-// 3e. PHANTOM GRAND PRIX — the kart-racer parody the bottom-right power pellet triggers.
-// Round 6: a real two-kart race. The Menace lines up BESIDE the ghost on the grid and his monster kart
-// stays in shot for the whole lap (alongside, ahead, or looming up from behind — rubber-banded so he is
-// never out of the chase camera for more than a moment). Pseudo-3D banked circuit with a shaded road,
-// grandstands, billboards, trees and lit hills; floating pellet cubes on the racing line, boost pads,
-// arcing pellet bombs, overtake / near-miss flashes and confetti at the finish arch. Original art only.
+// 3e. PHANTOM GRAND PRIX — the kart racer the bottom-right power pellet throws the possessed ghost into.
+// Round 8: a clean-room re-implementation of the 16-bit kart-racer ENGINE in original code and art: a
+// Mode-7 style ground plane (a rasterised top-down track map re-sampled per screen pixel under perspective
+// from a chase camera) on a closed circuit with real corners (original shape, a Catmull-Rom loop); kart
+// handling with throttle, braking and HOP-TO-DRIFT — a held drift charges sparks and fires a boost on
+// release; item cubes that grant a speed surge, a pellet bomb to drop behind, or a shield; pellet coins on
+// the racing line; four karts — the ghost, the Menace and two squad ghosts — with spline-following AI and
+// rubber-banding; live 1st–4th positions; one lap to the finish arch. Finishing ahead of the Menace is
+// survival; him taking the flag first is the catch. Round 7 sky and kart art kept as the skin.
+// Controls: Left/Right (A/D, screen halves, d-pad) steer · Space/Up (W, d-pad up) hop, hold to drift,
+// release to boost · Down/S (d-pad down, swipe down) use item, or brake with no item · X/Shift use item.
 class GrandPrixRun {
   constructor(game, ghostIndex) {
     this.game = game;
@@ -8161,11 +8166,11 @@ class GrandPrixRun {
     this.openingBanner = 'PHANTOM GRAND PRIX — GO!';
     this.bannerColor = '#38bdf8';
     this.exitBanner = 'CHECKERED FLAG!';
-    this.surviveText = '1st Place! Grand Prix survival +200';
+    this.surviveText = 'Ahead of the Menace at the flag! Survival +200';
     this.pressToJump = false;
     this.touchHalves = true;                 // Left / right screen halves steer
 
-    this.duration = 26;                      // ~26 s for the lap at racing pace
+    this.duration = 26;
     this.phase = 'tear_in';                  // tear_in -> run -> finish -> survived | caught
     this.tearInDuration = 0.7;
     this.phaseT = 0;
@@ -8173,454 +8178,541 @@ class GrandPrixRun {
     this.outcome = null;
     this.pendingOutcome = null;
     this.finishT = 0;
-    this.collected = 0;
+    this.collected = 0;                      // Pellet coins taken (HUD "pellets")
     this.chain = 0;
-    this.surges = 0;
+    this.surges = 0;                         // Boosts fired (drift releases + surge items + pads)
     this.rng = ValleyRun.makeRng(31337 + game.mazeIndex * 71);
 
-    // Track
-    this.trackLength = 7600;
-    this.segLen = 40;
-    this.numSegs = Math.ceil(this.trackLength / this.segLen);
+    // ----- Engine tuning (world units; a kart is ~40 units long) -----
+    this.topSpeed = 275;
+    this.accel = 120;
+    this.brakeDecel = 240;
+    this.offroadTop = 0.52;                  // Fraction of top speed off the asphalt
+    this.turnRate = 1.65;                    // rad/s at full steering, full grip
+    this.driftTurn = 1.2;                    // Extra drift turn with the wheel into the slide (0.25 + 1.2)
+    this.driftSlip = 0.42;                   // Max slip angle while drifting (rad)
+    this.driftStage1 = 0.85;                 // Seconds of held drift for a blue (small) boost
+    this.driftStage2 = 1.9;                  // ... and for an orange (big) boost
+    this.halfW = 96;                         // Road half-width
+
+    // Camera: chase, behind and above the kart, yaw eased toward the kart's travel direction
+    this.horizonY = Math.round(this.H * 0.42);
+    this.fovDeg = 62;
+    this.planeDist = (this.W / 2) / Math.tan(this.fovDeg * Math.PI / 360);
+    this.camH = 92;
+    this.camBack = 165;
+    this.camA = 0;
+    this.kartScaleK = this.camBack / this.planeDist;   // s = 1 for a kart at the ghost's own distance
+    this.bgShift = 0;
+
     this.buildTrack();
-    this.buildScenery();
+    this.buildMap();
+    this.buildEntities();
 
-    // Chase camera: sits camBack units behind the ghost's kart, so a kart up to ~140 units behind her
-    // still projects inside the frame (bigger and lower — looming), and karts ahead shrink up the road
-    this.horizonY = Math.round(this.H * 0.40);
-    this.baseFov = 300;
-    this.fov = 300;
-    this.camH = 330;
-    this.camBack = 520;
-    this.roadW = 380;                        // Road half-width in world units (x = -1..1 is the asphalt)
-    this.bgShift = 0;                        // Background parallax (curves swing the scenery)
-
-    // The ghost's kart
-    this.playerDist = 0;
-    this.playerX = 0.42;                     // Grid slot: right of the line
-    this.steerDir = 0;
-    this.steerLean = 0;
-    this.speed = 0;
-    this.baseSpeed = 300;
-    this.boostTimer = 0;
-    this.rushTimer = 0;                      // Pellet-rush surge (every 5 cubes)
-    this.spinTimer = 0;
+    // ----- Karts: the ghost, the Menace and two squad ghosts, on a 2x2 grid behind the line -----
+    const squad = game.ghosts.map((g, i) => i).filter(i => i !== ghostIndex && game.ghosts[i]);
+    const mk = (id, lane, back, opts) => {
+      const p = this.pointAt(this.L - back, lane * this.halfW);
+      return Object.assign({
+        id, x: p.x, y: p.y, a: this.headingAt(this.L - back), v: 0, vx: 0, vy: 0,
+        s: this.L - back, lap: 0, finished: false, finishTime: 0, prog: -back,
+        steer: 0, hop: 0, hopZ: 0, drifting: 0, driftT: 0, driftStage: 0, slip: 0, boost: 0,
+        spin: 0, stun: 0, shield: 0, item: null, roulette: 0, offroad: false, braking: false, bump: 0,
+        wheel: 0, lean: 0, lastPadS: -1, coins: 0,
+        fx: { exhaust: [], smoke: [], sparks: [], timer: 0 }, screen: null,
+        ai: null
+      }, opts);
+    };
+    this.player = mk('player', 0.5, 150, { driver: 'ghost', ghost: game.ghosts[ghostIndex], plate: '01' });
+    this.menace = mk('menace', -0.5, 70, { driver: 'menace', plate: '00', ai: { lane: -0.5, laneT: 0, skill: 1.0, bomb: 3.2, throwAnim: 0 } });
+    this.rivals = [
+      mk('squadA', 0.5, 70, { driver: 'squad', ghost: game.ghosts[squad[0]], plate: '02', ai: { lane: 0.5, laneT: 0, skill: 0.93 } }),
+      mk('squadB', -0.5, 150, { driver: 'squad', ghost: game.ghosts[squad[1]], plate: '03', ai: { lane: -0.5, laneT: 0, skill: 0.9 } })
+    ];
+    this.karts = [this.player, this.menace, ...this.rivals];
+    this.camA = this.player.a;
+    this.camX = this.player.x - Math.cos(this.camA) * this.camBack;
+    this.camY = this.player.y - Math.sin(this.camA) * this.camBack;
+    this.positions = this.karts.slice();
     this.rams = 0;
-    this.ramCooldown = 0;
-    this.nearMissCooldown = 0;
-    this.lastDriftSound = 0;
-    this.playerBob = 0;
+    this.lastAhead = null;
 
-    // The Menace's monster kart: starts on the grid BESIDE the ghost
+    // Compatibility fields read by the shared kart / arch art
+    this.playerDist = 0;
     this.menaceDist = 0;
-    this.menaceX = -0.42;
-    this.menaceTargetX = -0.42;
+    this.trackLength = this.L;
+    this.spinTimer = 0;
+    this.boostTimer = 0;
+    this.rushTimer = 0;
+    this.speed = 0;
     this.menaceSpeed = 0;
-    this.menaceLean = 0;
-    this.menaceSpin = 0;
-    this.menaceSwerve = 0;
-    this.menaceLaneTimer = 1.4;
-    this.bombTimer = 2.8;
-    this.throwAnim = 0;
-    this.lastAhead = null;                   // Who led last frame (for the overtake flash)
 
-    // Per-kart juice (screen-space offsets relative to each kart, scaled at draw time)
-    this.playerFx = { exhaust: [], smoke: [], sparks: [], timer: 0 };
-    this.menaceFx = { exhaust: [], smoke: [], sparks: [], timer: 0 };
-
-    // Entities & screen feedback
+    // Entities & feedback
     this.bombs = [];
-    this.bursts = [];                        // World-space pellet bursts (bomb impacts, cube pickups)
-    this.pops = [];                          // Screen-space "+25" pops
+    this.bursts = [];
+    this.pops = [];
+    this.flashes = [];
     this.confetti = [];
     this.confettiTimer = 0;
-    this.flashes = [];                       // Overtake / near-miss / hit banners
     this.screenShake = 0;
     this.whiteFlash = 0;
-    this.menaceScreen = null;                // Where the Menace was drawn last frame (for the battery)
+    this.menaceScreen = null;
     this.playerScreen = null;
+    this.countdown = 0;
+    this.lastDriftSound = 0;
+    this.driftReleases = 0;                  // Behaviour telemetry
+    this.lastBoostSpeed = 0;
 
-    // Grid-start confetti shower under the start arch
-    for (let i = 0; i < 40; i++) this.spawnConfetti(Math.random() * this.W, -10 - Math.random() * 80);
+    // Ground render buffer: the rows below the horizon at half resolution (chunky 2x2 Mode-7 texels),
+    // scaled up without smoothing at draw time
+    this.groundH = this.H - this.horizonY;
+    this.GW = Math.ceil(this.W / 2);
+    this.GH = Math.ceil(this.groundH / 2);
+    this.gbuf = document.createElement('canvas');
+    this.gbuf.width = this.GW;
+    this.gbuf.height = this.GH;
+    this.gctx = this.gbuf.getContext('2d');
+    this.gimg = this.gctx.createImageData(this.GW, this.GH);
+    this.gpix = new Uint32Array(this.gimg.data.buffer);
+    this.rowZ = new Float32Array(this.GH);
+    for (let r = 0; r < this.GH; r++) this.rowZ[r] = this.camH * this.planeDist / (2 * r + 2);
+
+    for (let i = 0; i < 40; i++) this.spawnConfetti(this.rng() * this.W, -10 - this.rng() * 80);
   }
 
-  // ----- Track authoring: curve (bend), elev (hill height), boost pads, grandstands, billboards -----
+  // ===== Track: a closed Catmull-Rom loop through original control points, sampled by arclength =====
   buildTrack() {
-    this.segments = [];
-    const N = this.numSegs;
-    for (let i = 0; i < N; i++) {
-      let curve = 0, elev = 0, boost = false, stand = false, zone = 'open';
-      if (i < 14) { stand = true; zone = 'pit'; }
-      else if (i >= 16 && i <= 42) { curve = 1.3 * Math.sin(((i - 16) / 26) * Math.PI); zone = 'curve'; }      // Sweeping right bend
-      else if (i >= 46 && i <= 52) { boost = (i >= 47 && i <= 49); zone = 'straight'; }                        // Boost straight
-      else if (i >= 56 && i <= 92) { curve = -1.7 * Math.sin(((i - 56) / 36) * Math.PI); zone = 'curve'; }     // Banked left hairpin
-      else if (i >= 96 && i <= 118) { elev = Math.sin(((i - 96) / 22) * Math.PI) * 70; zone = 'hill'; }        // Hill crest and dip
-      else if (i >= 122 && i <= 150) { curve = (i < 136 ? 1.7 : -1.7) * Math.sin(((i - 122) / 28) * Math.PI * 2); zone = 'curve'; } // S-chicane
-      else if (i >= 152 && i <= 160) { boost = (i >= 154 && i <= 156); stand = true; zone = 'straight'; }     // Second boost straight
-      else if (i >= 164 && i <= 182) { curve = 1.35 * Math.sin(((i - 164) / 18) * Math.PI); zone = 'curve'; } // Final curve
-      else if (i >= 184) { stand = true; zone = 'finish'; }                                                     // Finish straight
-      this.segments.push({ index: i, z: i * this.segLen, curve, elev, boost, stand, zone, props: [] });
+    // Original circuit shape: a long start straight, a sweeping right-hander, a hairpin back, an S-chicane
+    // through the infield, a wide carousel and a fast kink onto the straight.
+    const raw = [
+      [0, 0], [640, 0], [1180, -40], [1560, 160], [1620, 560], [1340, 800], [1240, 1120],
+      [1520, 1380], [1180, 1640], [640, 1580], [360, 1280], [560, 1000], [300, 700], [-120, 560], [-260, 200]
+    ];
+    const cr = (p0, p1, p2, p3, t) => {
+      const t2 = t * t, t3 = t2 * t;
+      return 0.5 * ((2 * p1) + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 + (-p0 + 3 * p1 - 3 * p2 + p3) * t3);
+    };
+    const sample = (pts, per) => {
+      const out = [];
+      const n = pts.length;
+      for (let i = 0; i < n; i++) {
+        const p0 = pts[(i - 1 + n) % n], p1 = pts[i], p2 = pts[(i + 1) % n], p3 = pts[(i + 2) % n];
+        for (let k = 0; k < per; k++) {
+          const t = k / per;
+          out.push({ x: cr(p0[0], p1[0], p2[0], p3[0], t), y: cr(p0[1], p1[1], p2[1], p3[1], t) });
+        }
+      }
+      return out;
+    };
+    // Sample, measure, then scale the whole circuit to the target lap length
+    let pts = sample(raw, 40);
+    let len = 0;
+    for (let i = 0; i < pts.length; i++) { const a = pts[i], b = pts[(i + 1) % pts.length]; len += Math.hypot(b.x - a.x, b.y - a.y); }
+    const k = 5600 / len;
+    pts = sample(raw.map(p => [p[0] * k, p[1] * k]), 40);
+    // Resample at a fixed step by arclength
+    const step = 10;
+    const path = [];
+    let carry = 0;
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i], b = pts[(i + 1) % pts.length];
+      const seg = Math.hypot(b.x - a.x, b.y - a.y);
+      let d = carry;
+      while (d < seg) {
+        const t = d / seg;
+        path.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+        d += step;
+      }
+      carry = d - seg;
     }
+    this.path = path;
+    this.step = step;
+    this.L = path.length * step;
+    for (let i = 0; i < path.length; i++) {
+      const p = path[i], q = path[(i + 1) % path.length], pr = path[(i - 1 + path.length) % path.length];
+      p.a = Math.atan2(q.y - pr.y, q.x - pr.x);
+      p.s = i * step;
+    }
+    // Curvature (signed) per sample, smoothed, for the AI's braking and the racing line
+    for (let i = 0; i < path.length; i++) {
+      const a0 = path[(i - 4 + path.length) % path.length].a, a1 = path[(i + 4) % path.length].a;
+      let d = a1 - a0;
+      while (d > Math.PI) d -= Math.PI * 2;
+      while (d < -Math.PI) d += Math.PI * 2;
+      path[i].curv = d / (8 * step);
+    }
+    // Boost pads (map-drawn chevrons) at two fast points
+    this.pads = [0.235, 0.705].map(f => ({ s: Math.round(f * this.L / step) * step, len: 70 }));
+  }
 
-    // Trackside props: {type, side, off (road half-widths from the centre), seed}. Round 7 roadside: armco
-    // barriers down every straight, grandstands and lamp posts on the pit and finish straights, banner
-    // boards, tyre stacks on the outside of the bends with cones on the inside, braking boards before
-    // each bend, and trees of three kinds at varied distances. Original dress throughout.
-    const boards = ['PELLET CO.', 'SQUAD TYRES', 'GHOST FUEL', 'PHANTOM GP', 'LANTERN OIL', 'MAZE RADIO', 'EMBER BRAKES', 'TIDE WAX'];
-    for (let i = 0; i < N; i++) {
-      const s = this.segments[i];
-      const r = this.rng();
-      const straight = s.zone === 'pit' || s.zone === 'finish' || s.zone === 'straight' || s.zone === 'open';
-      if (straight) { s.props.push({ type: 'barrier', side: -1, off: 1.36, seed: r }); s.props.push({ type: 'barrier', side: 1, off: 1.36, seed: 1 - r }); }
-      if (s.stand) {
-        if (i % 3 === 0) { s.props.push({ type: 'stand', side: -1, off: 1.75, seed: r }); s.props.push({ type: 'stand', side: 1, off: 1.75, seed: 1 - r }); }
-        else if (i % 3 === 1) { s.props.push({ type: 'flag', side: -1, off: 1.25, seed: r }); s.props.push({ type: 'flag', side: 1, off: 1.25, seed: 1 - r }); }
-        else { s.props.push({ type: 'lamp', side: i % 2 ? -1 : 1, off: 1.5, seed: r }); }
-      } else if (s.zone === 'curve') {
-        const out = Math.sign(s.curve) || 1;
-        if (i % 2 === 0) s.props.push({ type: 'tree', side: out, off: 1.55 + r * 0.9, seed: r });
-        if (i % 5 === 1) s.props.push({ type: 'tyres', side: out, off: 1.3, seed: r });
-        if (i % 4 === 0) s.props.push({ type: 'cone', side: -out, off: 1.22, seed: r });
-        if (i % 5 === 2) s.props.push({ type: 'chevron', side: -out, off: 1.3, seed: r, dir: s.curve > 0 ? 1 : -1 });
-        if (i % 7 === 3) s.props.push({ type: 'tree', side: -out, off: 1.9 + r * 0.8, seed: r });
-        if (i % 6 === 4) s.props.push({ type: 'bush', side: -out, off: 1.45 + r * 0.3, seed: r });
-      } else if (s.zone === 'hill') {
-        if (i % 2 === 0) s.props.push({ type: 'tree', side: i % 4 ? 1 : -1, off: 1.5 + r * 1.2, seed: r });
-        if (i % 3 === 1) s.props.push({ type: 'bush', side: i % 2 ? -1 : 1, off: 1.35 + r * 0.3, seed: r });
-        if (i % 5 === 3) s.props.push({ type: 'tree', side: i % 2 ? -1 : 1, off: 2.4 + r * 0.8, seed: r });
-      } else {
-        if (i % 2 === 0) s.props.push({ type: 'tree', side: i % 4 ? 1 : -1, off: 1.6 + r * 1.1, seed: r });
-        if (i % 4 === 2) s.props.push({ type: 'bush', side: i % 8 ? -1 : 1, off: 1.4 + r * 0.3, seed: r });
-        if (i % 3 === 1) s.props.push({ type: 'board', side: i % 6 === 1 ? -1 : 1, off: 1.42, seed: r, text: boards[i % boards.length] });
+  pathAt(s) {
+    const n = this.path.length;
+    const i = Math.floor((((s / this.step) % n) + n) % n);
+    return this.path[i];
+  }
+  headingAt(s) { return this.pathAt(s).a; }
+  // World point at arclength s and signed lateral offset (positive = right of travel)
+  pointAt(s, lat) {
+    const p = this.pathAt(s);
+    const nx = -Math.sin(p.a), ny = Math.cos(p.a);
+    return { x: p.x + nx * lat, y: p.y + ny * lat, a: p.a };
+  }
+  // Nearest arclength to (x, y), searched around a previous estimate (karts) or globally
+  nearestS(x, y, prevS) {
+    const n = this.path.length;
+    let best = Infinity, bi = 0;
+    if (prevS === undefined) {
+      for (let i = 0; i < n; i += 3) { const p = this.path[i]; const d = (p.x - x) ** 2 + (p.y - y) ** 2; if (d < best) { best = d; bi = i; } }
+      for (let i = bi - 3; i <= bi + 3; i++) { const p = this.path[((i % n) + n) % n]; const d = (p.x - x) ** 2 + (p.y - y) ** 2; if (d < best) { best = d; bi = ((i % n) + n) % n; } }
+      return bi * this.step;
+    }
+    const c = Math.floor(prevS / this.step);
+    for (let i = c - 12; i <= c + 20; i++) {
+      const j = ((i % n) + n) % n;
+      const p = this.path[j];
+      const d = (p.x - x) ** 2 + (p.y - y) ** 2;
+      if (d < best) { best = d; bi = j; }
+    }
+    return bi * this.step;
+  }
+  // Signed lateral offset of (x, y) from the centre line at s
+  lateralAt(x, y, s) {
+    const p = this.pathAt(s);
+    return -(x - p.x) * Math.sin(p.a) + (y - p.y) * Math.cos(p.a);
+  }
+
+  // ===== The ground map: a top-down picture of the whole circuit the Mode-7 pass re-samples =====
+  buildMap() {
+    const P = this.path;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const p of P) { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y); }
+    const margin = 520;
+    this.mapOx = minX - margin;
+    this.mapOy = minY - margin;
+    const spanX = maxX - minX + margin * 2, spanY = maxY - minY + margin * 2;
+    const SIZE = 1536;
+    this.mapSize = SIZE;
+    this.mapScale = SIZE / Math.max(spanX, spanY);
+    const sc = this.mapScale;
+    const cv = document.createElement('canvas');
+    cv.width = SIZE; cv.height = SIZE;
+    const c = cv.getContext('2d');
+    const rng = ValleyRun.makeRng(777);
+    const M = (x, y) => [(x - this.mapOx) * sc, (y - this.mapOy) * sc];
+
+    // Meadow: a two-tone checker field (the genre's flat-shaded ground) with grain and flowers
+    c.fillStyle = '#5fb64c';
+    c.fillRect(0, 0, SIZE, SIZE);
+    const tile = 56 * sc;
+    for (let ty = 0; ty < SIZE / tile; ty++) for (let tx = 0; tx < SIZE / tile; tx++) {
+      if ((tx + ty) % 2 === 0) continue;
+      c.fillStyle = '#56a943';
+      c.fillRect(tx * tile, ty * tile, tile + 0.5, tile + 0.5);
+    }
+    for (let i = 0; i < 9000; i++) {
+      c.fillStyle = rng() < 0.5 ? 'rgba(30, 90, 30, 0.35)' : 'rgba(170, 230, 120, 0.35)';
+      c.fillRect(rng() * SIZE, rng() * SIZE, 1.5, 1.5);
+    }
+    for (let i = 0; i < 700; i++) {
+      c.fillStyle = ['#fde68a', '#f9a8d4', '#f8fafc', '#fca5a5'][i % 4];
+      c.fillRect(rng() * SIZE, rng() * SIZE, 2, 2);
+    }
+    // Infield pond
+    const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+    const pond = M(cx + 60, cy - 140);
+    c.fillStyle = '#c9b27a';
+    c.beginPath(); c.ellipse(pond[0], pond[1], 150 * sc, 100 * sc, 0.3, 0, Math.PI * 2); c.fill();
+    c.fillStyle = '#3b9fd8';
+    c.beginPath(); c.ellipse(pond[0], pond[1], 128 * sc, 82 * sc, 0.3, 0, Math.PI * 2); c.fill();
+    c.fillStyle = 'rgba(255,255,255,0.35)';
+    c.beginPath(); c.ellipse(pond[0] - 30 * sc, pond[1] - 20 * sc, 40 * sc, 14 * sc, 0.3, 0, Math.PI * 2); c.fill();
+
+    const ring = (lat, width, color, dash) => {
+      c.save();
+      c.strokeStyle = color;
+      c.lineWidth = width * sc;
+      c.lineJoin = 'round';
+      c.lineCap = 'round';
+      if (dash) c.setLineDash(dash.map(d => d * sc));
+      c.beginPath();
+      for (let i = 0; i <= P.length; i++) {
+        const q = this.pointAt(i * this.step, lat);
+        const m = M(q.x, q.y);
+        if (i === 0) c.moveTo(m[0], m[1]); else c.lineTo(m[0], m[1]);
       }
-      if (i === 44 || i === 94 || i === 120 || i === 162) s.props.push({ type: 'billboard', side: i % 2 ? -1 : 1, off: 1.55, seed: r, text: ['PHANTOM GP', 'PELLET CO.', 'SQUAD TYRES', 'GHOST FUEL'][(i / 2) % 4 | 0] });
-      if (i === 95) s.props.push({ type: 'gantry', side: 0, off: 0, seed: r, text: 'HALFWAY' });
-      if (i === 46 || i === 153) s.props.push({ type: 'gantry', side: 0, off: 0, seed: r, text: 'BOOST' });
-      for (const [start, dir] of [[16, 1], [56, -1], [122, 1], [164, 1]]) {
-        if (i === start - 3) s.props.push({ type: 'sign', side: -dir, off: 1.3, seed: r, text: '100' });
-        if (i === start - 6) s.props.push({ type: 'sign', side: -dir, off: 1.3, seed: r, text: '200' });
+      c.closePath();
+      c.stroke();
+      c.restore();
+    };
+    // Sand verge, then asphalt, then wear stripes along the racing line
+    ring(0, this.halfW * 2 + 64, '#c9b27a');
+    ring(0, this.halfW * 2 + 50, '#b89d62');
+    ring(0, this.halfW * 2, '#6b6e78');
+    ring(-22, 26, 'rgba(60, 62, 70, 0.45)');
+    ring(22, 26, 'rgba(60, 62, 70, 0.45)');
+    // Asphalt grain
+    for (let i = 0; i < 7000; i++) {
+      const q = this.pointAt(rng() * this.L, (rng() * 2 - 1) * (this.halfW - 4));
+      const m = M(q.x, q.y);
+      c.fillStyle = rng() < 0.5 ? 'rgba(20, 22, 30, 0.35)' : 'rgba(170, 175, 190, 0.22)';
+      c.fillRect(m[0], m[1], 1.5, 1.5);
+    }
+    // Kerbs: alternating red / white blocks along both edges
+    for (let s = 0; s < this.L; s += 16) {
+      for (const side of [-1, 1]) {
+        const q = this.pointAt(s, side * (this.halfW - 7));
+        const m = M(q.x, q.y);
+        c.save();
+        c.translate(m[0], m[1]);
+        c.rotate(q.a);
+        c.fillStyle = (Math.floor(s / 16) % 2 === 0) ? '#e11d48' : '#f8fafc';
+        c.fillRect(-8 * sc, -7 * sc, 16.5 * sc, 14 * sc);
+        c.restore();
       }
     }
-    // Floating pellet cubes strung along the racing line (inside of each curve); +25 each, 5 in a row = PELLET RUSH
+    // Edge lines just inside the kerbs
+    ring(this.halfW - 16, 3, 'rgba(248, 250, 252, 0.8)');
+    ring(-(this.halfW - 16), 3, 'rgba(248, 250, 252, 0.8)');
+    // Boost pads: orange chevron strips across the road
+    for (const pad of this.pads) {
+      for (let s = pad.s; s < pad.s + pad.len; s += 14) {
+        const q = this.pointAt(s, 0);
+        const m = M(q.x, q.y);
+        c.save();
+        c.translate(m[0], m[1]);
+        c.rotate(q.a);
+        c.fillStyle = (Math.floor((s - pad.s) / 14) % 2 === 0) ? '#f97316' : '#fde047';
+        c.beginPath();
+        c.moveTo(-7 * sc, -(this.halfW - 20) * sc); c.lineTo(7 * sc, -(this.halfW - 20) * sc); c.lineTo(14 * sc, 0); c.lineTo(7 * sc, (this.halfW - 20) * sc); c.lineTo(-7 * sc, (this.halfW - 20) * sc); c.lineTo(0, 0);
+        c.closePath(); c.fill();
+        c.restore();
+      }
+    }
+    // Start / finish: a checkered band across the road at s = 0
+    for (let k = 0; k < 2; k++) for (let j = 0; j < 10; j++) {
+      const q = this.pointAt(k * 12 + 6, -this.halfW + 16 + j * ((this.halfW - 16) * 2 / 10) + ((this.halfW - 16) * 2 / 20));
+      const m = M(q.x, q.y);
+      c.save();
+      c.translate(m[0], m[1]);
+      c.rotate(q.a);
+      c.fillStyle = (j + k) % 2 === 0 ? '#f8fafc' : '#0f172a';
+      c.fillRect(-6 * sc, -((this.halfW - 16) / 10) * sc, 12.5 * sc, ((this.halfW - 16) / 5) * sc);
+      c.restore();
+    }
+    // Grid boxes behind the line
+    c.strokeStyle = 'rgba(248, 250, 252, 0.7)';
+    c.lineWidth = Math.max(1, 2 * sc);
+    for (const [lane, back] of [[0.5, 70], [-0.5, 70], [0.5, 150], [-0.5, 150]]) {
+      const q = this.pointAt(this.L - back, lane * this.halfW);
+      const m = M(q.x, q.y);
+      c.save(); c.translate(m[0], m[1]); c.rotate(q.a);
+      c.strokeRect(-20 * sc, -16 * sc, 40 * sc, 32 * sc);
+      c.restore();
+    }
+    this.mapPix = new Uint32Array(c.getImageData(0, 0, SIZE, SIZE).data.buffer);
+    this.mapCanvas = cv;
+    this.grassWord = this.mapPix[2 * SIZE + 2];
+  }
+
+  // Is the world point on the asphalt? (centre-line distance test)
+  onRoad(x, y, s) { return Math.abs(this.lateralAt(x, y, s)) <= this.halfW + 4; }
+
+  // ===== Entities: item cubes, pellet coins and trackside props =====
+  buildEntities() {
     this.cubes = [];
-    for (let i = 6; i < N - 6; i += 4) {
-      const s = this.segments[i];
-      if (s.boost) continue;
-      const line = s.curve !== 0 ? -Math.sign(s.curve) * 0.45 : [-0.45, 0, 0.45][(i / 4) % 3 | 0];
-      this.cubes.push({ dist: s.z + this.segLen / 2, x: line, taken: false, spin: this.rng() * 6 });
+    for (const f of [0.1, 0.33, 0.56, 0.8]) {
+      const s = Math.round(f * this.L / this.step) * this.step;
+      for (const lane of [-0.55, 0, 0.55]) this.cubes.push({ s, lane, taken: 0, spin: this.rng() * 6 });
+    }
+    this.coins = [];
+    for (let g = 0; g < 11; g++) {
+      const s0 = 320 + g * (this.L - 500) / 11;
+      const lane = Math.sin(g * 1.7) * 0.5;
+      for (let k = 0; k < 5; k++) this.coins.push({ s: s0 + k * 46, lane, taken: false, bob: this.rng() * 6 });
+    }
+    this.props = [];
+    const rng = ValleyRun.makeRng(4242);
+    for (let s = 60; s < this.L; s += 95) {
+      const side = rng() < 0.5 ? -1 : 1;
+      const curv = this.pathAt(s).curv;
+      // Keep props off the inside of bends so the view through the corner stays open
+      if (Math.sign(curv) === side && Math.abs(curv) > 0.0012) continue;
+      const lat = side * (this.halfW + 70 + rng() * 150);
+      const q = this.pointAt(s, lat);
+      const r = rng();
+      this.props.push({ x: q.x, y: q.y, kind: r < 0.62 ? 'tree' : r < 0.8 ? 'sign' : 'tyres', v: Math.floor(rng() * 4), s });
+    }
+    // Grandstands on the start straight
+    for (const s of [this.L - 240, this.L - 120, 60, 180, 300]) {
+      const q = this.pointAt(s, -(this.halfW + 118));
+      this.props.push({ x: q.x, y: q.y, kind: 'stand', v: 0, s });
+    }
+    // Flag poles flanking the line
+    for (const side of [-1, 1]) {
+      const q = this.pointAt(8, side * (this.halfW + 24));
+      this.props.push({ x: q.x, y: q.y, kind: 'flag', v: side > 0 ? 1 : 0, s: 8 });
     }
   }
 
-  buildScenery() {
-    this.cloudsFar = [];
-    for (let i = 0; i < 9; i++) this.cloudsFar.push({ x: i * 140 + this.rng() * 90, y: 18 + this.rng() * 60, s: 0.55 + this.rng() * 0.5 });
-    this.cloudsNear = [];
-    for (let i = 0; i < 6; i++) this.cloudsNear.push({ x: i * 210 + this.rng() * 120, y: 40 + this.rng() * 70, s: 1.0 + this.rng() * 0.5 });
-    this.balloons = [];
-    for (let i = 0; i < 4; i++) this.balloons.push({ x: 90 + i * 240 + this.rng() * 100, y: 60 + this.rng() * 60, s: 0.7 + this.rng() * 0.5, hue: [0, 1, 2, 3][i % 4] });
-  }
-
-  spawnConfetti(x, y) {
-    this.confetti.push({
-      x, y, vx: (Math.random() - 0.5) * 60, vy: 40 + Math.random() * 70,
-      color: ['#ffd32a', '#38bdf8', '#ec4899', '#22c55e', '#ffffff', '#f97316'][Math.floor(Math.random() * 6)],
-      size: 3 + Math.random() * 4, rot: Math.random() * Math.PI * 2, spin: (Math.random() - 0.5) * 9
-    });
-  }
-
-  flash(text, color, dur = 0.9) {
-    this.flashes.push({ text, color, t: 0, dur });
-  }
-
-  burst(dist, x, color, n, h = 0) {
-    for (let i = 0; i < n; i++) {
-      const a = Math.random() * Math.PI * 2, sp = 60 + Math.random() * 160;
-      this.bursts.push({ dist, x, h, vd: Math.cos(a) * sp, vx: Math.sin(a) * sp / this.roadW, vh: 60 + Math.random() * 140, color, life: 0.45 + Math.random() * 0.3, maxLife: 0.75, r: 4 + Math.random() * 5 });
+  // ===== Input =====
+  key(code, down) {
+    const p = this.player;
+    switch (code) {
+      case 'ArrowLeft': case 'KeyA': this.setSteer(-1, down); return true;
+      case 'ArrowRight': case 'KeyD': this.setSteer(1, down); return true;
+      case 'Space': case 'ArrowUp': case 'KeyW': if (down) this.hop(); else this.hopRelease(); return true;
+      case 'ArrowDown': case 'KeyS': if (down) this.useOrBrake(true); else p.brakeHeld = false; return true;
+      case 'KeyX': case 'ShiftLeft': case 'ShiftRight': case 'Enter': if (down) this.useItem(); return true;
+      default: return false;
     }
   }
+  dpad(dir, down) {
+    const p = this.player;
+    if (dir === 'left') this.setSteer(-1, down);
+    else if (dir === 'right') this.setSteer(1, down);
+    else if (dir === 'up') { if (down) this.hop(); else this.hopRelease(); }
+    else if (dir === 'down') { if (down) this.useOrBrake(true); else p.brakeHeld = false; }
+    else return false;
+    return true;
+  }
+  setSteer(dir, down) {
+    if (down) { this.steerHeld = dir; }
+    else if (this.steerHeld === dir) this.steerHeld = 0;
+  }
+  steer(dir) { this.setSteer(dir, true); }
+  steerRelease(dir) { this.setSteer(dir, false); }
+  jump() { return this.hop(); }
+  jumpRelease() { this.hopRelease(); }
+  fastFall() { this.useOrBrake(false); }
+  useOrBrake(hold) {
+    const p = this.player;
+    if (p.item && p.roulette <= 0) { this.useItem(); return; }
+    if (hold) p.brakeHeld = true; else p.brakeTap = 0.35;
+  }
+  // The hop: a short jump that starts a drift if the wheel is turned and the kart is moving
+  hop() {
+    const p = this.player;
+    if (this.phase !== 'run' || p.hop > 0 || p.spin > 0) return false;
+    p.hop = 0.32;
+    p.hopHeld = true;
+    p.wantDrift = this.steerHeld || Math.sign(p.steer);
+    return true;
+  }
+  hopRelease() {
+    const p = this.player;
+    p.hopHeld = false;
+    if (p.drifting) this.releaseDrift(p);
+  }
+  useItem() {
+    const p = this.player;
+    if (this.phase !== 'run' || !p.item || p.roulette > 0) return;
+    this.fireItem(p);
+  }
 
-  jump() { return false; }
-  jumpRelease() {}
-  fastFall() {}
-  steer(dir) { if (this.phase === 'run') this.steerDir = dir; }
-  steerRelease(dir) { if (this.steerDir === dir) this.steerDir = 0; }
-
-  // HUD meter contract
-  progress() { return Math.max(0, Math.min(1, this.playerDist / this.trackLength)); }
-  menaceProgress() { return Math.max(0, Math.min(1, this.menaceDist / this.trackLength)); }
-  remainingSeconds() { return Math.max(0, (this.trackLength - this.playerDist) / Math.max(this.baseSpeed, this.speed || 1)); }
+  // ===== HUD meter contract =====
+  progress() { return Math.max(0, Math.min(1, this.player.prog / this.L)); }
+  menaceProgress() { return Math.max(0, Math.min(1, this.menace.prog / this.L)); }
+  remainingSeconds() { return Math.max(0, (this.L - this.player.prog) / Math.max(90, this.player.v)); }
   extraInfo() {
+    const p = this.player, m = this.menace;
     return {
-      playerDist: this.playerDist, menaceDist: this.menaceDist, rel: this.menaceDist - this.playerDist,
-      speed: this.speed, menaceSpeed: this.menaceSpeed, rams: this.rams, cubes: this.collected,
+      playerDist: p.prog, menaceDist: m.prog, rel: m.prog - p.prog,
+      speed: p.v, menaceSpeed: m.v, rams: this.rams, cubes: this.collected,
+      position: this.positions.indexOf(p) + 1, menacePosition: this.positions.indexOf(m) + 1,
+      drifting: !!p.drifting, driftT: p.driftT, driftStage: p.driftStage, boost: p.boost, item: p.item,
+      driftReleases: this.driftReleases, lastBoostSpeed: this.lastBoostSpeed, topSpeed: this.topSpeed,
+      offroad: p.offroad, x: p.x, y: p.y, heading: p.a, lateral: this.lateralAt(p.x, p.y, p.s),
       menaceScreen: this.menaceScreen, playerScreen: this.playerScreen,
       bothInFrame: !!(this.menaceScreen && this.playerScreen && this.menaceScreen.inFrame && this.playerScreen.inFrame)
     };
   }
 
-  segAt(dist) {
-    const i = Math.floor(dist / this.segLen);
-    return this.segments[((i % this.numSegs) + this.numSegs) % this.numSegs];
+  // Test / tuning hooks
+  debug(cmd, arg) {
+    const p = this.player;
+    if (cmd === 'place') {
+      // { s, lane, speed }: put the ghost's kart on the centre line at arclength s, facing along the track
+      const q = this.pointAt(arg.s, (arg.lane || 0) * this.halfW);
+      p.x = q.x; p.y = q.y; p.a = q.a; p.s = this.nearestS(q.x, q.y); p.prog = p.s;
+      if (arg.speed !== undefined) p.v = arg.speed;
+      p.vx = Math.cos(p.a) * p.v; p.vy = Math.sin(p.a) * p.v;
+      p.drifting = 0; p.driftT = 0; p.driftStage = 0; p.slip = 0; p.boost = 0; p.hop = 0; p.spin = 0;
+      return { x: p.x, y: p.y, a: p.a, s: p.s };
+    }
+    if (cmd === 'placeMenace') {
+      const m = this.menace;
+      const q = this.pointAt(arg.s, (arg.lane || 0) * this.halfW);
+      m.x = q.x; m.y = q.y; m.a = q.a; m.s = this.nearestS(q.x, q.y); m.prog = m.s;
+      if (arg.speed !== undefined) m.v = arg.speed;
+      return { x: m.x, y: m.y, s: m.s };
+    }
+    if (cmd === 'freezeRivals') { this.frozenRivals = !!arg; return this.frozenRivals; }
+    if (cmd === 'giveItem') { p.item = arg; p.roulette = 0; return p.item; }
+    if (cmd === 'track') {
+      let maxCurv = 0;
+      for (const q of this.path) maxCurv = Math.max(maxCurv, Math.abs(q.curv));
+      return { L: this.L, halfW: this.halfW, topSpeed: this.topSpeed, turnRate: this.turnRate, maxCurv, minRadius: 1 / maxCurv, pads: this.pads, cubes: this.cubes.length, coins: this.coins.length };
+    }
+    return null;
   }
 
-  elevAt(dist) {
-    const i = Math.floor(dist / this.segLen);
-    const f = dist / this.segLen - i;
-    const a = this.segments[((i % this.numSegs) + this.numSegs) % this.numSegs].elev;
-    const b = this.segments[(((i + 1) % this.numSegs) + this.numSegs) % this.numSegs].elev;
-    return a + (b - a) * f;
-  }
-
-  // ----- Simulation -----
+  // ===== Simulation =====
   update(dt) {
     if (this.outcome) return this.outcome;
+    dt = Math.min(dt, 0.05);
     this.phaseT += dt;
     this.updateJuice(dt);
 
     if (this.phase === 'tear_in') {
-      if (this.phaseT >= this.tearInDuration) { this.phase = 'run'; this.phaseT = 0; }
+      if (this.phaseT >= this.tearInDuration) { this.phase = 'run'; this.phaseT = 0; this.flash('GO!', '#a3e635', 0.7); }
+      this.updateCamera(dt);
       return null;
     }
 
     if (this.phase === 'finish') {
-      // Both karts coast through the arch under the confetti cannons, then the result stands
+      // Everyone coasts through the arch under the confetti cannons, then the result stands
       this.finishT += dt;
-      this.playerDist += this.speed * dt;
-      this.menaceDist += this.menaceSpeed * dt;
+      for (const k of this.karts) this.stepKart(k, { steer: 0, drift: false, brake: false }, dt);
+      this.updateCamera(dt);
       this.confettiTimer -= dt;
-      if (this.confettiTimer <= 0) { this.confettiTimer = 0.05; this.spawnConfetti(Math.random() * this.W, -10); }
+      if (this.confettiTimer <= 0) { this.confettiTimer = 0.05; this.spawnConfetti(this.rng() * this.W, -10); }
       if (this.finishT >= 1.15) { this.outcome = this.pendingOutcome; this.phase = this.outcome; return this.outcome; }
       return null;
     }
 
     this.elapsed += dt;
-    const tl = this.trackLength;
+    const p = this.player;
 
-    // Timers
-    if (this.boostTimer > 0) this.boostTimer -= dt;
-    if (this.rushTimer > 0) this.rushTimer -= dt;
-    if (this.spinTimer > 0) this.spinTimer -= dt;
-    if (this.menaceSpin > 0) this.menaceSpin -= dt;
-    if (this.ramCooldown > 0) this.ramCooldown -= dt;
-    if (this.nearMissCooldown > 0) this.nearMissCooldown -= dt;
-    if (this.throwAnim > 0) this.throwAnim -= dt;
-    if (this.menaceSwerve > 0) this.menaceSwerve -= dt;
+    // --- Player input: eased wheel, held hop = drift, item / brake ---
+    let want = this.steerHeld || 0;
+    if (!want && !p.drifting) want = this.laneAssist(p);
+    p.steer += (want - p.steer) * Math.min(1, dt * 9);
+    if (Math.abs(p.steer) < 0.02 && !want) p.steer = 0;
+    if (p.brakeTap > 0) p.brakeTap -= dt;
+    this.stepKart(p, { steer: p.steer, drift: !!p.hopHeld, brake: !!(p.brakeHeld || p.brakeTap > 0) }, dt);
 
-    // --- The ghost's kart ---
-    const seg = this.segAt(this.playerDist);
-    // Round 7: the pace VARIES — a lift-off through every bend (deeper the tighter it is), a throttle
-    // breathing on the straights, a long acceleration curve off the line (quick at first, tailing off
-    // toward top speed), and the boost / rush / grass / spin states on top. No two frames read the same.
-    const bendLift = 1 - 0.24 * Math.min(1, Math.abs(seg.curve) / 1.7);
-    const breathe = 1 + 0.035 * Math.sin(this.elapsed * 1.7) + 0.02 * Math.sin(this.elapsed * 4.3 + 1);
-    let targetSpeed = this.baseSpeed * bendLift * breathe;
-    if (this.spinTimer > 0) targetSpeed = 50;
-    else if (this.boostTimer > 0) targetSpeed = 450;
-    else if (this.rushTimer > 0) targetSpeed = 380;
-    else if (Math.abs(this.playerX) > 1.08) targetSpeed = 170;       // Off onto the grass
-    const accelRate = this.speed < targetSpeed ? 1.6 + 3.4 * Math.max(0, 1 - this.speed / Math.max(1, targetSpeed)) : 4.2;
-    const prevSpeed = this.speed;
-    this.speed += (targetSpeed - this.speed) * Math.min(1, dt * accelRate);
-    this.braking = this.speed < prevSpeed - 12 * dt;                 // Tail lights when lifting off
-    this.playerDist += this.speed * dt;
-    this.playerWheel = (this.playerWheel || 0) + this.speed * dt * 0.055;
-    this.playerTurn = this.steerLean * 0.5 + seg.curve * 0.14;
-    // Subtle camera shake at top speed (and a firmer one under boost)
-    const topFrac = Math.max(0, (this.speed - 270) / 180);
-    this.paceShake = topFrac * (this.boostTimer > 0 ? 2.6 : 1.3);
-
-    // Steering, centrifugal drift in bends, lean
-    this.steerLean += (this.steerDir - this.steerLean) * Math.min(1, dt * 9);
-    if (this.spinTimer <= 0) {
-      this.playerX += this.steerDir * 2.1 * dt;
-      this.playerX -= seg.curve * 0.12 * (this.speed / this.baseSpeed) * dt;
-      this.playerX = Math.max(-1.2, Math.min(1.2, this.playerX));
-    }
-    this.playerBob += dt * (6 + this.speed / 40);
-    this.bgShift += seg.curve * this.speed * dt * 0.07;   // Bends swing the scenery past
-
-    // Drifting: sparks and tyre smoke off the rear wheels while steering at pace
-    const drifting = this.steerDir !== 0 && this.speed > 170 && this.spinTimer <= 0;
-    if (drifting) {
-      if (this.elapsed - this.lastDriftSound > 0.18) {
-        this.lastDriftSound = this.elapsed;
-        if (this.game.sound.playKartDrift) this.game.sound.playKartDrift();
-      }
-      this.kartDrift(this.playerFx, this.steerDir);
-    }
-    this.kartExhaust(this.playerFx, dt, this.boostTimer > 0 || this.rushTimer > 0);
-
-    // Boost pads (on the asphalt only)
-    if (seg.boost && Math.abs(this.playerX) < 0.95 && this.boostTimer <= 0.4) {
-      this.boostTimer = 1.8;
-      this.surges++;
-      this.game.score += 50;
-      this.game.updateHUD();
-      this.whiteFlash = 0.25;
-      this.flash('BOOST!', '#38bdf8', 0.7);
-      if (this.game.sound.playKartBoost) this.game.sound.playKartBoost();
+    // --- AI karts ---
+    for (const k of [this.menace, ...this.rivals]) {
+      if (this.frozenRivals) continue;
+      this.stepKart(k, this.aiInput(k, dt), dt);
     }
 
-    // Pellet cubes on the racing line: +25 each; five in a row is a PELLET RUSH surge
-    for (const c of this.cubes) {
-      if (c.taken) continue;
-      c.spin += dt * 2.5;
-      if (Math.abs(this.playerDist - c.dist) < 34 && Math.abs(this.playerX - c.x) < 0.36) {
-        c.taken = true;
-        this.collected++;
-        this.chain++;
-        this.game.score += 25;
-        this.game.updateHUD();
-        this.game.sound.playValleyPellet(this.chain);
-        this.burst(c.dist, c.x, '#ffd32a', 10, 30);
-        this.pops.push({ text: '+25', t: 0, x: this.playerScreen ? this.playerScreen.x : this.W / 2, y: this.playerScreen ? this.playerScreen.y - 60 : this.H * 0.6 });
-        if (this.chain >= 5) {
-          this.chain = 0;
-          this.surges++;
-          this.rushTimer = 1.1;
-          this.menaceSpin = Math.max(this.menaceSpin, 0.5);
-          this.whiteFlash = 0.2;
-          this.game.sound.playSurge();
-          this.flash('PELLET RUSH!', '#fde047', 0.9);
-          this.game.showNotification('PELLET RUSH! The Menace eats dust!');
-        }
-      } else if (Math.abs(this.menaceDist - c.dist) < 30 && Math.abs(this.menaceX - c.x) < 0.3 && this.menaceSpin <= 0) {
-        // The glutton eats whatever is on his line
-        c.taken = true;
-        this.burst(c.dist, c.x, '#fbc531', 6, 24);
-        if (this.game.sound.playChomp) this.game.sound.playChomp();
-      }
-    }
+    this.updateCollisions(dt);
+    this.updateItems(dt);
+    this.updatePositions();
+    this.updateCamera(dt);
 
-    // --- The Menace's monster kart: a real rival, rubber-banded into the frame ---
-    const rel = this.menaceDist - this.playerDist;
-    const mseg = this.segAt(this.menaceDist);
-    // Where he wants to sit relative to the ghost drifts over the lap: ahead, level, then breathing down her neck
-    const desired = 70 * Math.sin(this.elapsed * 0.42 + 0.6) + 40;
-    let mTarget = this.baseSpeed + 1.1 * this.elapsed + 22 * Math.sin(this.elapsed * 0.7) + Math.max(-110, Math.min(120, (desired - rel) * 0.5));
-    if (rel > 520) mTarget = Math.min(mTarget, this.speed - 90);              // Never out of shot up the road
-    if (rel < -120) mTarget = Math.max(mTarget, this.speed + 110);           // ...or dropped behind the camera
-    if (this.menaceScreen && !this.menaceScreen.inFrame && this.elapsed > 1.5) {
-      // Round a bend or past the frame edge: the band snaps him back toward the ghost within a moment
-      mTarget = rel > 0 ? Math.min(mTarget, this.speed - 140) : Math.max(mTarget, this.speed + 140);
-    }
-    if (this.menaceSpin > 0) mTarget = 70;
-    if (Math.abs(this.menaceX) > 1.08) mTarget = Math.min(mTarget, 160);
-    this.menaceSpeed += (mTarget - this.menaceSpeed) * Math.min(1, dt * (this.menaceSpeed < mTarget ? 3.0 : 4.5));
-    this.menaceDist += this.menaceSpeed * dt;
-    this.menaceWheel = (this.menaceWheel || 0) + this.menaceSpeed * dt * 0.055;
-    const relNow = this.menaceDist - this.playerDist;
-    if (relNow < -110) this.menaceDist = this.playerDist - 110;
-    if (relNow > 600) this.menaceDist = this.playerDist + 600;
+    // Compatibility mirrors for the shared art
+    this.playerDist = p.prog; this.menaceDist = this.menace.prog; this.speed = p.v; this.menaceSpeed = this.menace.v;
+    this.spinTimer = p.spin; this.boostTimer = p.boost;
 
-    // Lane choice: the inside of every bend, a bully's swerve toward the ghost when alongside
-    this.menaceLaneTimer -= dt;
-    if (this.menaceLaneTimer <= 0) {
-      this.menaceLaneTimer = 1.2 + Math.random() * 1.4;
-      this.menaceTargetX = mseg.curve !== 0 ? -Math.sign(mseg.curve) * (0.3 + Math.random() * 0.3) : (Math.random() - 0.5) * 1.1;
-    }
-    // Every few seconds, when level, he bullies across into her lane for a moment
-    this.bullyTimer = (this.bullyTimer === undefined ? 4.5 : this.bullyTimer) - dt;
-    if (this.bullyTimer <= 0) { this.bullyTimer = 5.5 + Math.random() * 2; this.bullyT = 1.3; }
-    if (this.bullyT > 0) this.bullyT -= dt;
-    let laneGoal = this.menaceTargetX;
-    if (this.menaceSwerve > 0) laneGoal = -Math.sign(this.playerX || 1) * 0.6;
-    else if (this.bullyT > 0 && Math.abs(relNow) < 110 && this.ramCooldown <= 0 && this.elapsed > 3) laneGoal = this.playerX * 0.85;
-    else if (Math.abs(relNow) < 160 && Math.abs(laneGoal - this.playerX) < 0.7) laneGoal = this.playerX + (this.menaceX < this.playerX ? -0.8 : 0.8);   // Otherwise he races his own lane
-    const mdx = laneGoal - this.menaceX;
-    const mstep = Math.sign(mdx) * Math.min(Math.abs(mdx), 1.3 * dt);
-    this.menaceX += this.menaceSpin > 0 ? 0 : mstep;
-    if (Math.abs(relNow) < 220) this.menaceX = Math.max(this.playerX - 1.25, Math.min(this.playerX + 1.25, this.menaceX));   // Level karts share the frame
-    this.menaceLean += ((mstep > 0.001 ? 1 : mstep < -0.001 ? -1 : 0) - this.menaceLean) * Math.min(1, dt * 6);
-    if (Math.abs(mstep) > 0.004 && this.menaceSpeed > 170) this.kartDrift(this.menaceFx, Math.sign(mstep));
-    this.kartExhaust(this.menaceFx, dt, false);
+    // --- The flag: the Menace crossing first is the catch; the ghost crossing (ahead of him) is survival ---
+    if (this.menace.finished && !p.finished) return this.endRace('caught');
+    if (p.finished) return this.endRace('survived');
 
-    // Overtake flashes: whoever takes the lead gets the frame
-    const ahead = this.playerDist >= this.menaceDist;
-    if (this.lastAhead !== null && ahead !== this.lastAhead && this.elapsed > 1.5) {
-      this.flash(ahead ? 'OVERTAKE!' : 'HE PASSES YOU!', ahead ? '#a3e635' : '#ff3344', 1.0);
-      this.whiteFlash = Math.max(this.whiteFlash, 0.18);
-      if (ahead) { this.game.score += 25; this.game.updateHUD(); }
-    }
-    this.lastAhead = ahead;
-
-    // Ramming and near misses when the karts are level
-    const lateral = Math.abs(this.playerX - this.menaceX);
-    if (Math.abs(relNow) < 70) {
-      if (lateral < 0.42 && this.ramCooldown <= 0 && this.spinTimer <= 0) {
-        this.rams++;
-        this.ramCooldown = 2.2;
-        this.menaceSwerve = 1.8;
-        this.screenShake = 0.6;
-        this.speed = Math.max(90, this.speed - 100);
-        this.playerX += this.playerX < this.menaceX ? -0.45 : 0.45;
-        this.menaceX += this.playerX < this.menaceX ? 0.25 : -0.25;
-        this.burst(this.playerDist, (this.playerX + this.menaceX) / 2, '#f97316', 12, 20);
-        this.flash(this.rams >= 3 ? 'RAMMED OFF!' : `RAMMED! ${this.rams}/3`, '#ff3344', 0.9);
-        if (this.game.sound.playKartHit) this.game.sound.playKartHit();
-        if (this.rams >= 3) return this.endRace('caught');
-      } else if (lateral >= 0.42 && lateral < 0.72 && this.nearMissCooldown <= 0 && this.ramCooldown <= 0) {
-        this.nearMissCooldown = 1.6;
-        this.flash('CLOSE!', '#fde047', 0.6);
-        this.game.score += 10;
-        this.game.updateHUD();
-      }
-    }
-
-    // Pellet bombs: lobbed at the ghost from wherever he is, arcing over the road and bursting on impact
-    if (Math.abs(relNow) > 50 && this.menaceSpin <= 0) {
-      this.bombTimer -= dt;
-      if (this.bombTimer <= 0) {
-        this.bombTimer = 3.0 + Math.random() * 1.4;
-        this.throwAnim = 0.5;
-        const toward = Math.sign(this.playerDist - this.menaceDist) || -1;
-        const flight = 1.0;
-        const landAt = this.playerDist + this.speed * flight * 0.85 * (toward > 0 ? 1 : 1) + toward * 40;
-        this.bombs.push({
-          dist: this.menaceDist, x: this.menaceX, x0: this.menaceX, x1: this.playerX,
-          d0: this.menaceDist, d1: landAt, t: 0, flight, h: 20, state: 'air', life: 3.2, rot: 0
-        });
-        if (this.game.sound.playKartDrift) this.game.sound.playKartDrift();
-      }
-    }
-    for (let i = this.bombs.length - 1; i >= 0; i--) {
-      const b = this.bombs[i];
-      b.rot += dt * 5;
-      if (b.state === 'air') {
-        b.t += dt;
-        const f = Math.min(1, b.t / b.flight);
-        b.dist = b.d0 + (b.d1 - b.d0) * f;
-        b.x = b.x0 + (b.x1 - b.x0) * f;
-        b.h = 20 + Math.sin(f * Math.PI) * 150;
-        if (f >= 1) {
-          b.state = 'ground';
-          b.h = 0;
-          this.burst(b.dist, b.x, '#ffd32a', 14, 10);
-          this.screenShake = Math.max(this.screenShake, 0.25);
-          if (this.game.sound.playSmash) this.game.sound.playSmash();
-        }
-      } else {
-        b.life -= dt;
-        if (b.life <= 0 || b.dist < this.playerDist - 600) { this.bombs.splice(i, 1); continue; }
-      }
-      // Driving through a burst splat (or catching the bomb as it lands) spins the kart out
-      if (b.h < 24 && Math.abs(this.playerDist - b.dist) < 40 && Math.abs(this.playerX - b.x) < 0.4 && this.spinTimer <= 0) {
-        this.spinTimer = 0.8;
-        this.screenShake = 0.5;
-        this.flash('PELLET BOMB!', '#ff3344', 0.8);
-        this.burst(b.dist, b.x, '#ffd32a', 16, 20);
-        if (this.game.sound.playKartHit) this.game.sound.playKartHit();
-        this.bombs.splice(i, 1);
-      }
-    }
-
-    // Finish arch: a race to the line — whoever crosses first takes it
-    if (this.playerDist >= tl || this.menaceDist >= tl) return this.endRace(this.playerDist >= this.menaceDist ? 'survived' : 'caught');
-
-    // Confetti cannons at the finish arch fire as the karts arrive
-    if (tl - this.playerDist < 520) {
+    if (this.L - p.prog < 520) {
       this.confettiTimer -= dt;
-      if (this.confettiTimer <= 0) { this.confettiTimer = 0.07; this.spawnConfetti(Math.random() * this.W, -10); }
+      if (this.confettiTimer <= 0) { this.confettiTimer = 0.07; this.spawnConfetti(this.rng() * this.W, -10); }
     }
     return null;
   }
@@ -8629,39 +8721,397 @@ class GrandPrixRun {
     this.pendingOutcome = result;
     this.phase = 'finish';
     this.finishT = 0;
-    this.steerDir = 0;
+    this.steerHeld = 0;
     this.whiteFlash = 0.35;
-    this.flash(result === 'survived' ? '1ST — CHECKERED FLAG!' : 'HE TAKES THE FLAG!', result === 'survived' ? '#fde047' : '#ff3344', 1.2);
-    for (let i = 0; i < 60; i++) this.spawnConfetti(Math.random() * this.W, -10 - Math.random() * 120);
+    const pos = this.positions.indexOf(this.player) + 1;
+    this.flash(result === 'survived' ? `${['1ST', '2ND', '3RD', '4TH'][pos - 1]} — CHECKERED FLAG!` : 'HE TAKES THE FLAG!', result === 'survived' ? '#fde047' : '#ff3344', 1.2);
+    for (let i = 0; i < 60; i++) this.spawnConfetti(this.rng() * this.W, -10 - this.rng() * 120);
     return null;
   }
 
-  kartDrift(fx, dir) {
-    for (let i = 0; i < 2; i++) {
-      fx.sparks.push({ x: (dir < 0 ? -50 : 50) + (Math.random() - 0.5) * 10, y: 30 + Math.random() * 6, vx: dir * (60 + Math.random() * 80), vy: -30 - Math.random() * 40, color: Math.random() < 0.6 ? '#38bdf8' : '#fde047', life: 0.22 + Math.random() * 0.15 });
+  // One kart, one frame: throttle / brake, grip or drift steering, slip, hop, spin-out, lap counting
+  stepKart(k, input, dt) {
+    const top = this.kartTop(k);
+    // Timers
+    if (k.boost > 0) k.boost -= dt;
+    if (k.shield > 0) k.shield -= dt;
+    if (k.bump > 0) k.bump -= dt;
+    if (k.hitT > 0) k.hitT -= dt;
+    if (k.roulette > 0) { k.roulette -= dt; if (k.roulette <= 0) this.settleItem(k); }
+    if (k.hop > 0) {
+      k.hop -= dt;
+      const t = 1 - Math.max(0, k.hop) / 0.32;
+      k.hopZ = Math.sin(t * Math.PI) * 16;
+      // The drift starts as the kart comes back down with the wheel turned
+      if (!k.drifting && k.hop < 0.18 && k.spin <= 0 && k.v > this.topSpeed * 0.32 && input.drift) {
+        const dir = Math.sign(input.steer) || k.wantDrift || 0;
+        if (dir) this.startDrift(k, dir);
+      }
+    } else k.hopZ = 0;
+
+    // Spin-out: no control, speed scrubs off, the kart pirouettes
+    if (k.spin > 0) {
+      k.spin -= dt;
+      k.v = Math.max(k.v - 260 * dt, this.topSpeed * 0.18);
+      if (k.drifting) { k.drifting = 0; k.driftT = 0; k.driftStage = 0; }
+    } else {
+      // Steering: grip turning scales up with speed (a crawling kart barely turns); a drift turns harder
+      // into the slide, and the wheel tightens or loosens it
+      const grip = Math.max(0, Math.min(1, k.v / (this.topSpeed * 0.42)));
+      let turn;
+      if (k.drifting) {
+        const into = 0.5 + 0.5 * input.steer * k.drifting;              // 1 = wheel into the slide, 0 = away
+        turn = this.turnRate * k.drifting * (0.12 + this.driftTurn * into) * grip;   // counter-steer runs it nearly straight
+        k.driftT += dt * (0.75 + 0.5 * into);
+        k.driftStage = k.driftT >= this.driftStage2 ? 2 : k.driftT >= this.driftStage1 ? 1 : 0;
+        // Letting go or slowing to a crawl ends the drift (the verge only bleeds speed)
+        if (!input.drift || k.v < this.topSpeed * 0.26) this.releaseDrift(k);
+      } else {
+        turn = this.turnRate * input.steer * grip;
+      }
+      k.a += turn * dt;
     }
-    if (Math.random() < 0.6) fx.smoke.push({ x: (dir < 0 ? 44 : -44) + (Math.random() - 0.5) * 14, y: 30, r: 6, vx: -dir * 28 + (Math.random() - 0.5) * 20, vy: -18, alpha: 0.5, life: 0.5, maxLife: 0.5 });
+    // Slip angle eases toward the drift's slide (signed) and back to zero on grip
+    const slipGoal = k.drifting ? this.driftSlip * k.drifting : 0;
+    k.slip += (slipGoal - k.slip) * Math.min(1, dt * (k.drifting ? 5 : 7));
+
+    // Throttle / brake
+    k.braking = !!input.brake;
+    if (input.brake) k.v = Math.max(0, k.v - this.brakeDecel * dt);
+    else if (k.v < top) k.v = Math.min(top, k.v + this.accel * dt * (k.boost > 0 ? 2.2 : 1) * (0.55 + 0.45 * (1 - k.v / top)));
+    if (k.v > top) k.v -= (k.v - top) * Math.min(1, dt * (k.offroad ? 3.2 : 1.6));
+    if (k.drifting) k.v = Math.max(k.v - 10 * dt, 0);
+
+    // Move along the travel direction (heading minus slip)
+    const ta = k.a - k.slip;
+    k.vx = Math.cos(ta) * k.v; k.vy = Math.sin(ta) * k.v;
+    k.x += k.vx * dt; k.y += k.vy * dt;
+    k.wheel += k.v * dt / 14;
+    k.lean += ((k.drifting ? k.drifting * 1.4 : input.steer * 0.9) - k.lean) * Math.min(1, dt * 6);
+
+    // Track position, lap counting, off-road
+    const prevS = k.s;
+    k.s = this.nearestS(k.x, k.y, k.s);
+    if (prevS > this.L * 0.75 && k.s < this.L * 0.25) k.lap++;
+    else if (prevS < this.L * 0.25 && k.s > this.L * 0.75) k.lap--;
+    k.prog = (k.lap - 1) * this.L + k.s;
+    k.offroad = !this.onRoad(k.x, k.y, k.s);
+    // The sand verge beyond the kerbs slows and the fence beyond the verge holds the kart in
+    const lat = this.lateralAt(k.x, k.y, k.s);
+    const fence = this.halfW + 150;
+    if (Math.abs(lat) > fence) {
+      // Scrape along the fence: back onto it, heading turned down the track, a chunk of speed lost once
+      const q = this.pointAt(k.s, Math.sign(lat) * fence);
+      k.x = q.x; k.y = q.y;
+      if (k.bump <= 0) { k.v *= 0.6; k.bump = 0.4; if (k === this.player) this.screenShake = Math.max(this.screenShake, 0.25); }
+      let d = q.a - k.a;
+      while (d > Math.PI) d -= Math.PI * 2;
+      while (d < -Math.PI) d += Math.PI * 2;
+      k.a += d * Math.min(1, dt * 6);
+      k.slip = 0;
+    }
+    if (!k.finished && k.prog >= this.L) { k.finished = true; k.finishTime = this.elapsed; }
+
+    // Juice: exhaust always, drift sparks and smoke while sliding
+    this.kartExhaust(k.fx, dt, k.boost > 0);
+    if (k.drifting) this.kartDrift(k.fx, k.drifting, k.driftStage);
   }
 
+  // Lane assist for the ghost's kart when the wheel is free: a light pull toward the road ahead, firm
+  // once she is over the kerbs (the genre's smart-steering; her own steering always overrides it)
+  laneAssist(k) {
+    const look = 100 + k.v * 0.45;
+    const lat = this.lateralAt(k.x, k.y, k.s);
+    const tgt = this.pointAt(k.s + look, Math.max(-0.5, Math.min(0.5, lat / this.halfW * 0.6)) * this.halfW);
+    let err = Math.atan2(tgt.y - k.y, tgt.x - k.x) - k.a;
+    while (err > Math.PI) err -= Math.PI * 2;
+    while (err < -Math.PI) err += Math.PI * 2;
+    const firm = Math.abs(lat) > this.halfW * 0.7 || k.offroad;
+    return Math.max(-1, Math.min(1, err * (firm ? 3 : 1.4))) * (firm ? 1 : 0.6);
+  }
+
+  kartTop(k) {
+    let top = this.topSpeed * (1 + Math.min(10, k.coins) * 0.006);
+    if (k.ai) top *= k.ai.speedMul || 1;
+    if (k.offroad && k.boost <= 0) top *= this.offroadTop;   // a boost carries the kart across the verge at full speed
+    if (k.boost > 0) top *= 1.36;
+    return top;
+  }
+
+  startDrift(k, dir) {
+    k.drifting = dir;
+    k.driftT = 0;
+    k.driftStage = 0;
+    if (k === this.player && this.elapsed - this.lastDriftSound > 0.5 && this.game.sound.playKartDrift) { this.game.sound.playKartDrift(); this.lastDriftSound = this.elapsed; }
+  }
+
+  // Releasing a charged drift fires the boost: the longer the hold, the bigger the surge
+  releaseDrift(k) {
+    const stage = k.driftStage;
+    k.drifting = 0; k.driftT = 0; k.driftStage = 0;
+    if (k === this.player) this.driftReleases++;
+    if (stage >= 1 && k.spin <= 0) {
+      this.fireBoost(k, stage === 2 ? 1.5 : 0.85, stage === 2 ? 1.22 : 1.12);
+      if (k === this.player) this.flash(stage === 2 ? 'SUPER DRIFT BOOST!' : 'DRIFT BOOST!', stage === 2 ? '#f97316' : '#38bdf8', 0.7);
+    }
+  }
+
+  fireBoost(k, secs, kick) {
+    k.boost = Math.max(k.boost, secs);
+    k.v = Math.max(k.v * (1 + (kick - 1) * 0.8), this.topSpeed * kick);   // always a real kick over the current speed
+    if (k === this.player) {
+      this.surges++;
+      this.lastBoostSpeed = k.v;
+      this.whiteFlash = Math.max(this.whiteFlash, 0.18);
+      if (this.game.sound.playKartBoost) this.game.sound.playKartBoost();
+    }
+  }
+
+  // ----- AI: follow the racing line through a look-ahead point, brake for corners, drift the long ones,
+  //       use items, and rubber-band on the ghost -----
+  aiInput(k, dt) {
+    const ai = k.ai;
+    const gap = this.player.prog - k.prog;                 // > 0: the kart is behind the ghost
+    if (k === this.menace) ai.speedMul = 1 + Math.max(-0.08, Math.min(0.4, gap / 550));
+    else ai.speedMul = ai.skill * (1 + Math.max(-0.16, Math.min(0.12, gap / 1300)));
+
+    // Lane: drift toward the inside of the upcoming bend, with a personal offset that wanders
+    ai.laneT -= dt;
+    if (ai.laneT <= 0) { ai.laneT = 1.6 + this.rng() * 1.8; ai.laneGoal = (this.rng() * 2 - 1) * 0.45; }
+    const look = 110 + k.v * 0.5;
+    const ahead = this.pathAt(k.s + look);
+    const insideLane = -Math.sign(ahead.curv) * Math.min(0.5, Math.abs(ahead.curv) * 260);
+    // Hold the grid lane off the line so the field does not pile into itself in the first corner
+    const lane = this.elapsed < 2.5 ? ai.lane * 1.4 : Math.max(-0.7, Math.min(0.7, (ai.laneGoal || ai.lane) * 0.6 + insideLane));
+    const tgt = this.pointAt(k.s + look, lane * this.halfW);
+    let err = Math.atan2(tgt.y - k.y, tgt.x - k.x) - k.a;
+    while (err > Math.PI) err -= Math.PI * 2;
+    while (err < -Math.PI) err += Math.PI * 2;
+    let steer = Math.max(-1, Math.min(1, err * 2.6));
+
+    // Corner speed: the kart can hold a bend of radius R at up to R * turnRate; brake toward that
+    const curv = Math.max(Math.abs(ahead.curv), Math.abs(this.pathAt(k.s + look * 1.8).curv));
+    const cornerTop = Math.min(this.topSpeed * 1.1, 0.88 * this.turnRate / Math.max(curv, 1e-4));
+    const brake = k.v > cornerTop * 1.06 && k.boost <= 0;
+
+    // Drift the long bends: hop when a sustained turn is called for, hold while it lasts, release on exit
+    let drift = false;
+    if (k.drifting) {
+      drift = Math.abs(err) > 0.05 && k.driftT < 2.4;
+      steer = Math.max(-1, Math.min(1, err * 2.6));
+    } else if (k.hop <= 0 && k.spin <= 0 && Math.abs(err) > 0.22 && curv > 0.0011 && k.v > this.topSpeed * 0.55) {
+      k.hop = 0.32; k.wantDrift = Math.sign(err); drift = true;
+    } else if (k.hop > 0) drift = true;
+
+    // Items: a surge when behind, a bomb when ahead of the ghost, a shield straight away
+    if (k.item && k.roulette <= 0) {
+      ai.itemT = (ai.itemT || 0) + dt;
+      const it = k.item;
+      if (it === 'shield' || (it === 'boost' && (gap > 40 || ai.itemT > 2.5)) || (it === 'bomb' && ((gap < -30 && gap > -420) || ai.itemT > 4))) { this.fireItem(k); ai.itemT = 0; }
+    }
+    // The Menace also pelts the ghost from his own stock when he leads
+    if (k === this.menace) {
+      ai.bomb -= dt;
+      if (ai.throwAnim > 0) ai.throwAnim -= dt;
+      if (ai.bomb <= 0 && gap < -50 && gap > -520 && Math.abs(this.lateralAt(k.x, k.y, k.s)) < this.halfW) {
+        ai.bomb = 4.5 + this.rng() * 2.5;
+        ai.throwAnim = 0.5;
+        this.dropBomb(k);
+      }
+    }
+    return { steer, drift, brake };
+  }
+
+  // ----- Items -----
+  settleItem(k) {
+    const pos = this.positions.indexOf(k);
+    const r = this.rng();
+    // Leaders draw bombs and shields, the tail of the field draws surges
+    let item;
+    if (pos <= 0) item = r < 0.55 ? 'bomb' : r < 0.85 ? 'shield' : 'boost';
+    else if (pos === 1) item = r < 0.4 ? 'bomb' : r < 0.7 ? 'shield' : 'boost';
+    else item = r < 0.6 ? 'boost' : r < 0.8 ? 'shield' : 'bomb';
+    k.item = item;
+    if (k === this.player) this.flash({ boost: 'SURGE!', bomb: 'PELLET BOMB!', shield: 'SHIELD!' }[item], { boost: '#38bdf8', bomb: '#fde047', shield: '#a78bfa' }[item], 0.7);
+  }
+
+  fireItem(k) {
+    const it = k.item;
+    k.item = null;
+    if (it === 'boost') this.fireBoost(k, 1.3, 1.2);
+    else if (it === 'bomb') this.dropBomb(k);
+    else if (it === 'shield') { k.shield = 8; if (k === this.player && this.game.sound.playSurge) this.game.sound.playSurge(); }
+  }
+
+  dropBomb(k) {
+    this.bombs.push({ x: k.x - Math.cos(k.a) * 48, y: k.y - Math.sin(k.a) * 48, owner: k, armed: 0.5, life: 10, rot: 0, h: 0, vz: 0 });
+  }
+
+  updateItems(dt) {
+    const p = this.player;
+    // Item cubes: respawn timers, pickup by any kart
+    for (const c of this.cubes) {
+      if (c.taken > 0) { c.taken -= dt; continue; }
+      if (!c.wx) { const q = this.pointAt(c.s, c.lane * this.halfW); c.wx = q.x; c.wy = q.y; }
+      for (const k of this.karts) {
+        if (k.item || k.roulette > 0) continue;
+        if ((k.x - c.wx) ** 2 + (k.y - c.wy) ** 2 < 40 * 40) {
+          c.taken = 4;
+          k.roulette = 1.0;
+          k.item = 'rolling';
+          this.burst(c.wx, c.wy, '#fde047', 14, 36);
+          if (k === p && this.game.sound.playChomp) this.game.sound.playChomp();
+          break;
+        }
+      }
+    }
+    // Pellet coins on the racing line (the ghost's score; the field leaves them to her)
+    for (const c of this.coins) {
+      if (c.taken) continue;
+      if (!c.wx) { const q = this.pointAt(c.s, c.lane * this.halfW); c.wx = q.x; c.wy = q.y; }
+      if ((p.x - c.wx) ** 2 + (p.y - c.wy) ** 2 < 34 * 34) {
+        c.taken = true;
+        p.coins++;
+        this.collected++;
+        this.chain++;
+        if (this.playerScreen) this.pops.push({ text: '+25', x: this.playerScreen.x, y: this.playerScreen.y - 70, t: 0 });
+        if (this.game.sound.playValleyPellet) this.game.sound.playValleyPellet(this.chain);
+        if (this.chain % 5 === 0) { this.flash('PELLET RUSH!', '#fde047', 0.7); this.fireBoost(p, 0.6, 1.08); }
+      }
+    }
+    // Boost pads
+    for (const k of this.karts) {
+      for (const pad of this.pads) {
+        if (k.s >= pad.s && k.s < pad.s + pad.len && k.lastPadS !== pad.s && Math.abs(this.lateralAt(k.x, k.y, k.s)) < this.halfW - 16) {
+          k.lastPadS = pad.s;
+          this.fireBoost(k, 0.9, 1.15);
+          if (k === p) this.flash('BOOST PAD!', '#f97316', 0.6);
+        }
+      }
+    }
+    // Pellet bombs on the road: a spin-out for whoever drives over one (a shield soaks it)
+    for (let i = this.bombs.length - 1; i >= 0; i--) {
+      const b = this.bombs[i];
+      b.life -= dt; b.armed -= dt; b.rot += dt * 4;
+      if (b.life <= 0) { this.bombs.splice(i, 1); continue; }
+      let hit = false;
+      for (const k of this.karts) {
+        if (k === b.owner && b.armed > 0) continue;
+        if (k.hopZ > 6) continue;                                          // hopped clean over it
+        if ((k.x - b.x) ** 2 + (k.y - b.y) ** 2 < 36 * 36) { this.hitKart(k, 'bomb'); hit = true; break; }
+      }
+      if (hit) { this.burst(b.x, b.y, '#ffd32a', 18, 30); this.bombs.splice(i, 1); if (this.game.sound.playSmash) this.game.sound.playSmash(); }
+    }
+  }
+
+  hitKart(k, cause) {
+    if (k.shield > 0) { k.shield = 0; k.bump = 0.4; if (k === this.player) this.flash('SHIELD POPPED', '#a78bfa', 0.6); return; }
+    if (k.spin > 0) return;
+    k.spin = 0.85;
+    k.drifting = 0; k.driftT = 0; k.driftStage = 0; k.boost = 0;
+    if (k === this.player) {
+      this.screenShake = 0.5;
+      this.flash(cause === 'bomb' ? 'PELLET BOMB!' : 'RAMMED!', '#ff3344', 0.8);
+      if (this.game.sound.playKartHit) this.game.sound.playKartHit();
+    }
+  }
+
+  // ----- Kart-kart contact: push apart, trade a little speed; a hard Menace ram spins the ghost -----
+  updateCollisions(dt) {
+    const K = this.karts;
+    for (let i = 0; i < K.length; i++) for (let j = i + 1; j < K.length; j++) {
+      const a = K[i], b = K[j];
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const d = Math.hypot(dx, dy);
+      if (d > 46 || d === 0) continue;
+      const nx = dx / d, ny = dy / d, push = (48 - d) / 2;
+      a.x -= nx * push; a.y -= ny * push; b.x += nx * push; b.y += ny * push;
+      const closing = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny;        // > 0: a runs into b
+      // One impulse per contact (a short cooldown per kart), never a drain for every frame of overlap
+      if (closing > 0 && (a.hitT || 0) <= 0 && (b.hitT || 0) <= 0) {
+        a.hitT = b.hitT = 0.3;
+        const heavyA = a === this.menace, heavyB = b === this.menace;
+        a.v = Math.max(0, a.v - closing * (heavyA ? 0.08 : 0.22));
+        b.v = Math.max(0, b.v - closing * (heavyB ? 0.03 : 0.08) + closing * 0.14);
+        a.bump = b.bump = 0.3;
+        const pm = (a === this.player && b === this.menace) || (b === this.player && a === this.menace);
+        if (pm && (this.ramCooldown || 0) <= 0) {
+          this.ramCooldown = 1.0;
+          this.rams++;
+          this.screenShake = Math.max(this.screenShake, 0.35);
+          const menaceRams = a === this.menace && b === this.player && closing > 70;   // he runs into her, hard
+          if (menaceRams) this.hitKart(this.player, 'ram');
+          else { this.flash(a === this.player ? 'RAM!' : 'SHOVED!', '#ff3344', 0.5); if (this.game.sound.playKartHit) this.game.sound.playKartHit(); }
+        }
+      }
+    }
+    if ((this.ramCooldown || 0) > 0) this.ramCooldown -= dt;
+  }
+
+  updatePositions() {
+    const key = k => k.finished ? 1e9 - k.finishTime : k.prog;
+    this.positions = this.karts.slice().sort((a, b) => key(b) - key(a));
+    const ahead = this.menace.prog > this.player.prog;
+    if (this.lastAhead !== null && ahead !== this.lastAhead && Math.abs(this.menace.prog - this.player.prog) > 8) {
+      this.flash(ahead ? 'HE PASSES!' : 'OVERTAKE!', ahead ? '#ff3344' : '#a3e635', 0.7);
+    }
+    this.lastAhead = ahead;
+  }
+
+  // Chase camera: yaw eases toward the ghost's travel direction so a drift shows the kart angled
+  updateCamera(dt) {
+    const p = this.player;
+    const goal = p.v > 30 ? Math.atan2(p.vy, p.vx) + p.slip * 0.35 : p.a;
+    let d = goal - this.camA;
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    this.camA += d * Math.min(1, dt * 6.5);
+    const back = this.camBack + (p.boost > 0 ? 26 : 0) + p.v * 0.06;
+    this.camX = p.x - Math.cos(this.camA) * back;
+    this.camY = p.y - Math.sin(this.camA) * back;
+    this.bgShift = this.camA / (Math.PI * 2) * 1900;
+  }
+
+  // ----- Feedback helpers -----
+  flash(text, color, dur = 0.9) {
+    if (this.flashes.length > 2) this.flashes.shift();
+    this.flashes.push({ text, color, t: 0, dur });
+  }
+  burst(x, y, color, n, h = 0) {
+    for (let i = 0; i < n; i++) {
+      const a = this.rng() * Math.PI * 2, sp = 60 + this.rng() * 140;
+      this.bursts.push({ x, y, h, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, vh: 120 + this.rng() * 160, r: 5 + this.rng() * 4, color, life: 0.6 + this.rng() * 0.3, maxLife: 0.9 });
+    }
+  }
+  spawnConfetti(x, y) {
+    this.confetti.push({ x, y, vx: (this.rng() - 0.5) * 60, vy: 120 + this.rng() * 160, rot: this.rng() * 6, spin: (this.rng() - 0.5) * 12, size: 4 + this.rng() * 4, color: ['#ff3344', '#fde047', '#38bdf8', '#a3e635', '#f472b6', '#f8fafc'][Math.floor(this.rng() * 6)] });
+  }
+  kartDrift(fx, dir, stage) {
+    const col = stage >= 2 ? '#f97316' : stage >= 1 ? '#38bdf8' : '#cbd5e1';
+    for (let i = 0; i < (stage ? 3 : 1); i++) {
+      fx.sparks.push({ x: (dir < 0 ? -50 : 50) + (this.rng() - 0.5) * 10, y: 30 + this.rng() * 6, vx: dir * (60 + this.rng() * 80), vy: -30 - this.rng() * 40, color: this.rng() < 0.7 ? col : '#fde047', life: 0.22 + this.rng() * 0.15 });
+    }
+    if (this.rng() < 0.7) fx.smoke.push({ x: (dir < 0 ? 44 : -44) + (this.rng() - 0.5) * 14, y: 30, r: 7, vx: -dir * 28 + (this.rng() - 0.5) * 20, vy: -18, alpha: 0.55, life: 0.55, maxLife: 0.55 });
+  }
   kartExhaust(fx, dt, hot) {
     fx.timer += dt;
-    if (fx.timer > (hot ? 0.04 : 0.09)) {
+    if (fx.timer > (hot ? 0.04 : 0.1)) {
       fx.timer = 0;
-      fx.exhaust.push({ x: (Math.random() < 0.5 ? -18 : 18) + (Math.random() - 0.5) * 6, y: 36, r: hot ? 6 : 4, vx: (Math.random() - 0.5) * 12, vy: 10 + Math.random() * 20, alpha: hot ? 0.75 : 0.5, life: 0.4, maxLife: 0.4, hot });
+      fx.exhaust.push({ x: (this.rng() < 0.5 ? -18 : 18) + (this.rng() - 0.5) * 6, y: 36, r: hot ? 6 : 4, vx: (this.rng() - 0.5) * 12, vy: 10 + this.rng() * 20, alpha: hot ? 0.75 : 0.5, life: 0.4, maxLife: 0.4, hot });
     }
   }
-
   updateJuice(dt) {
-    for (const fx of [this.playerFx, this.menaceFx]) {
+    for (const k of this.karts) {
+      const fx = k.fx;
       for (let i = fx.exhaust.length - 1; i >= 0; i--) { const e = fx.exhaust[i]; e.life -= dt; e.x += e.vx * dt; e.y += e.vy * dt; e.r += dt * 16; if (e.life <= 0) fx.exhaust.splice(i, 1); }
       for (let i = fx.smoke.length - 1; i >= 0; i--) { const e = fx.smoke[i]; e.life -= dt; e.x += e.vx * dt; e.y += e.vy * dt; e.r += dt * 22; if (e.life <= 0) fx.smoke.splice(i, 1); }
       for (let i = fx.sparks.length - 1; i >= 0; i--) { const e = fx.sparks[i]; e.life -= dt; e.x += e.vx * dt; e.y += e.vy * dt; e.vy += 220 * dt; if (e.life <= 0) fx.sparks.splice(i, 1); }
     }
     for (let i = this.bursts.length - 1; i >= 0; i--) {
-      const p = this.bursts[i];
-      p.life -= dt; p.dist += p.vd * dt; p.x += p.vx * dt; p.h += p.vh * dt; p.vh -= 380 * dt;
-      if (p.h < 0) { p.h = 0; p.vh *= -0.4; }
-      if (p.life <= 0) this.bursts.splice(i, 1);
+      const b = this.bursts[i];
+      b.life -= dt; b.x += b.vx * dt; b.y += b.vy * dt; b.h += b.vh * dt; b.vh -= 420 * dt;
+      if (b.h < 0) { b.h = 0; b.vh *= -0.4; }
+      if (b.life <= 0) this.bursts.splice(i, 1);
     }
     for (let i = this.pops.length - 1; i >= 0; i--) { this.pops[i].t += dt; if (this.pops[i].t > 0.8) this.pops.splice(i, 1); }
     for (let i = this.flashes.length - 1; i >= 0; i--) { this.flashes[i].t += dt; if (this.flashes[i].t > this.flashes[i].dur) this.flashes.splice(i, 1); }
@@ -8672,75 +9122,52 @@ class GrandPrixRun {
     }
     if (this.screenShake > 0) this.screenShake = Math.max(0, this.screenShake - dt * 2.2);
     if (this.whiteFlash > 0) this.whiteFlash = Math.max(0, this.whiteFlash - dt * 1.4);
-    const fovGoal = this.boostTimer > 0 ? this.baseFov * 0.84 : this.rushTimer > 0 ? this.baseFov * 0.92 : this.baseFov;
-    this.fov += (fovGoal - this.fov) * Math.min(1, dt * 6);
   }
 
-  // ----- Rendering -----
-  // Project the track into screen space from the chase camera (camBack behind the ghost's kart).
-  // Returns the list of segment edges (index n = distance in segments from the camera plane).
-  projectTrack() {
-    const camDist = this.playerDist - this.camBack;
-    const baseSeg = Math.floor(camDist / this.segLen);
-    const frac = camDist / this.segLen - baseSeg;
-    const camElev = this.elevAt(camDist);
-    // Lateral framing: follows the ghost, slides toward the midpoint of both karts when they run level
-    // (so neither is cropped at a frame edge), and never loses the road when she is on the grass
-    const closeness = Math.max(0, 1 - Math.abs(this.menaceDist - this.playerDist) / 220);
-    const want = Math.max(-0.95, Math.min(0.95, this.playerX + (this.menaceX - this.playerX) * 0.5 * closeness));
-    this.camLateral = this.camLateral === undefined ? want : this.camLateral + (want - this.camLateral) * 0.12;
-    const wrap = i => ((i % this.numSegs) + this.numSegs) % this.numSegs;
-    const base = this.segments[wrap(baseSeg)];
-    const drawDist = 72;
-    const K = 0.9;                           // World units of bend per segment²
-    const list = [];
-    let wx = 0, dx = -base.curve * K * frac;
-    for (let n = 0; n <= drawDist; n++) {
-      const seg = this.segments[wrap(baseSeg + n)];
-      const z = (n - frac) * this.segLen;
-      wx += dx;
-      dx += seg.curve * K;
-      if (z < 30) { list.push(null); continue; }
-      const scale = this.fov / z;
-      const camX = this.camLateral * this.roadW * 0.88;
-      const x = this.W / 2 + (wx - camX) * scale;
-      const y = this.horizonY + (this.camH + camElev - seg.elev) * scale;
-      const w = this.roadW * scale;
-      list.push({ n, seg, z, scale, x, y, w, tilt: 0.06 * seg.curve * w, haze: Math.max(0, Math.min(0.85, (z - 1100) / 1900)) });
-    }
-    this.screenSegs = list;
-    this.camDist = camDist;
-    return list;
+  // ===== Rendering =====
+  // World (x, y, height h) -> screen through the chase camera. null when behind the camera plane.
+  project(x, y, h) {
+    const dx = x - this.camX, dy = y - this.camY;
+    const ca = Math.cos(this.camA), sa = Math.sin(this.camA);
+    const z = dx * ca + dy * sa;
+    if (z < 12) return null;
+    const sx = -dx * sa + dy * ca;
+    const k = this.planeDist / z;
+    return { x: this.W / 2 + sx * k, y: this.horizonY + (this.camH - (h || 0)) * k, scale: k, z };
   }
 
-  // Screen position of a world point (track distance, road x in -1..1, height above the road)
-  projectPoint(dist, xRoad, h) {
-    const list = this.screenSegs;
-    const zn = (dist - this.camDist) / this.segLen;
-    const n = Math.floor(zn);
-    const a = list[n], b = list[n + 1];
-    if (!a && !b) return null;
-    let x, y, w, scale, tilt;
-    if (a && b) {
-      const f = zn - n;
-      x = a.x + (b.x - a.x) * f; y = a.y + (b.y - a.y) * f; w = a.w + (b.w - a.w) * f; scale = a.scale + (b.scale - a.scale) * f; tilt = a.tilt + (b.tilt - a.tilt) * f;
-    } else {
-      const s = a || b;
-      x = s.x; y = s.y; w = s.w; scale = s.scale; tilt = s.tilt;
+  // The Mode-7 pass: every ground row is one depth; walk the map along that row's world line
+  renderGround() {
+    const GW = this.GW, GH = this.GH, SIZE = this.mapSize, map = this.mapPix, pix = this.gpix;
+    const ca = Math.cos(this.camA), sa = Math.sin(this.camA);
+    const rx = -sa, ry = ca;                      // Camera right vector
+    const ms = this.mapScale, ox = this.mapOx, oy = this.mapOy;
+    const grass = this.grassWord;
+    const halfW = this.W / 2, pd = this.planeDist;
+    for (let r = 0; r < GH; r++) {
+      const z = this.rowZ[r];
+      const dz = z / pd;                          // World units per screen pixel on this row
+      const cxw = this.camX + ca * z, cyw = this.camY + sa * z;
+      let mx = (cxw + rx * (-halfW * dz) - ox) * ms;
+      let my = (cyw + ry * (-halfW * dz) - oy) * ms;
+      const stx = rx * dz * ms * 2, sty = ry * dz * ms * 2;   // Two screen pixels per texel
+      let o = r * GW;
+      for (let x = 0; x < GW; x++) {
+        const ix = mx | 0, iy = my | 0;
+        pix[o++] = (ix >= 0 && iy >= 0 && ix < SIZE && iy < SIZE) ? map[iy * SIZE + ix] : grass;
+        mx += stx; my += sty;
+      }
     }
-    return { x: x + xRoad * w, y: y + tilt * xRoad - h * scale, scale, w, roll: Math.atan2(tilt, w) };
+    this.gctx.putImageData(this.gimg, 0, 0);
   }
 
   draw(ctx, time) {
-    const W = this.W, H = this.H;
-    const hy = this.horizonY;
-    const list = this.projectTrack();
-
+    const W = this.W, H = this.H, hy = this.horizonY;
+    const p = this.player;
     ctx.save();
     if (this.screenShake > 0) ctx.translate((Math.random() - 0.5) * this.screenShake * 20, (Math.random() - 0.5) * this.screenShake * 20);
-    if (this.paceShake > 0 && this.phase === 'run') ctx.translate((Math.random() - 0.5) * this.paceShake, (Math.random() - 0.5) * this.paceShake * 1.4);
 
-    // --- Sky, sun and layered clouds ---
+    // --- Sky, sun, clouds, balloons, mountains and hills pan with the camera yaw (Round 7 skin) ---
     const sky = ctx.createLinearGradient(0, 0, 0, hy);
     sky.addColorStop(0, '#1e90e0');
     sky.addColorStop(0.55, '#7fd0ff');
@@ -8748,166 +9175,273 @@ class GrandPrixRun {
     ctx.fillStyle = sky;
     ctx.fillRect(0, 0, W, hy + 2);
     ctx.save();
+    const sunX = this.loopX(W * 0.78 - this.bgShift * 0.12, 60);
+    const glow = ctx.createRadialGradient(sunX, 64, 20, sunX, 64, 64);
+    glow.addColorStop(0, 'rgba(255, 240, 170, 0.95)'); glow.addColorStop(0.5, 'rgba(255, 240, 170, 0.35)'); glow.addColorStop(1, 'rgba(255, 240, 170, 0)');
+    ctx.fillStyle = glow;
+    ctx.fillRect(sunX - 64, 0, 128, 128);
     ctx.fillStyle = '#fff6c2';
-    ctx.shadowColor = 'rgba(255, 240, 170, 0.95)';
-    ctx.shadowBlur = 34;
     ctx.beginPath();
-    ctx.arc(W * 0.78 - this.bgShift * 0.05, 64, 26, 0, Math.PI * 2);
+    ctx.arc(sunX, 64, 26, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
-    this.cloudsFar.forEach(c => this.drawCloud(ctx, this.loopX(c.x - this.bgShift * 0.18, 160), c.y, c.s, 0.8));
-    this.balloons.forEach(b => this.drawBalloon(ctx, this.loopX(b.x - this.bgShift * 0.3, 60), b.y + Math.sin(time * 0.8 + b.x) * 4, b.s, b.hue));
-    this.drawMountains(ctx, hy, this.bgShift * 0.28);
-    this.drawHills(ctx, hy, this.bgShift * 0.5, time);
-    this.cloudsNear.forEach(c => this.drawCloud(ctx, this.loopX(c.x - this.bgShift * 0.55, 200), c.y, c.s, 1));
+    this.cloudsFar = this.cloudsFar || [{ x: 40, y: 50, s: 0.7 }, { x: 220, y: 30, s: 0.9 }, { x: 380, y: 70, s: 0.6 }, { x: 560, y: 44, s: 0.8 }];
+    this.balloons = this.balloons || [{ x: 120, y: 95, s: 0.6, hue: 0 }, { x: 330, y: 110, s: 0.5, hue: 2 }, { x: 520, y: 88, s: 0.55, hue: 1 }];
+    this.cloudsFar.forEach(c => this.drawCloud(ctx, this.loopX(c.x - this.bgShift * 0.3, 160), c.y, c.s, 0.8));
+    this.balloons.forEach(b => this.drawBalloon(ctx, this.loopX(b.x - this.bgShift * 0.5, 60), b.y + Math.sin(time * 0.8 + b.x) * 4, b.s, b.hue));
+    this.drawMountains(ctx, hy, this.bgShift * 0.55);
+    this.drawHills(ctx, hy, this.bgShift * 0.8, time);
 
-    // --- Ground base below the horizon (the grass bands overwrite it segment by segment) ---
-    ctx.fillStyle = '#3f9d3a';
-    ctx.fillRect(0, hy, W, H - hy);
-    this.horizonHaze = this.horizonHaze || (() => { const g = ctx.createLinearGradient(0, hy - 2, 0, hy + 54); g.addColorStop(0, 'rgba(214, 238, 255, 0.75)'); g.addColorStop(1, 'rgba(214, 238, 255, 0)'); return g; })();
+    // --- Ground plane ---
+    this.renderGround();
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(this.gbuf, 0, hy, this.GW * 2, this.GH * 2);
+    ctx.restore();
+    const haze = ctx.createLinearGradient(0, hy, 0, hy + 110);
+    haze.addColorStop(0, 'rgba(255, 243, 189, 0.75)');
+    haze.addColorStop(0.35, 'rgba(255, 243, 189, 0.3)');
+    haze.addColorStop(1, 'rgba(255, 243, 189, 0)');
+    ctx.fillStyle = haze;
+    ctx.fillRect(0, hy, W, 110);
 
-    // --- Entities, sorted far to near, drawn between the road slices they stand on ---
-    const ents = [];
-    const push = (dist, kind, ref) => { const z = dist - this.camDist; if (z > 30 && z < 72 * this.segLen) ents.push({ z, kind, ref }); };
-    push(this.menaceDist, 'menace', null);
-    push(this.playerDist, 'player', null);
-    for (const b of this.bombs) push(b.dist, 'bomb', b);
-    for (const c of this.cubes) if (!c.taken) push(c.dist, 'cube', c);
-    for (const p of this.bursts) push(p.dist, 'burst', p);
-    ents.sort((p, q) => q.z - p.z);
-    let ei = 0;
+    // --- World sprites, far to near ---
+    const list = [];
+    const add = (z, fn) => list.push({ z, fn });
+    for (const pr of this.props) {
+      const pt = this.project(pr.x, pr.y, 0);
+      if (!pt || pt.z > 2400 || pt.x < -200 || pt.x > W + 200) continue;
+      add(pt.z, () => this.drawProp(ctx, pr, pt, time));
+    }
+    // The arch stands on the line
+    const line = this.pointAt(4, 0);
+    const lp = this.project(line.x, line.y, 0);
+    if (lp && lp.z < 2600) add(lp.z, () => this.drawArch(ctx, { x: lp.x, y: lp.y, w: this.halfW * lp.scale / 1.3, scale: lp.scale * this.kartScaleK }, time));
+    for (const c of this.cubes) {
+      if (c.taken > 0 || !c.wx) { if (!c.wx) { const q = this.pointAt(c.s, c.lane * this.halfW); c.wx = q.x; c.wy = q.y; } if (c.taken > 0) continue; }
+      const pt = this.project(c.wx, c.wy, 0);
+      if (!pt || pt.z > 1800) continue;
+      add(pt.z, () => this.drawCube(ctx, c, pt, time));
+    }
+    for (const c of this.coins) {
+      if (c.taken) continue;
+      if (!c.wx) { const q = this.pointAt(c.s, c.lane * this.halfW); c.wx = q.x; c.wy = q.y; }
+      const pt = this.project(c.wx, c.wy, 0);
+      if (!pt || pt.z > 1500) continue;
+      add(pt.z, () => this.drawCoin(ctx, c, pt, time));
+    }
+    for (const b of this.bombs) {
+      const pt = this.project(b.x, b.y, 0);
+      if (!pt || pt.z > 1600) continue;
+      add(pt.z, () => this.drawBomb(ctx, b, pt, time));
+    }
+    for (const b of this.bursts) {
+      const pt = this.project(b.x, b.y, b.h);
+      if (!pt) continue;
+      add(pt.z, () => { ctx.save(); ctx.globalAlpha = Math.max(0, b.life / b.maxLife); ctx.fillStyle = b.color; ctx.beginPath(); ctx.arc(pt.x, pt.y, Math.max(1.5, b.r * pt.scale * 0.5), 0, Math.PI * 2); ctx.fill(); ctx.restore(); });
+    }
     this.menaceScreen = null;
     this.playerScreen = null;
-
-    // --- Road slices, back to front: grass band, verge, shaded kerbs, grained banked asphalt, markings,
-    //     boost pads, props. Round 7: per-segment grain and patches hashed so they scroll with the road,
-    //     kerbs with a lit top face and a dark outer drop, a dirt verge and kerb shadow on the grass,
-    //     rubbered-in racing lines through the bends, and streak posts on every second segment for pace. ---
-    const hash = (a, b) => { const v = Math.sin(a * 12.9898 + b * 78.233) * 43758.5453; return v - Math.floor(v); };
-    const kartScale = this.fov / this.camBack;   // Divide a slice's scale by this to size things in kart units
-    let maxy = H + 400;
-    for (let i = list.length - 1; i >= 1; i--) {
-      const s0 = list[i - 1], s1 = list[i];
-      if (!s0 || !s1) continue;
-      if (s1.y >= maxy) { /* behind a crest: still place anything standing on it */ }
-      const seg = s0.seg;
-      const even = seg.index % 2 === 0;
-      const near = s0.w > 80;                    // Detail budget: grain only where it reads
-      const nearKerb = s0.w > 120;               // ...and shaded kerbs only on the nearest slices
-      const sliceH = Math.max(1, s0.y - s1.y + 1);
-
-      // Grass band with sunlit stripes, mown texture and distance haze
-      ctx.fillStyle = even ? '#5ec04a' : '#4fae3f';
-      ctx.fillRect(0, s1.y, W, sliceH);
-      if (near && seg.index % 3 === 0) { ctx.fillStyle = 'rgba(255,255,255,0.06)'; ctx.fillRect(0, s1.y, W, Math.max(1, sliceH * 0.5)); }
-      if (s0.haze > 0) { ctx.fillStyle = `rgba(214, 238, 255, ${s0.haze})`; ctx.fillRect(0, s1.y, W, sliceH); }
-
-      const quad = (xr0, xr1, fill) => {
-        ctx.fillStyle = fill;
-        ctx.beginPath();
-        ctx.moveTo(s0.x + xr0 * s0.w, s0.y + s0.tilt * xr0);
-        ctx.lineTo(s0.x + xr1 * s0.w, s0.y + s0.tilt * xr1);
-        ctx.lineTo(s1.x + xr1 * s1.w, s1.y + s1.tilt * xr1);
-        ctx.lineTo(s1.x + xr0 * s1.w, s1.y + s1.tilt * xr0);
-        ctx.closePath();
-        ctx.fill();
-      };
-      // Kerb shadow on the grass, then a dirt verge
-      quad(-1.34, 1.34, 'rgba(0,0,0,0.13)');
-      quad(-1.27, 1.27, even ? '#b39a62' : '#a88f58');
-      // Shaded painted kerbs: lit inner top face, dark outer drop
-      const kerbFill = side => {
-        if (!nearKerb) return even ? '#ef4444' : '#f8fafc';
-        const g = ctx.createLinearGradient(s0.x + side * 1.0 * s0.w, 0, s0.x + side * 1.18 * s0.w, 0);
-        if (even) { g.addColorStop(0, '#fecaca'); g.addColorStop(0.3, '#ef4444'); g.addColorStop(1, '#991b1b'); }
-        else { g.addColorStop(0, '#ffffff'); g.addColorStop(0.3, '#f1f5f9'); g.addColorStop(1, '#94a3b8'); }
-        return g;
-      };
-      quad(-1.18, -1.0, kerbFill(-1));
-      quad(1.0, 1.18, kerbFill(1));
-
-      // Asphalt: shaded across its width (lit from the upper right), textured by alternating slices
-      const road = ctx.createLinearGradient(s0.x - s0.w, 0, s0.x + s0.w, 0);
-      road.addColorStop(0, even ? '#3b4250' : '#363d4a');
-      road.addColorStop(0.45, even ? '#5b6474' : '#555e6e');
-      road.addColorStop(0.75, even ? '#616b7c' : '#5a6475');
-      road.addColorStop(1, even ? '#434b59' : '#3d4552');
-      quad(-1, 1, road);
-      // Grain: speckles hashed per segment so they ride with the road; a resurfaced patch every ninth segment
-      if (near) {
-        const dot = Math.max(1, s0.w * 0.011);
-        for (let k = 0; k < 11; k++) {
-          const hx = hash(seg.index, k) * 1.9 - 0.95, hy = hash(k + 7, seg.index);
-          const px = s1.x + (s0.x - s1.x) * hy + hx * (s1.w + (s0.w - s1.w) * hy);
-          const py = s1.y + (s0.y - s1.y) * hy;
-          ctx.fillStyle = k % 3 === 0 ? 'rgba(255,255,255,0.09)' : 'rgba(0,0,0,0.14)';
-          ctx.fillRect(px, py, dot * (1 + (k % 2)), dot);
-        }
-      }
-      if (seg.index % 9 === 4) quad(0.1 + hash(seg.index, 1) * 0.4, 0.5 + hash(seg.index, 1) * 0.4, 'rgba(0,0,0,0.09)');
-      if (seg.index % 11 === 6) quad(-0.7 + hash(seg.index, 2) * 0.3, -0.35 + hash(seg.index, 2) * 0.3, 'rgba(255,255,255,0.05)');
-      // Rubbered-in racing line through the bends, the tyre marks every fourth segment elsewhere
-      if (seg.zone === 'curve') {
-        const inner = -Math.sign(seg.curve || 1);
-        quad(inner * 0.6 - 0.07, inner * 0.6 + 0.07, 'rgba(0,0,0,0.16)');
-        quad(inner * 0.46 - 0.04, inner * 0.46 + 0.04, 'rgba(0,0,0,0.1)');
-      } else if (seg.index % 4 === 0) { quad(-0.72, -0.62, 'rgba(0,0,0,0.12)'); quad(0.62, 0.72, 'rgba(0,0,0,0.12)'); }
-      // Edge seams and painted lines
-      quad(-1.0, -0.985, 'rgba(0,0,0,0.3)');
-      quad(0.985, 1.0, 'rgba(0,0,0,0.3)');
-      quad(-0.94, -0.9, 'rgba(255,255,255,0.85)');
-      quad(0.9, 0.94, 'rgba(255,255,255,0.85)');
-      if (seg.index % 2 === 0) quad(-0.025, 0.025, '#fde68a');
-
-      // Boost pad: pulsing cyan chevrons
-      if (seg.boost) {
-        const pulse = 0.6 + 0.4 * Math.sin(time * 9 + seg.index);
-        ctx.save();
-        ctx.shadowColor = '#38bdf8';
-        ctx.shadowBlur = 10;
-        quad(-0.6, 0.6, `rgba(56, 189, 248, ${0.5 + 0.3 * pulse})`);
-        ctx.fillStyle = `rgba(224, 242, 254, ${0.55 + 0.4 * pulse})`;
-        ctx.beginPath();
-        ctx.moveTo(s0.x - 0.4 * s0.w, s0.y);
-        ctx.lineTo(s0.x, s1.y - (s0.y - s1.y) * 0.6);
-        ctx.lineTo(s0.x + 0.4 * s0.w, s0.y);
-        ctx.lineTo(s0.x, s1.y + (s0.y - s1.y) * 0.1);
-        ctx.closePath();
-        ctx.fill();
-        ctx.restore();
-      }
-
-      // Streak posts: short striped marker posts on every second segment, right by the verge, for pace
-      if (seg.index % 2 === 1 && s0.w > 12) {
-        const ph = Math.max(3, 22 * s0.scale / kartScale), pw = Math.max(1, 3 * s0.scale / kartScale);
-        for (const side of [-1, 1]) {
-          const px = s0.x + side * 1.3 * s0.w;
-          ctx.fillStyle = seg.index % 4 === 1 ? '#f8fafc' : '#ef4444';
-          ctx.fillRect(px - pw / 2, s0.y - ph, pw, ph);
-          ctx.fillStyle = 'rgba(0,0,0,0.3)';
-          ctx.fillRect(px - pw / 2, s0.y - ph * 0.5, pw, ph * 0.18);
-        }
-      }
-
-      // Start / finish arch across the road at the line
-      if (seg.index === 0) this.drawArch(ctx, s0, time);
-
-      // Trackside props (barriers, stands, flags, trees, bushes, tyre stacks, cones, boards, signs, chevrons, gantries)
-      for (const p of seg.props) this.drawProp(ctx, p, s0, s1, time);
-
-      // Entities standing on this slice
-      while (ei < ents.length && ents[ei].z >= s0.z) { this.drawEntity(ctx, ents[ei], time); ei++; }
-      maxy = Math.min(maxy, s1.y);
+    for (const k of this.karts) {
+      const pt = this.project(k.x, k.y, 0);
+      if (!pt) continue;
+      add(pt.z, () => this.drawKartSprite(ctx, k, pt, time));
     }
-    while (ei < ents.length) { this.drawEntity(ctx, ents[ei], time); ei++; }
-    // Atmospheric haze where the road meets the hills
-    ctx.fillStyle = this.horizonHaze;
-    ctx.fillRect(0, hy - 2, W, 56);
+    list.sort((a, b) => b.z - a.z);
+    for (const it of list) it.fn();
 
-    ctx.restore(); // shake
+    ctx.restore();
     this.drawScreenFx(ctx, time);
   }
 
+  drawKartSprite(ctx, k, pt, time) {
+    const s = Math.max(0.06, Math.min(1.7, pt.scale * this.kartScaleK));
+    let yaw = k.a - this.camA;
+    while (yaw > Math.PI) yaw -= Math.PI * 2;
+    while (yaw < -Math.PI) yaw += Math.PI * 2;
+    const hopY = -k.hopZ * pt.scale;
+    const o = {
+      driver: k.driver, ghost: k.ghost, plate: k.plate,
+      lean: k.lean, roll: 0, spin: k.spin > 0 ? time * 20 : 0, yaw: Math.max(-0.9, Math.min(0.9, yaw)),
+      hot: k.boost > 0, fx: k.fx, throwing: k.ai && k.ai.throwAnim > 0 ? k.ai.throwAnim : 0,
+      wheelSpin: k.wheel, turn: k.drifting ? k.drifting * 0.5 + k.lean * 0.2 : k.lean * 0.45, braking: k.braking,
+      scared: k === this.player && (this.menace.prog - k.prog) < 0 && (this.menace.prog - k.prog) > -140
+    };
+    // Shadow stays on the road while the kart hops
+    if (k.hopZ > 0.5) {
+      ctx.save();
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.beginPath(); ctx.ellipse(pt.x, pt.y + 10 * s, 70 * s, 16 * s, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
+    this.drawKart(ctx, pt.x, pt.y + hopY, s, o);
+    // Shield bubble
+    if (k.shield > 0) {
+      ctx.save();
+      ctx.globalAlpha = k.shield < 1.5 ? 0.3 + 0.3 * Math.abs(Math.sin(time * 16)) : 0.5;
+      const g = ctx.createRadialGradient(pt.x, pt.y + hopY - 28 * s, 10 * s, pt.x, pt.y + hopY - 28 * s, 80 * s);
+      g.addColorStop(0, 'rgba(167, 139, 250, 0.05)'); g.addColorStop(0.8, 'rgba(167, 139, 250, 0.3)'); g.addColorStop(1, 'rgba(221, 214, 254, 0.85)');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(pt.x, pt.y + hopY - 28 * s, 80 * s, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
+    const rect = this.kartRect(pt.x, pt.y + hopY, s);
+    if (k === this.player) this.playerScreen = rect;
+    else if (k === this.menace) this.menaceScreen = rect;
+  }
+
+  // Trackside props in original dress; sizes in world units through the projection scale
+  drawProp(ctx, pr, pt, time) {
+    const u = pt.scale;
+    const dim = Math.min(1, Math.max(0, (pt.z - 1400) / 1000));
+    ctx.save();
+    ctx.translate(pt.x, pt.y);
+    if (pr.kind === 'tree') {
+      const h = (86 + pr.v * 10) * u, w = (34 + pr.v * 4) * u;
+      ctx.fillStyle = 'rgba(0,0,0,0.28)';
+      ctx.beginPath(); ctx.ellipse(0, 0, w * 0.9, w * 0.3, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#7c4a1d';
+      ctx.fillRect(-w * 0.12, -h * 0.45, w * 0.24, h * 0.45);
+      const greens = [['#2f9e44', '#69db7c'], ['#2b8a3e', '#8ce99a'], ['#37b24d', '#b2f2bb'], ['#2f9e44', '#69db7c']][pr.v];
+      ctx.fillStyle = greens[0];
+      ctx.beginPath();
+      ctx.arc(-w * 0.45, -h * 0.55, w * 0.55, 0, Math.PI * 2);
+      ctx.arc(w * 0.4, -h * 0.6, w * 0.55, 0, Math.PI * 2);
+      ctx.arc(0, -h * 0.85, w * 0.62, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = greens[1];
+      ctx.beginPath(); ctx.arc(-w * 0.15, -h * 0.95, w * 0.3, 0, Math.PI * 2); ctx.arc(w * 0.4, -h * 0.72, w * 0.22, 0, Math.PI * 2); ctx.fill();
+    } else if (pr.kind === 'sign') {
+      const w = 120 * u, h = 56 * u, post = 40 * u;
+      ctx.fillStyle = '#475569';
+      ctx.fillRect(-w * 0.4, -post, 5 * u, post); ctx.fillRect(w * 0.4 - 5 * u, -post, 5 * u, post);
+      const txt = ['GHOST OIL', 'PELLET COLA', 'ROUND MENACE GP', 'YARD #7 TYRES'][pr.v];
+      const bg = ['#f43f5e', '#38bdf8', '#fde047', '#1e293b'][pr.v], fg = ['#fff', '#0f172a', '#0f172a', '#fde047'][pr.v];
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(-w / 2 - 2 * u, -post - h - 2 * u, w + 4 * u, h + 4 * u);
+      ctx.fillStyle = bg;
+      ctx.fillRect(-w / 2, -post - h, w, h);
+      if (u > 0.09) {
+        ctx.fillStyle = fg;
+        ctx.font = `900 ${Math.max(4, 18 * u)}px system-ui, sans-serif`;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(txt, 0, -post - h / 2);
+      }
+    } else if (pr.kind === 'tyres') {
+      const r = 18 * u;
+      for (let i = 0; i < 3; i++) {
+        const yy = -i * r * 0.9;
+        ctx.fillStyle = i === 2 ? '#1f2937' : '#111827';
+        ctx.beginPath(); ctx.ellipse(0, yy, r, r * 0.5, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = i % 2 ? '#f8fafc' : '#ef4444';
+        ctx.fillRect(-r, yy - r * 0.15, r * 2, r * 0.3);
+      }
+      ctx.fillStyle = '#334155';
+      ctx.beginPath(); ctx.ellipse(0, -2 * r * 0.9, r * 0.45, r * 0.22, 0, 0, Math.PI * 2); ctx.fill();
+    } else if (pr.kind === 'stand') {
+      const w = 220 * u, h = 110 * u;
+      ctx.fillStyle = '#334155';
+      ctx.fillRect(-w / 2, -h, w, h);
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(-w / 2, -h * 0.98, w, h * 0.08);
+      // The crowd: rows of coloured heads that bob
+      const rows = 4, cols = 11;
+      for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+        const hx = -w / 2 + (c + 0.5) * (w / cols), hyy = -h * 0.2 - r * (h * 0.2) + Math.sin(time * 6 + c + r * 2) * h * 0.02;
+        ctx.fillStyle = ['#fde047', '#f472b6', '#38bdf8', '#a3e635', '#f8fafc', '#fb923c'][(c * 3 + r * 5) % 6];
+        ctx.beginPath(); ctx.arc(hx, hyy, Math.max(1, w * 0.028), 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.fillStyle = '#ef4444';
+      ctx.fillRect(-w / 2 - 6 * u, -h - 14 * u, w + 12 * u, 14 * u);
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(-w / 2 - 6 * u, -h - 14 * u, w + 12 * u, 3 * u);
+    } else if (pr.kind === 'flag') {
+      const h = 120 * u;
+      ctx.fillStyle = '#e2e8f0';
+      ctx.fillRect(-2 * u, -h, 4 * u, h);
+      const fw = 44 * u, fh = 30 * u, dir = pr.v ? -1 : 1;
+      for (let i = 0; i < 4; i++) for (let j = 0; j < 3; j++) {
+        ctx.fillStyle = (i + j) % 2 ? '#0f172a' : '#f8fafc';
+        const wave = Math.sin(time * 8 + i) * 3 * u;
+        ctx.fillRect(dir > 0 ? 2 * u + i * fw / 4 : -2 * u - (i + 1) * fw / 4, -h + j * fh / 3 + wave, fw / 4 + 0.5, fh / 3 + 0.5);
+      }
+    }
+    if (dim > 0) { ctx.globalAlpha = dim * 0.5; ctx.fillStyle = '#fff3bd'; ctx.fillRect(-160 * u, -140 * u, 320 * u, 150 * u); }
+    ctx.restore();
+  }
+
+  // A spinning item cube hovering over the road (original dress: a gold crate with a ring emblem)
+  drawCube(ctx, c, pt, time) {
+    const hover = 36 + Math.sin(time * 3 + c.spin) * 7;
+    const top = this.project(c.wx, c.wy, hover);
+    if (!top) return;
+    const r = Math.max(3, 30 * pt.scale);
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.beginPath(); ctx.ellipse(pt.x, pt.y, r * 0.8, r * 0.3, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.translate(top.x, top.y);
+    const a = c.spin + time * 2.2;
+    const k = Math.abs(Math.cos(a)) * 0.55 + 0.45;
+    ctx.shadowColor = '#ffd32a';
+    ctx.shadowBlur = 14;
+    ctx.fillStyle = '#f59e0b';
+    ctx.beginPath(); ctx.moveTo(-r * k, -r * 0.55); ctx.lineTo(r * k, -r * 0.55); ctx.lineTo(r * k, r * 0.55); ctx.lineTo(-r * k, r * 0.55); ctx.closePath(); ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#fde68a';
+    ctx.fillRect(-r * k, -r * 0.55, r * k * 2, r * 0.18);
+    ctx.fillStyle = '#b45309';
+    ctx.fillRect(-r * k, r * 0.4, r * k * 2, r * 0.15);
+    ctx.strokeStyle = '#fff7cc';
+    ctx.lineWidth = Math.max(1, r * 0.16);
+    ctx.beginPath(); ctx.ellipse(0, 0, r * 0.32 * k, r * 0.32, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = '#0f172a';
+    ctx.font = `900 ${Math.max(4, r * 0.5)}px system-ui, sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('?', 0, r * 0.02);
+    ctx.restore();
+  }
+
+  // A pellet coin: a gold disc spinning on its vertical axis, with a soft glow
+  drawCoin(ctx, c, pt, time) {
+    const h = 14 + Math.sin(time * 4 + c.bob) * 3;
+    const top = this.project(c.wx, c.wy, h);
+    if (!top) return;
+    const r = Math.max(2, 13 * pt.scale);
+    const k = Math.abs(Math.cos(time * 5 + c.bob)) * 0.8 + 0.2;
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.22)';
+    ctx.beginPath(); ctx.ellipse(pt.x, pt.y, r * 0.8, r * 0.28, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowColor = '#ffd32a';
+    ctx.shadowBlur = 8;
+    ctx.fillStyle = '#fbbf24';
+    ctx.beginPath(); ctx.ellipse(top.x, top.y, r * k, r, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#fde68a';
+    ctx.beginPath(); ctx.ellipse(top.x - r * k * 0.2, top.y - r * 0.2, r * k * 0.45, r * 0.5, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+
+  // A dropped pellet bomb: dark shell, gold band, a sputtering fuse
+  drawBomb(ctx, b, pt, time) {
+    const r = Math.max(3, 18 * pt.scale);
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.beginPath(); ctx.ellipse(pt.x, pt.y, r * 1.1, r * 0.4, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.translate(pt.x, pt.y - r * 0.8);
+    ctx.fillStyle = '#0f172a';
+    ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ffd32a';
+    ctx.fillRect(-r, -r * 0.18, r * 2, r * 0.36);
+    ctx.fillStyle = '#0f172a';
+    ctx.beginPath(); ctx.arc(0, 0, r * 0.3, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.25)';
+    ctx.beginPath(); ctx.arc(-r * 0.35, -r * 0.4, r * 0.25, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#f97316';
+    ctx.shadowColor = '#f97316';
+    ctx.shadowBlur = 10;
+    ctx.beginPath(); ctx.arc(r * 0.5, -r * 1.05, Math.max(1.5, r * 0.3) * (0.7 + 0.3 * Math.sin(time * 30)), 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
   loopX(x, margin) {
     const span = this.W + margin * 2;
     let v = ((x + margin) % span + span) % span;
@@ -9064,369 +9598,6 @@ class GrandPrixRun {
 
   // Trackside props. (s0, s1) are the near and far slice edges of the segment the prop stands on; sizes are
   // in kart units (k = 1 at the ghost's grid position) so everything scales with the karts. Original art.
-  drawProp(ctx, p, s, s1, time) {
-    const sc = s.scale;
-    const k = s.scale / (this.fov / this.camBack);
-    const x = s.x + p.side * p.off * s.w;
-    const y = s.y;
-    const rr = (rx, ry, w, h, r) => { ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(rx, ry, w, h, r); else ctx.rect(rx, ry, w, h); };
-    ctx.save();
-    ctx.globalAlpha = 1 - s.haze * 0.8;
-    if (p.type === 'barrier') {
-      // Armco: two grey rails on posts running the length of the segment
-      if (s1 && s.w > 10) {
-        const h0 = Math.max(2, 14 * k), h1 = Math.max(1, 14 * (s1.scale / (this.fov / this.camBack)));
-        const xa = x, xb = s1.x + p.side * p.off * s1.w;
-        ctx.strokeStyle = '#94a3b8';
-        ctx.lineWidth = Math.max(1, 4 * k);
-        ctx.beginPath(); ctx.moveTo(xa, y - h0); ctx.lineTo(xb, s1.y - h1); ctx.stroke();
-        if (k > 0.45) {
-          ctx.strokeStyle = '#cbd5e1';
-          ctx.lineWidth = Math.max(1, 1.5 * k);
-          ctx.beginPath(); ctx.moveTo(xa, y - h0 * 1.12); ctx.lineTo(xb, s1.y - h1 * 1.12); ctx.stroke();
-        }
-        ctx.strokeStyle = '#64748b';
-        ctx.lineWidth = Math.max(1, 3 * k);
-        ctx.beginPath(); ctx.moveTo(xa, y - h0 * 0.55); ctx.lineTo(xb, s1.y - h1 * 0.55); ctx.stroke();
-        ctx.fillStyle = '#334155';
-        ctx.fillRect(xa - Math.max(0.5, 2 * k), y - h0 * 1.15, Math.max(1, 4 * k), h0 * 1.15);
-      }
-    } else if (p.type === 'stand') {
-      // Two-tier grandstand: lower wall with a sponsor band, two crowd tiers, a roof with a shadow line
-      const w = Math.max(6, 150 * sc), h = Math.max(4, 84 * sc);
-      const x0 = p.side < 0 ? x - w : x;
-      ctx.fillStyle = 'rgba(0,0,0,0.28)';
-      ctx.fillRect(x0 + 4 * sc, y - 2, w, Math.max(2, 5 * sc));
-      const tier = ctx.createLinearGradient(0, y - h, 0, y);
-      tier.addColorStop(0, '#64748b'); tier.addColorStop(1, '#334155');
-      ctx.fillStyle = tier;
-      ctx.fillRect(x0, y - h, w, h);
-      ctx.fillStyle = '#1e293b';
-      for (let r = 1; r < 5; r++) ctx.fillRect(x0, y - h + r * (h / 5), w, Math.max(1, 1.5 * sc));
-      // Lower wall: sponsor band
-      ctx.fillStyle = p.seed > 0.5 ? '#0f172a' : '#f8fafc';
-      ctx.fillRect(x0, y - h * 0.2, w, h * 0.2);
-      ctx.fillStyle = p.seed > 0.5 ? '#38bdf8' : '#ef4444';
-      ctx.fillRect(x0, y - h * 0.2 + h * 0.06, w, h * 0.08);
-      // Bobbing crowd in squad colours, four rows
-      const crowd = ['#ff3344', '#ff79b0', '#22d3ee', '#ffd32a', '#a3e635', '#f8fafc', '#fb923c'];
-      const cols = Math.max(3, Math.floor(w / Math.max(3, 8 * sc)));
-      for (let r = 0; r < 4; r++) {
-        for (let c = 0; c < cols; c++) {
-          const bob = Math.abs(Math.sin(time * 7 + c * 1.3 + r * 0.9 + p.seed * 10)) * 4 * sc;
-          ctx.fillStyle = crowd[(c + r * 2 + Math.floor(p.seed * 7)) % crowd.length];
-          ctx.beginPath();
-          ctx.arc(x0 + (c + 0.5) * (w / cols), y - h + (r + 0.45) * (h / 5) - bob, Math.max(1, 3.4 * sc), 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
-      // Roof, its shadow on the top tier, pennant line and support columns
-      ctx.fillStyle = 'rgba(0,0,0,0.3)';
-      ctx.fillRect(x0, y - h, w, Math.max(1, 6 * sc));
-      ctx.fillStyle = p.seed > 0.5 ? '#ef4444' : '#38bdf8';
-      ctx.fillRect(x0 - 5 * sc, y - h - Math.max(2, 10 * sc), w + 10 * sc, Math.max(2, 10 * sc));
-      ctx.fillStyle = 'rgba(255,255,255,0.35)';
-      ctx.fillRect(x0 - 5 * sc, y - h - Math.max(2, 10 * sc), w + 10 * sc, Math.max(1, 3 * sc));
-      ctx.fillStyle = '#ffffff';
-      for (let q = 0; q < 6; q++) ctx.fillRect(x0 + q * (w / 6) + (w / 12), y - h - Math.max(2, 10 * sc), Math.max(1, w / 12), Math.max(1, 4 * sc));
-      ctx.fillStyle = '#1e293b';
-      for (let q = 0; q <= 3; q++) ctx.fillRect(x0 + q * (w / 3) - Math.max(0.5, 1.5 * sc), y - h, Math.max(1, 3 * sc), h);
-    } else if (p.type === 'flag') {
-      const h = Math.max(6, 70 * sc);
-      ctx.strokeStyle = '#e2e8f0';
-      ctx.lineWidth = Math.max(1, 3 * sc);
-      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y - h); ctx.stroke();
-      const wave = Math.sin(time * 6 + p.seed * 9) * 6 * sc;
-      ctx.fillStyle = p.seed > 0.5 ? '#ffd32a' : '#ec4899';
-      ctx.beginPath();
-      ctx.moveTo(x, y - h);
-      ctx.quadraticCurveTo(x + p.side * 18 * sc, y - h + 8 * sc + wave, x + p.side * 36 * sc, y - h + 10 * sc + wave);
-      ctx.lineTo(x, y - h + 22 * sc);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = 'rgba(0,0,0,0.18)';
-      ctx.beginPath();
-      ctx.moveTo(x, y - h + 12 * sc);
-      ctx.quadraticCurveTo(x + p.side * 18 * sc, y - h + 14 * sc + wave, x + p.side * 36 * sc, y - h + 10 * sc + wave);
-      ctx.lineTo(x, y - h + 22 * sc);
-      ctx.closePath();
-      ctx.fill();
-    } else if (p.type === 'tree') {
-      // Three kinds by seed: round broadleaf, pine, palm — each with a soft shadow and a lit side
-      const kind = p.seed < 0.4 ? 'round' : p.seed < 0.72 ? 'pine' : 'palm';
-      const th = Math.max(8, (90 + p.seed * 50) * sc), r = Math.max(4, (34 + p.seed * 18) * sc);
-      ctx.fillStyle = 'rgba(0,0,0,0.25)';
-      ctx.beginPath(); ctx.ellipse(x + 8 * sc, y, r * 0.95, Math.max(1.5, 7 * sc), 0, 0, Math.PI * 2); ctx.fill();
-      if (kind === 'round') {
-        ctx.fillStyle = '#7c3f12';
-        ctx.fillRect(x - Math.max(1, 5 * sc), y - th * 0.6, Math.max(2, 10 * sc), th * 0.6);
-        ctx.fillStyle = 'rgba(0,0,0,0.25)';
-        ctx.fillRect(x + Math.max(0.5, 1.5 * sc), y - th * 0.6, Math.max(1, 3.5 * sc), th * 0.6);
-        const greens = [['#2f9e44', '#69db7c'], ['#2b8a3e', '#8ce99a'], ['#37b24d', '#b2f2bb']];
-        const g = greens[Math.floor(p.seed * 30) % 3];
-        ctx.fillStyle = '#1f6b2a';
-        ctx.beginPath(); ctx.arc(x + r * 0.1, y - th * 0.55, r, 0, Math.PI * 2); ctx.arc(x - r * 0.55, y - th * 0.42, r * 0.7, 0, Math.PI * 2); ctx.arc(x + r * 0.65, y - th * 0.47, r * 0.75, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = g[0];
-        ctx.beginPath(); ctx.arc(x, y - th * 0.6, r * 0.92, 0, Math.PI * 2); ctx.arc(x - r * 0.6, y - th * 0.45, r * 0.62, 0, Math.PI * 2); ctx.arc(x + r * 0.6, y - th * 0.5, r * 0.68, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = g[1];
-        ctx.beginPath(); ctx.arc(x + r * 0.3, y - th * 0.6 - r * 0.35, r * 0.42, 0, Math.PI * 2); ctx.arc(x - r * 0.25, y - th * 0.55 - r * 0.5, r * 0.22, 0, Math.PI * 2); ctx.fill();
-      } else if (kind === 'pine') {
-        ctx.fillStyle = '#5b2e0e';
-        ctx.fillRect(x - Math.max(1, 4 * sc), y - th * 0.35, Math.max(2, 8 * sc), th * 0.35);
-        const layers = 3;
-        for (let L = 0; L < layers; L++) {
-          const ly = y - th * (0.3 + 0.2 * L), lw = r * (1.15 - L * 0.28), lh = th * 0.38;
-          ctx.fillStyle = L % 2 ? '#1f7a33' : '#25913d';
-          ctx.beginPath(); ctx.moveTo(x, ly - lh); ctx.lineTo(x + lw, ly); ctx.lineTo(x - lw, ly); ctx.closePath(); ctx.fill();
-          ctx.fillStyle = 'rgba(255,255,255,0.14)';
-          ctx.beginPath(); ctx.moveTo(x, ly - lh); ctx.lineTo(x + lw, ly); ctx.lineTo(x + lw * 0.2, ly); ctx.closePath(); ctx.fill();
-        }
-      } else {
-        ctx.strokeStyle = '#8a5a2b';
-        ctx.lineWidth = Math.max(1.5, 7 * sc);
-        ctx.beginPath(); ctx.moveTo(x, y); ctx.quadraticCurveTo(x - p.side * 10 * sc, y - th * 0.5, x - p.side * 4 * sc, y - th * 0.85); ctx.stroke();
-        ctx.save();
-        ctx.translate(x - p.side * 4 * sc, y - th * 0.85);
-        for (let f = 0; f < 6; f++) {
-          ctx.rotate(Math.PI / 3);
-          ctx.fillStyle = f % 2 ? '#22a04a' : '#2fbf5e';
-          ctx.beginPath(); ctx.moveTo(0, 0); ctx.quadraticCurveTo(r * 0.55, -r * 0.3, r * 1.1, 0); ctx.quadraticCurveTo(r * 0.55, r * 0.28, 0, 0); ctx.fill();
-        }
-        ctx.restore();
-        ctx.fillStyle = '#b45309';
-        ctx.beginPath(); ctx.arc(x - p.side * 4 * sc, y - th * 0.85, Math.max(1, 4 * sc), 0, Math.PI * 2); ctx.fill();
-      }
-    } else if (p.type === 'bush') {
-      const r = Math.max(3, (22 + p.seed * 14) * sc);
-      ctx.fillStyle = 'rgba(0,0,0,0.2)';
-      ctx.beginPath(); ctx.ellipse(x + 3 * sc, y + 1, r * 1.5, Math.max(1, 4 * sc), 0, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#237a35';
-      ctx.beginPath(); ctx.arc(x + r * 0.1, y - r * 0.4, r, 0, Math.PI * 2); ctx.arc(x - r * 0.85, y - r * 0.25, r * 0.7, 0, Math.PI * 2); ctx.arc(x + r * 0.95, y - r * 0.3, r * 0.75, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#2f9e44';
-      ctx.beginPath(); ctx.arc(x, y - r * 0.5, r * 0.9, 0, Math.PI * 2); ctx.arc(x - r * 0.9, y - r * 0.3, r * 0.6, 0, Math.PI * 2); ctx.arc(x + r * 0.9, y - r * 0.35, r * 0.65, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#69db7c';
-      ctx.beginPath(); ctx.arc(x + r * 0.25, y - r * 0.85, r * 0.3, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = p.seed > 0.5 ? '#f472b6' : '#fde047';
-      for (let q = 0; q < 4; q++) { ctx.beginPath(); ctx.arc(x + (q - 1.5) * r * 0.5, y - r * 0.7 + Math.sin(q * 2 + p.seed) * r * 0.3, Math.max(1, r * 0.14), 0, Math.PI * 2); ctx.fill(); }
-    } else if (p.type === 'tyres') {
-      // Tyre stacks: two piles of painted tyres on the outside of the bend
-      const tr = Math.max(2, 10 * k), th = Math.max(1.5, 5.5 * k);
-      const bands = ['#ef4444', '#f8fafc', '#2563eb'];
-      ctx.fillStyle = 'rgba(0,0,0,0.25)';
-      ctx.beginPath(); ctx.ellipse(x + 4 * k, y + 1, tr * 2.6, Math.max(1, 5 * k), 0, 0, Math.PI * 2); ctx.fill();
-      for (let pile = 0; pile < 2; pile++) {
-        const cx = x + p.side * pile * tr * 2.2;
-        const n = pile === 0 ? 3 : 2;
-        for (let t = 0; t < n; t++) {
-          const ty = y - t * th * 1.6;
-          ctx.fillStyle = '#111827';
-          ctx.beginPath(); ctx.ellipse(cx, ty, tr, th, 0, 0, Math.PI * 2); ctx.fill();
-          ctx.fillStyle = bands[(t + pile + Math.floor(p.seed * 3)) % 3];
-          ctx.beginPath(); ctx.ellipse(cx, ty - th * 0.5, tr, th * 0.9, 0, 0, Math.PI * 2); ctx.fill();
-          ctx.fillStyle = '#1f2937';
-          ctx.beginPath(); ctx.ellipse(cx, ty - th * 0.5, tr * 0.45, th * 0.4, 0, 0, Math.PI * 2); ctx.fill();
-          ctx.fillStyle = 'rgba(255,255,255,0.25)';
-          ctx.beginPath(); ctx.ellipse(cx - tr * 0.35, ty - th * 0.75, tr * 0.25, th * 0.2, 0, 0, Math.PI * 2); ctx.fill();
-        }
-      }
-    } else if (p.type === 'cone') {
-      const ch = Math.max(3, 20 * k), cw = Math.max(2, 9 * k);
-      ctx.fillStyle = 'rgba(0,0,0,0.25)';
-      ctx.beginPath(); ctx.ellipse(x + 2 * k, y, cw * 1.1, Math.max(1, 2.5 * k), 0, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#0f172a';
-      ctx.fillRect(x - cw * 1.1, y - Math.max(1, 2 * k), cw * 2.2, Math.max(1, 2 * k));
-      ctx.fillStyle = '#f97316';
-      ctx.beginPath(); ctx.moveTo(x, y - ch); ctx.lineTo(x + cw, y); ctx.lineTo(x - cw, y); ctx.closePath(); ctx.fill();
-      ctx.fillStyle = '#ffffff';
-      ctx.beginPath(); ctx.moveTo(x - cw * 0.45, y - ch * 0.55); ctx.lineTo(x + cw * 0.45, y - ch * 0.55); ctx.lineTo(x + cw * 0.6, y - ch * 0.4); ctx.lineTo(x - cw * 0.6, y - ch * 0.4); ctx.closePath(); ctx.fill();
-    } else if (p.type === 'board') {
-      // Low banner boards along the straights
-      const w = Math.max(8, 120 * k), h = Math.max(3, 22 * k), x0 = p.side < 0 ? x - w : x;
-      ctx.fillStyle = 'rgba(0,0,0,0.22)';
-      ctx.fillRect(x0 + 3 * k, y - 1, w, Math.max(1, 3 * k));
-      ctx.fillStyle = p.seed > 0.66 ? '#1d4ed8' : p.seed > 0.33 ? '#f8fafc' : '#dc2626';
-      ctx.fillRect(x0, y - h, w, h);
-      ctx.fillStyle = 'rgba(0,0,0,0.25)';
-      ctx.fillRect(x0, y - h * 0.22, w, h * 0.22);
-      ctx.fillStyle = p.seed > 0.33 && p.seed <= 0.66 ? '#0f172a' : '#f8fafc';
-      ctx.font = `900 ${Math.max(5, Math.floor(12 * k))}px system-ui, sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      if (w > 28) ctx.fillText(p.text, x0 + w / 2, y - h * 0.58);
-    } else if (p.type === 'sign') {
-      // Braking-distance boards before the bends
-      const w = Math.max(5, 30 * k), h = Math.max(5, 30 * k), post = Math.max(4, 26 * k);
-      ctx.fillStyle = '#334155';
-      ctx.fillRect(x - Math.max(0.5, 2 * k), y - post, Math.max(1, 4 * k), post);
-      ctx.fillStyle = '#0f172a';
-      ctx.fillRect(x - w / 2, y - post - h, w, h);
-      ctx.fillStyle = '#fde047';
-      ctx.fillRect(x - w / 2 + Math.max(0.5, 2 * k), y - post - h + Math.max(0.5, 2 * k), w - Math.max(1, 4 * k), h - Math.max(1, 4 * k));
-      ctx.fillStyle = '#0f172a';
-      ctx.font = `900 ${Math.max(5, Math.floor(14 * k))}px system-ui, sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      if (w > 10) ctx.fillText(p.text, x, y - post - h / 2);
-    } else if (p.type === 'lamp') {
-      const lh = Math.max(6, 120 * k);
-      ctx.fillStyle = '#475569';
-      ctx.fillRect(x - Math.max(0.5, 2.5 * k), y - lh, Math.max(1, 5 * k), lh);
-      ctx.fillRect(x - Math.max(1, 6 * k), y - Math.max(1, 4 * k), Math.max(2, 12 * k), Math.max(1, 4 * k));
-      ctx.fillStyle = '#334155';
-      ctx.fillRect(Math.min(x, x - p.side * 26 * k), y - lh - Math.max(1, 3 * k), Math.max(2, 26 * k), Math.max(1, 4 * k));
-      ctx.fillStyle = '#fef9c3';
-      ctx.beginPath(); ctx.ellipse(x - p.side * 24 * k, y - lh, Math.max(1.5, 7 * k), Math.max(1, 3 * k), 0, 0, Math.PI * 2); ctx.fill();
-    } else if (p.type === 'billboard') {
-      const w = Math.max(8, 160 * sc), h = Math.max(5, 60 * sc), x0 = p.side < 0 ? x - w : x;
-      ctx.fillStyle = 'rgba(0,0,0,0.22)';
-      ctx.fillRect(x0 + w * 0.15, y - 1, w * 0.75, Math.max(1, 4 * sc));
-      ctx.fillStyle = '#475569';
-      ctx.fillRect(x0 + w * 0.2, y - h * 1.3, Math.max(1, 6 * sc), h * 1.3);
-      ctx.fillRect(x0 + w * 0.8, y - h * 1.3, Math.max(1, 6 * sc), h * 1.3);
-      ctx.fillStyle = p.seed > 0.5 ? '#0f172a' : '#ffd32a';
-      ctx.fillRect(x0, y - h * 2.3, w, h);
-      ctx.fillStyle = 'rgba(255,255,255,0.12)';
-      ctx.fillRect(x0, y - h * 2.3, w, h * 0.3);
-      ctx.strokeStyle = '#f8fafc';
-      ctx.lineWidth = Math.max(1, 3 * sc);
-      ctx.strokeRect(x0, y - h * 2.3, w, h);
-      ctx.fillStyle = p.seed > 0.5 ? '#ffd32a' : '#0f172a';
-      ctx.font = `900 ${Math.max(6, Math.floor(22 * sc))}px system-ui, sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(p.text, x0 + w / 2, y - h * 1.8);
-    } else if (p.type === 'chevron') {
-      const w = Math.max(6, 60 * sc), h = Math.max(4, 30 * sc), x0 = p.side < 0 ? x - w : x;
-      ctx.fillStyle = '#0f172a';
-      ctx.fillRect(x0 + w / 2 - 2 * sc, y - h * 1.6, Math.max(1, 4 * sc), h * 1.6);
-      ctx.fillStyle = '#ffd32a';
-      ctx.fillRect(x0, y - h * 2.6, w, h);
-      ctx.fillStyle = '#0f172a';
-      for (let q = 0; q < 3; q++) {
-        const cx = x0 + (q + 0.5) * (w / 3);
-        ctx.beginPath();
-        ctx.moveTo(cx - p.dir * w * 0.12, y - h * 2.5);
-        ctx.lineTo(cx + p.dir * w * 0.08, y - h * 2.1);
-        ctx.lineTo(cx - p.dir * w * 0.12, y - h * 1.7);
-        ctx.lineTo(cx - p.dir * w * 0.02, y - h * 2.1);
-        ctx.closePath();
-        ctx.fill();
-      }
-    } else if (p.type === 'gantry') {
-      const gw = s.w * 1.3, gh = Math.max(6, 100 * sc), pw = Math.max(2, 8 * sc), bh = Math.max(4, 22 * sc);
-      ctx.fillStyle = '#334155';
-      ctx.fillRect(s.x - gw, y - gh, pw, gh);
-      ctx.fillRect(s.x + gw - pw, y - gh, pw, gh);
-      ctx.fillStyle = '#1e293b';
-      for (let q = 1; q < 4; q++) ctx.fillRect(s.x - gw, y - gh * (q / 4), pw, Math.max(1, 2 * sc)), ctx.fillRect(s.x + gw - pw, y - gh * (q / 4), pw, Math.max(1, 2 * sc));
-      ctx.fillStyle = p.text === 'BOOST' ? '#0ea5e9' : '#7c3aed';
-      ctx.fillRect(s.x - gw, y - gh, gw * 2, bh);
-      ctx.fillStyle = 'rgba(0,0,0,0.25)';
-      ctx.fillRect(s.x - gw, y - gh + bh * 0.75, gw * 2, bh * 0.25);
-      ctx.fillStyle = '#f8fafc';
-      ctx.font = `900 ${Math.max(6, Math.floor(14 * sc))}px system-ui, sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(p.text, s.x, y - gh + bh / 2);
-    }
-    ctx.restore();
-  }
-
-  drawEntity(ctx, e, time) {
-    if (e.kind === 'player') {
-      const pt = this.projectPoint(this.playerDist, this.playerX, 0);
-      if (!pt) return;
-      const s = pt.scale / (this.fov / this.camBack);
-      const bob = Math.sin(this.playerBob) * 1.2 * (this.speed / this.baseSpeed);
-      this.drawKart(ctx, pt.x, pt.y + bob, s, {
-        driver: 'ghost', lean: this.steerLean, roll: pt.roll, spin: this.spinTimer > 0 ? time * 22 : 0,
-        hot: this.boostTimer > 0 || this.rushTimer > 0, fx: this.playerFx,
-        wheelSpin: this.playerWheel || 0, turn: this.playerTurn || 0, braking: !!this.braking
-      });
-      this.playerScreen = this.kartRect(pt.x, pt.y, s);
-    } else if (e.kind === 'menace') {
-      const pt = this.projectPoint(this.menaceDist, this.menaceX, 0);
-      if (!pt) return;
-      const s = pt.scale / (this.fov / this.camBack);
-      this.drawKart(ctx, pt.x, pt.y, s, {
-        driver: 'menace', lean: this.menaceLean, roll: pt.roll, spin: this.menaceSpin > 0 ? time * 18 : 0,
-        hot: false, fx: this.menaceFx, throwing: this.throwAnim,
-        wheelSpin: this.menaceWheel || 0, turn: this.menaceLean * 0.5 + this.segAt(this.menaceDist).curve * 0.14, braking: this.menaceSpin > 0
-      });
-      this.menaceScreen = this.kartRect(pt.x, pt.y, s);
-    } else if (e.kind === 'bomb') {
-      const b = e.ref;
-      const ground = this.projectPoint(b.dist, b.x, 0);
-      const pt = this.projectPoint(b.dist, b.x, b.h);
-      if (!pt || !ground) return;
-      const r = Math.max(3, 16 * pt.scale);
-      ctx.save();
-      if (b.state === 'air') {
-        ctx.fillStyle = 'rgba(0,0,0,0.3)';
-        ctx.beginPath(); ctx.ellipse(ground.x, ground.y, r * 0.9, r * 0.35, 0, 0, Math.PI * 2); ctx.fill();
-      } else {
-        // Burst splat: a ring of pellet shards on the asphalt
-        ctx.globalAlpha = Math.min(1, b.life / 1.2);
-        ctx.fillStyle = '#ffd32a';
-        for (let k = 0; k < 7; k++) { const a = k * 0.9 + b.rot * 0.2; ctx.beginPath(); ctx.arc(ground.x + Math.cos(a) * r * 1.6, ground.y + Math.sin(a) * r * 0.5, Math.max(1.5, r * 0.3), 0, Math.PI * 2); ctx.fill(); }
-        ctx.fillStyle = 'rgba(59, 10, 10, 0.75)';
-        ctx.beginPath(); ctx.ellipse(ground.x, ground.y, r * 1.5, r * 0.5, 0, 0, Math.PI * 2); ctx.fill();
-        ctx.restore();
-        return;
-      }
-      ctx.translate(pt.x, pt.y);
-      ctx.rotate(b.rot);
-      ctx.fillStyle = '#0f172a';
-      ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#ffd32a';
-      ctx.beginPath(); ctx.arc(0, 0, r * 0.55, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#0f172a';
-      ctx.beginPath(); ctx.arc(0, 0, r * 0.25, 0, Math.PI * 2); ctx.fill();
-      ctx.rotate(-b.rot);
-      ctx.fillStyle = '#f97316';
-      ctx.shadowColor = '#f97316';
-      ctx.shadowBlur = 10;
-      ctx.beginPath(); ctx.arc(r * 0.5, -r * 1.05, Math.max(1.5, r * 0.3) * (0.7 + 0.3 * Math.sin(time * 30)), 0, Math.PI * 2); ctx.fill();
-      ctx.restore();
-    } else if (e.kind === 'cube') {
-      const c = e.ref;
-      const hover = 42 + Math.sin(time * 3 + c.spin) * 8;
-      const ground = this.projectPoint(c.dist, c.x, 0);
-      const pt = this.projectPoint(c.dist, c.x, hover);
-      if (!pt || !ground) return;
-      const r = Math.max(4, 26 * pt.scale);
-      ctx.save();
-      ctx.fillStyle = 'rgba(0,0,0,0.25)';
-      ctx.beginPath(); ctx.ellipse(ground.x, ground.y, r * 0.8, r * 0.3, 0, 0, Math.PI * 2); ctx.fill();
-      ctx.translate(pt.x, pt.y);
-      // A spinning pellet crate: glowing gold cube with a ring emblem
-      const a = c.spin + time * 2.2;
-      const k = Math.abs(Math.cos(a)) * 0.55 + 0.45;
-      ctx.shadowColor = '#ffd32a';
-      ctx.shadowBlur = 14;
-      ctx.fillStyle = '#f59e0b';
-      ctx.beginPath(); ctx.moveTo(-r * k, -r * 0.55); ctx.lineTo(r * k, -r * 0.55); ctx.lineTo(r * k, r * 0.55); ctx.lineTo(-r * k, r * 0.55); ctx.closePath(); ctx.fill();
-      ctx.shadowBlur = 0;
-      ctx.fillStyle = '#fde68a';
-      ctx.fillRect(-r * k, -r * 0.55, r * k * 2, r * 0.18);
-      ctx.fillStyle = '#b45309';
-      ctx.fillRect(-r * k, r * 0.4, r * k * 2, r * 0.15);
-      ctx.strokeStyle = '#fff7cc';
-      ctx.lineWidth = Math.max(1, r * 0.16);
-      ctx.beginPath(); ctx.ellipse(0, 0, r * 0.32 * k, r * 0.32, 0, 0, Math.PI * 2); ctx.stroke();
-      ctx.restore();
-    } else if (e.kind === 'burst') {
-      const p = e.ref;
-      const pt = this.projectPoint(p.dist, p.x, p.h);
-      if (!pt) return;
-      ctx.save();
-      ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
-      ctx.fillStyle = p.color;
-      ctx.beginPath(); ctx.arc(pt.x, pt.y, Math.max(1.5, p.r * pt.scale * 1.4), 0, Math.PI * 2); ctx.fill();
-      ctx.restore();
-    }
-  }
-
   kartRect(x, y, s) {
     const r = 62 * s;
     return { x, y: y - 10 * s, r, inFrame: x - r >= 0 && x + r <= this.W && y - 60 * s >= 0 && y + 44 * s <= this.H };
@@ -9455,13 +9626,14 @@ class GrandPrixRun {
     ctx.fillStyle = sh;
     ctx.beginPath(); ctx.ellipse(4, 12, 74, 18, 0, 0, Math.PI * 2); ctx.fill();
     ctx.rotate(o.spin ? o.spin : o.lean * 0.1 + o.roll);
+    if (o.yaw) ctx.transform(1, 0, -o.yaw * 0.42, 1, 0, 0);   // Heading relative to the camera: a drifting kart is seen angled
     const fx = o.fx;
     // Tyre smoke and exhaust trail behind the kart
     for (const e of fx.smoke) { ctx.fillStyle = `rgba(226, 232, 240, ${0.55 * (e.life / e.maxLife)})`; ctx.beginPath(); ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2); ctx.fill(); }
     for (const e of fx.exhaust) { ctx.fillStyle = e.hot ? `rgba(125, 211, 252, ${e.alpha * (e.life / e.maxLife)})` : `rgba(203, 213, 225, ${e.alpha * (e.life / e.maxLife)})`; ctx.beginPath(); ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2); ctx.fill(); }
 
     const menace = o.driver === 'menace';
-    const ghost = this.game.ghosts[this.ghostIndex];
+    const ghost = o.ghost || this.game.ghosts[this.ghostIndex];
     const base = menace ? '#dc2626' : (ghost ? ghost.color : '#ec4899');
     const P = { hi: GrandPrixRun.shade(base, 0.6), lit: GrandPrixRun.shade(base, 0.22), mid: base, lo: GrandPrixRun.shade(base, -0.32), dark: GrandPrixRun.shade(base, -0.62) };
     const spin = o.wheelSpin || 0;
@@ -9615,7 +9787,7 @@ class GrandPrixRun {
       ctx.save();
       ctx.translate(0, -8);
       ctx.scale(1.6, 1.6);
-      this.game.drawGhostBody(ctx, g, 0, { x: o.lean * 0.8, y: 0 }, this.spinTimer > 0 || (this.menaceDist - this.playerDist) < 0 && (this.menaceDist - this.playerDist) > -140);
+      this.game.drawGhostBody(ctx, g, 0, { x: o.lean * 0.8, y: 0 }, !!o.scared || !!o.spin);
       ctx.restore();
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(-14, -28, 28, 5);
@@ -9676,7 +9848,7 @@ class GrandPrixRun {
     ctx.font = '900 11px system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(menace ? '00' : '01', 0, 29);
+    ctx.fillText(o.plate || (menace ? '00' : '01'), 0, 29);
     // Tail lights
     ctx.fillStyle = o.braking ? '#ff3344' : '#991b1b';
     ctx.beginPath(); ctx.arc(-36, 28, 3.5, 0, Math.PI * 2); ctx.arc(36, 28, 3.5, 0, Math.PI * 2); ctx.fill();
@@ -9720,19 +9892,19 @@ class GrandPrixRun {
     // Drift sparks off the rear tyres
     for (const sp of fx.sparks) {
       ctx.fillStyle = sp.color;
-      ctx.shadowColor = sp.color;
-      ctx.shadowBlur = 8;
+      ctx.globalAlpha = 0.35;
+      ctx.beginPath(); ctx.arc(sp.x, sp.y, 6, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 1;
       ctx.beginPath(); ctx.arc(sp.x, sp.y, 3, 0, Math.PI * 2); ctx.fill();
-      ctx.shadowBlur = 0;
     }
     ctx.restore();
   }
 
-  // Screen-space feedback and HUD: speed lines, flashes, pops, confetti, plaque, tracker, mirror
   drawScreenFx(ctx, time) {
     const W = this.W, H = this.H, midX = W / 2, hy = this.horizonY;
-    const fast = this.boostTimer > 0 || this.rushTimer > 0;
-    if (fast || this.speed > 330) {
+    const p = this.player;
+    const fast = p.boost > 0;
+    if (fast || p.v > this.topSpeed * 1.05) {
       ctx.save();
       ctx.strokeStyle = fast ? 'rgba(255, 255, 255, 0.55)' : 'rgba(255, 255, 255, 0.25)';
       ctx.lineWidth = 2;
@@ -9751,12 +9923,29 @@ class GrandPrixRun {
       ctx.fillStyle = `rgba(255,255,255,${Math.min(0.6, this.whiteFlash)})`;
       ctx.fillRect(0, 0, W, H);
     }
-    if (this.spinTimer > 0) {
+    if (p.spin > 0) {
       const vg = ctx.createRadialGradient(midX, H / 2, H * 0.3, midX, H / 2, H * 0.8);
       vg.addColorStop(0, 'rgba(255, 51, 68, 0)');
       vg.addColorStop(1, 'rgba(255, 51, 68, 0.5)');
       ctx.fillStyle = vg;
       ctx.fillRect(0, 0, W, H);
+    }
+    if (p.offroad && this.phase === 'run') {
+      ctx.fillStyle = 'rgba(201, 178, 122, 0.18)';
+      ctx.fillRect(0, hy, W, H - hy);
+    }
+    // Drift charge meter under the kart while sliding
+    if (p.drifting && this.playerScreen) {
+      const r = this.playerScreen, mw = 70, mx = r.x - mw / 2, my = r.y + 58;
+      ctx.save();
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.75)';
+      ctx.fillRect(mx - 2, my - 2, mw + 4, 10);
+      const frac = Math.min(1, p.driftT / this.driftStage2);
+      ctx.fillStyle = p.driftStage >= 2 ? '#f97316' : p.driftStage >= 1 ? '#38bdf8' : '#cbd5e1';
+      ctx.fillRect(mx, my, mw * frac, 6);
+      ctx.fillStyle = 'rgba(255,255,255,0.6)';
+      ctx.fillRect(mx + mw * (this.driftStage1 / this.driftStage2) - 1, my - 2, 2, 10);
+      ctx.restore();
     }
     // Confetti (screen space)
     for (const c of this.confetti) {
@@ -9772,16 +9961,16 @@ class GrandPrixRun {
     ctx.font = '900 15px system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    for (const p of this.pops) {
-      ctx.globalAlpha = 1 - p.t / 0.8;
+    for (const pop of this.pops) {
+      ctx.globalAlpha = 1 - pop.t / 0.8;
       ctx.lineWidth = 4;
       ctx.strokeStyle = 'rgba(8, 9, 20, 0.8)';
-      ctx.strokeText(p.text, p.x, p.y - p.t * 50);
+      ctx.strokeText(pop.text, pop.x, pop.y - pop.t * 50);
       ctx.fillStyle = '#fde047';
-      ctx.fillText(p.text, p.x, p.y - p.t * 50);
+      ctx.fillText(pop.text, pop.x, pop.y - pop.t * 50);
     }
     ctx.restore();
-    // Overtake / near-miss / hit flashes
+    // Overtake / item / hit flashes
     this.flashes.forEach((f, i) => {
       const k = f.t / f.dur;
       const scale = 1 + Math.max(0, 0.25 - k) * 2.4;
@@ -9802,63 +9991,93 @@ class GrandPrixRun {
       ctx.restore();
     });
 
-    // --- Position plaque with the live gap ---
-    const rel = this.menaceDist - this.playerDist;
-    const isFirst = rel <= 0;
+    // --- Position plate: live 1st–4th, with the gap to the Menace ---
+    const pos = this.positions.indexOf(p) + 1;
+    const rel = this.menace.prog - p.prog;
+    const aheadOfMenace = rel <= 0;
     ctx.save();
     ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
     ctx.beginPath();
     ctx.roundRect ? ctx.roundRect(12, 48, 96, 56, 8) : ctx.rect(12, 48, 96, 56);
     ctx.fill();
-    ctx.strokeStyle = isFirst ? '#ffd32a' : '#94a3b8';
+    ctx.strokeStyle = pos === 1 ? '#ffd32a' : aheadOfMenace ? '#a3e635' : '#94a3b8';
     ctx.lineWidth = 2.5;
     ctx.stroke();
     ctx.font = '900 30px system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillStyle = isFirst ? '#fde047' : '#cbd5e1';
-    ctx.shadowColor = isFirst ? '#fde047' : '#000000';
-    ctx.shadowBlur = isFirst ? 12 : 0;
-    ctx.fillText(isFirst ? '1st' : '2nd', 60, 70);
+    ctx.fillStyle = pos === 1 ? '#fde047' : '#cbd5e1';
+    ctx.shadowColor = pos === 1 ? '#fde047' : '#000000';
+    ctx.shadowBlur = pos === 1 ? 12 : 0;
+    ctx.fillText(['1st', '2nd', '3rd', '4th'][pos - 1] || '4th', 60, 70);
     ctx.shadowBlur = 0;
     ctx.font = '800 10px system-ui, sans-serif';
-    ctx.fillStyle = isFirst ? '#a3e635' : '#ff3344';
-    ctx.fillText(isFirst ? `LEAD +${Math.round(-rel / 10)}m` : `BEHIND ${Math.round(rel / 10)}m`, 60, 92);
+    ctx.fillStyle = aheadOfMenace ? '#a3e635' : '#ff3344';
+    ctx.fillText(aheadOfMenace ? `MENACE −${Math.round(-rel / 10)}m` : `MENACE +${Math.round(rel / 10)}m`, 60, 92);
     ctx.restore();
 
-    // --- Lap tracker: a loop-shaped map with both karts on it ---
+    // --- Item slot ---
     ctx.save();
-    const mapX = midX + 36, mapY = 72, mrx = 56, mry = 16;
-    ctx.strokeStyle = 'rgba(15, 23, 42, 0.8)';
-    ctx.lineWidth = 8;
-    ctx.beginPath(); ctx.ellipse(mapX, mapY, mrx, mry, 0, 0, Math.PI * 2); ctx.stroke();
-    ctx.strokeStyle = '#64748b';
-    ctx.lineWidth = 4;
+    const ix = 120, iy = 48, isz = 44;
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+    ctx.beginPath(); ctx.roundRect ? ctx.roundRect(ix, iy, isz, isz, 8) : ctx.rect(ix, iy, isz, isz); ctx.fill();
+    ctx.strokeStyle = p.item && p.roulette <= 0 ? '#fde047' : '#475569';
+    ctx.lineWidth = 2;
     ctx.stroke();
+    let icon = p.item;
+    if (p.roulette > 0) icon = ['boost', 'bomb', 'shield'][Math.floor(time * 12) % 3];
+    this.drawItemIcon(ctx, icon, ix + isz / 2, iy + isz / 2, p.roulette > 0 ? 0.8 : 1);
+    ctx.font = '800 8px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillText(p.item && p.roulette <= 0 ? 'DOWN: USE' : 'ITEM', ix + isz / 2, iy + isz + 2);
+    ctx.restore();
+
+    // --- Track map: the real circuit shape with all four karts on it ---
+    ctx.save();
+    const mapW = 96, mapH = 60, mapX = midX + 4, mapY = 50;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (let i = 0; i < this.path.length; i += 8) { const q = this.path[i]; minX = Math.min(minX, q.x); maxX = Math.max(maxX, q.x); minY = Math.min(minY, q.y); maxY = Math.max(maxY, q.y); }
+    const msc = Math.min(mapW / (maxX - minX), mapH / (maxY - minY));
+    const mp = (x, y) => [mapX + (x - minX) * msc + (mapW - (maxX - minX) * msc) / 2, mapY + (y - minY) * msc + (mapH - (maxY - minY) * msc) / 2];
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.6)';
+    ctx.beginPath(); ctx.roundRect ? ctx.roundRect(mapX - 8, mapY - 8, mapW + 16, mapH + 16, 8) : ctx.rect(mapX - 8, mapY - 8, mapW + 16, mapH + 16); ctx.fill();
+    ctx.strokeStyle = '#0f172a';
+    ctx.lineWidth = 6;
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    for (let i = 0; i <= this.path.length; i += 6) { const q = this.path[i % this.path.length]; const m = mp(q.x, q.y); if (i === 0) ctx.moveTo(m[0], m[1]); else ctx.lineTo(m[0], m[1]); }
+    ctx.closePath(); ctx.stroke();
+    ctx.strokeStyle = '#94a3b8';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    const ln = mp(this.path[0].x, this.path[0].y);
     ctx.fillStyle = '#ffffff';
-    ctx.fillRect(mapX + mrx - 3, mapY - 6, 5, 12);
-    const dot = (prog, color, r) => {
-      const a = Math.PI * 2 * prog;
-      ctx.fillStyle = color;
-      ctx.beginPath(); ctx.arc(mapX + Math.cos(a) * mrx, mapY + Math.sin(a) * mry, r, 0, Math.PI * 2); ctx.fill();
-    };
-    const g = this.game.ghosts[this.ghostIndex];
-    dot(this.menaceProgress(), '#fbc531', 6);
-    dot(this.progress(), g ? g.color : '#ec4899', 6);
+    ctx.fillRect(ln[0] - 2, ln[1] - 4, 4, 8);
+    for (const k of this.karts.slice().reverse()) {
+      const m = mp(k.x, k.y);
+      ctx.fillStyle = k === this.menace ? '#fbc531' : (k.ghost ? k.ghost.color : '#ec4899');
+      ctx.strokeStyle = k === this.player ? '#ffffff' : 'rgba(15,23,42,0.8)';
+      ctx.lineWidth = k === this.player ? 2 : 1;
+      ctx.beginPath(); ctx.arc(m[0], m[1], k === this.player || k === this.menace ? 5 : 3.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    }
     ctx.restore();
 
     // --- Rear-view mirror when he is on her tail ---
-    if (rel < -15) {
+    if (rel < -15 && rel > -260) {
       ctx.save();
-      const mw = 92, mh = 40, mx = W - mw - 12, my = 112;
+      const mw = 92, mh = 40, mx = W - mw - 12, my = 118;
       ctx.fillStyle = '#0f172a';
       ctx.beginPath(); ctx.roundRect ? ctx.roundRect(mx - 3, my - 3, mw + 6, mh + 6, 8) : ctx.rect(mx - 3, my - 3, mw + 6, mh + 6); ctx.fill();
       ctx.beginPath(); ctx.rect(mx, my, mw, mh); ctx.clip();
       ctx.fillStyle = '#7fd0ff'; ctx.fillRect(mx, my, mw, mh * 0.45);
-      ctx.fillStyle = '#4b5563'; ctx.fillRect(mx, my + mh * 0.45, mw, mh);
-      const close = Math.min(1, -rel / 140);
+      ctx.fillStyle = '#5fb64c'; ctx.fillRect(mx, my + mh * 0.45, mw, mh);
+      ctx.fillStyle = '#6b6e78'; ctx.beginPath(); ctx.moveTo(mx + mw * 0.3, my + mh); ctx.lineTo(mx + mw * 0.7, my + mh); ctx.lineTo(mx + mw * 0.56, my + mh * 0.45); ctx.lineTo(mx + mw * 0.44, my + mh * 0.45); ctx.closePath(); ctx.fill();
+      const close = Math.min(1, -rel / 200);
       const rr = 8 + close * 14;
-      ctx.translate(mx + mw / 2 + (this.menaceX - this.playerX) * -30, my + mh * 0.62);
+      const latDiff = this.lateralAt(this.menace.x, this.menace.y, this.menace.s) - this.lateralAt(p.x, p.y, p.s);
+      ctx.translate(mx + mw / 2 - latDiff * 0.3, my + mh * 0.62);
       ctx.fillStyle = '#fbc531';
       ctx.shadowColor = '#ff3344';
       ctx.shadowBlur = 10;
@@ -9879,32 +10098,77 @@ class GrandPrixRun {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = fast ? '#38bdf8' : '#f8fafc';
-    const kmh = Math.floor(this.speed * 0.7);
-    ctx.fillText(this.boostTimer > 0 ? `${kmh} BOOST!` : this.rushTimer > 0 ? `${kmh} RUSH!` : `${kmh} km/h`, W - 71, H - 31);
+    const kmh = Math.floor(p.v * 0.8);
+    ctx.fillText(fast ? `${kmh} BOOST!` : p.drifting ? `${kmh} DRIFT` : `${kmh} km/h`, W - 71, H - 31);
     ctx.restore();
 
-    // --- Pellet cube chain and ram pips ---
+    // --- Lap / time, pellet count and ram pips ---
     ctx.save();
     ctx.font = '800 11px system-ui, sans-serif';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'top';
     ctx.fillStyle = 'rgba(15, 23, 42, 0.7)';
     ctx.fillRect(W - 124, 50, 112, 18);
-    ctx.fillStyle = '#fde047';
-    ctx.fillText(`RUSH ${this.chain}/5  ·  ${this.collected}`, W - 18, 53);
+    ctx.fillStyle = '#f8fafc';
+    ctx.fillText(`LAP 1/1  ${this.elapsed.toFixed(1)}s`, W - 18, 53);
     ctx.fillStyle = 'rgba(15, 23, 42, 0.7)';
     ctx.fillRect(W - 124, 72, 112, 18);
+    ctx.fillStyle = '#fde047';
+    ctx.fillText(`PELLETS ${this.collected}`, W - 18, 75);
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.7)';
+    ctx.fillRect(W - 124, 94, 112, 18);
     ctx.fillStyle = '#f8fafc';
-    ctx.fillText('RAMS', W - 54, 75);
+    ctx.fillText('RAMS', W - 54, 97);
     for (let i = 0; i < 3; i++) {
-      ctx.fillStyle = i < this.rams ? '#ff3344' : 'rgba(255,255,255,0.35)';
-      ctx.beginPath(); ctx.arc(W - 42 + i * 12, 81, 4, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = i < Math.min(3, this.rams) ? '#ff3344' : 'rgba(255,255,255,0.35)';
+      ctx.beginPath(); ctx.arc(W - 42 + i * 12, 103, 4, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+
+    // Control hint for the first seconds
+    if (this.elapsed < 4 && this.phase === 'run') {
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, 4 - this.elapsed);
+      ctx.font = '800 11px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = 'rgba(8, 9, 20, 0.85)';
+      ctx.strokeText('HOLD JUMP WHILE TURNING TO DRIFT · RELEASE TO BOOST', midX, 128);
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillText('HOLD JUMP WHILE TURNING TO DRIFT · RELEASE TO BOOST', midX, 128);
+      ctx.restore();
+    }
+  }
+
+  drawItemIcon(ctx, item, x, y, alpha) {
+    if (!item || item === 'rolling') return;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(x, y);
+    if (item === 'boost') {
+      ctx.fillStyle = '#38bdf8';
+      ctx.shadowColor = '#38bdf8'; ctx.shadowBlur = 8;
+      for (let i = 0; i < 2; i++) { ctx.beginPath(); ctx.moveTo(-10 + i * 10, -12); ctx.lineTo(0 + i * 10, 0); ctx.lineTo(-10 + i * 10, 12); ctx.lineTo(-4 + i * 10, 12); ctx.lineTo(6 + i * 10, 0); ctx.lineTo(-4 + i * 10, -12); ctx.closePath(); ctx.fill(); }
+    } else if (item === 'bomb') {
+      ctx.fillStyle = '#0f172a';
+      ctx.beginPath(); ctx.arc(0, 2, 12, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#ffd32a';
+      ctx.fillRect(-12, 0, 24, 4);
+      ctx.fillStyle = '#f97316';
+      ctx.shadowColor = '#f97316'; ctx.shadowBlur = 8;
+      ctx.beginPath(); ctx.arc(7, -11, 3.5, 0, Math.PI * 2); ctx.fill();
+    } else if (item === 'shield') {
+      const g = ctx.createRadialGradient(0, 0, 3, 0, 0, 15);
+      g.addColorStop(0, 'rgba(221, 214, 254, 0.3)'); g.addColorStop(0.8, 'rgba(167, 139, 250, 0.55)'); g.addColorStop(1, 'rgba(221, 214, 254, 1)');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(0, 0, 15, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#ddd6fe'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(-4, -4, 6, Math.PI, Math.PI * 1.6); ctx.stroke();
     }
     ctx.restore();
   }
 }
-
-// 4. Ghost Class with Personality AI
 class Ghost {
   constructor(id, name, color, tileX, tileY, houseDelay, baseSpeed, scatterCorner) {
     this.id = id;
