@@ -850,6 +850,9 @@ class SoundEngine {
     this.gestureSeen = false;   // Music may only start after the first user gesture
     this.onGesture = null;      // Callback wired by the Game (starts the soundtrack)
     this.music = null;          // MusicEngine, attached by the Game
+    this.ambient = null;        // Running ambient bed (GLOOM's hum), see startAmbient
+    this.ambientWanted = null;  // Which bed a live flip wants, so unmute can bring it back
+    this.ambientTensionValue = 0;
   }
 
   init() {
@@ -872,6 +875,9 @@ class SoundEngine {
     this.muted = !this.muted;
     localStorage.setItem('rm_muted', this.muted);
     if (this.music) this.music.apply();
+    // The GLOOM ambient hum follows the mute: silenced now, back when unmuted if a flip still wants it
+    if (this.muted) this.stopAmbient(true);
+    else if (this.ambientWanted) { this.startAmbient(this.ambientWanted); this.ambientTension(this.ambientTensionValue || 0); }
     return this.muted;
   }
 
@@ -1268,62 +1274,267 @@ class SoundEngine {
     osc.stop(now + 0.025);
   }
 
-  // GLOOM: plasma blaster shot — punchy square attack + noise crack
+  // A one-shot oscillator voice with a pitch glide, an optional filter and an exponential decay (shared by the
+  // Round 9 GLOOM effects). Returns the gain node so callers can layer on it.
+  zap(t, { type = 'sawtooth', from = 440, to = from, glide = 0.1, gain = 0.1, attack = 0.003, decay = 0.1, filter = null, freq = 1000, q = 1, detune = 0 }) {
+    const osc = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(from, t);
+    if (to !== from) osc.frequency.exponentialRampToValueAtTime(Math.max(20, to), t + glide);
+    if (detune) osc.detune.setValueAtTime(detune, t);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(gain, t + attack);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + decay);
+    let node = osc;
+    if (filter) {
+      const f = this.ctx.createBiquadFilter();
+      f.type = filter;
+      f.frequency.setValueAtTime(freq, t);
+      f.Q.setValueAtTime(q, t);
+      osc.connect(f);
+      node = f;
+    }
+    node.connect(g);
+    g.connect(this.ctx.destination);
+    osc.start(t);
+    osc.stop(t + decay + 0.03);
+    return g;
+  }
+
+  // GLOOM: blaster fire — a punchy zap with body: a noise crack, a sawtooth sweep through a closing filter,
+  // a square "zap" tail and a sine sub-thump underneath
   playBlaster() {
     if (this.muted || !this.ctx) return;
     this.init();
     const now = this.ctx.currentTime;
-    this.noiseBurst(now, 0.08, 0.13, 'highpass', 1800);
-    const osc = this.ctx.createOscillator();
-    const gain = this.ctx.createGain();
-    osc.type = 'sawtooth';
-    osc.frequency.setValueAtTime(520, now);
-    osc.frequency.exponentialRampToValueAtTime(110, now + 0.09);
-    gain.gain.setValueAtTime(0.08, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
-    osc.connect(gain);
-    gain.connect(this.ctx.destination);
-    osc.start(now);
-    osc.stop(now + 0.11);
+    this.noiseBurst(now, 0.06, 0.12, 'highpass', 2200);
+    this.zap(now, { type: 'sawtooth', from: 980, to: 150, glide: 0.11, gain: 0.09, decay: 0.13, filter: 'lowpass', freq: 2600, q: 2 });
+    this.zap(now + 0.01, { type: 'square', from: 1900, to: 420, glide: 0.05, gain: 0.035, decay: 0.06 });
+    this.zap(now, { type: 'sine', from: 130, to: 48, glide: 0.09, gain: 0.16, decay: 0.12 });
   }
 
-  // GLOOM: hit on Menace — metallic impact + thud
+  // GLOOM: hit / stun confirmation on the Menace — a bright metallic clang (two inharmonic partials) over a thud
   playGloomHit() {
     if (this.muted || !this.ctx) return;
     this.init();
     const now = this.ctx.currentTime;
-    this.noiseBurst(now, 0.1, 0.15, 'lowpass', 1100);
-    const osc = this.ctx.createOscillator();
-    const gain = this.ctx.createGain();
-    osc.type = 'triangle';
-    osc.frequency.setValueAtTime(240, now);
-    osc.frequency.exponentialRampToValueAtTime(65, now + 0.11);
-    gain.gain.setValueAtTime(0.12, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
-    osc.connect(gain);
-    gain.connect(this.ctx.destination);
-    osc.start(now);
-    osc.stop(now + 0.13);
+    this.noiseBurst(now, 0.09, 0.14, 'lowpass', 1200);
+    this.zap(now, { type: 'square', from: 640, to: 560, glide: 0.12, gain: 0.05, decay: 0.16, filter: 'bandpass', freq: 1800, q: 4 });
+    this.zap(now, { type: 'triangle', from: 1730, to: 1500, glide: 0.1, gain: 0.03, decay: 0.12 });
+    this.zap(now, { type: 'triangle', from: 220, to: 60, glide: 0.1, gain: 0.13, decay: 0.13 });
   }
 
-  // GLOOM: pellet reload chime
+  // GLOOM: the Menace's pained growl when a pellet lands — a rasping low voice with vibrato, a vowel-like
+  // bandpass sweep ("owww") and a pitch drop at the tail
+  playMenaceGrowl(low) {
+    if (this.muted || !this.ctx) return;
+    this.init();
+    const now = this.ctx.currentTime + (low ? 0 : 0.08);
+    const ctx = this.ctx;
+    const base = low ? 72 : 98;
+    const dur = low ? 0.7 : 0.45;
+    const vib = ctx.createOscillator();
+    const vibGain = ctx.createGain();
+    vib.type = 'sine';
+    vib.frequency.setValueAtTime(low ? 4.5 : 6.5, now);
+    vibGain.gain.setValueAtTime(7, now);
+    vib.connect(vibGain);
+    const formant = ctx.createBiquadFilter();
+    formant.type = 'bandpass';
+    formant.Q.setValueAtTime(2.5, now);
+    formant.frequency.setValueAtTime(380, now);
+    formant.frequency.linearRampToValueAtTime(low ? 620 : 950, now + dur * 0.35);
+    formant.frequency.linearRampToValueAtTime(300, now + dur);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.linearRampToValueAtTime(0.14, now + 0.03);
+    g.gain.setValueAtTime(0.14, now + dur * 0.55);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+    formant.connect(g);
+    g.connect(ctx.destination);
+    [[1, 'sawtooth', 1], [2.01, 'square', 0.35]].forEach(([ratio, type, amp]) => {
+      const osc = ctx.createOscillator();
+      const og = ctx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(base * ratio, now);
+      osc.frequency.setValueAtTime(base * ratio, now + dur * 0.6);
+      osc.frequency.exponentialRampToValueAtTime(base * ratio * 0.7, now + dur);
+      vibGain.connect(osc.frequency);
+      og.gain.setValueAtTime(amp, now);
+      osc.connect(og);
+      og.connect(formant);
+      osc.start(now);
+      osc.stop(now + dur + 0.05);
+    });
+    vib.start(now);
+    vib.stop(now + dur + 0.05);
+  }
+
+  // GLOOM: door slide — a pneumatic whoosh (band-passed noise sweeping up for open, down for close) that ends
+  // in a mechanical clunk
+  playDoorSlide(opening) {
+    if (this.muted || !this.ctx) return;
+    this.init();
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+    const len = Math.floor(ctx.sampleRate * 0.4);
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const f = ctx.createBiquadFilter();
+    f.type = 'bandpass';
+    f.Q.setValueAtTime(1.2, now);
+    f.frequency.setValueAtTime(opening ? 500 : 1500, now);
+    f.frequency.exponentialRampToValueAtTime(opening ? 1600 : 450, now + 0.34);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.linearRampToValueAtTime(0.07, now + 0.05);
+    g.gain.setValueAtTime(0.07, now + 0.26);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + 0.38);
+    src.connect(f);
+    f.connect(g);
+    g.connect(ctx.destination);
+    src.start(now);
+    src.stop(now + 0.4);
+    // The clunk as the panel seats
+    const tc = now + 0.33;
+    this.noiseBurst(tc, 0.05, 0.1, 'lowpass', 600);
+    this.zap(tc, { type: 'sine', from: 120, to: 55, glide: 0.08, gain: 0.13, decay: 0.11 });
+    this.zap(tc, { type: 'square', from: 310, to: 290, glide: 0.04, gain: 0.025, decay: 0.05, filter: 'bandpass', freq: 900, q: 3 });
+  }
+
+  // GLOOM: ammo / pellet pickup — a mechanical click, a rising chirp and a two-note chime
   playGloomReload() {
     if (this.muted || !this.ctx) return;
     this.init();
     const now = this.ctx.currentTime;
+    this.zap(now, { type: 'square', from: 1300, to: 1300, gain: 0.03, decay: 0.025 });
+    this.zap(now + 0.02, { type: 'triangle', from: 520, to: 1040, glide: 0.07, gain: 0.05, decay: 0.09 });
     [660, 990].forEach((freq, idx) => {
-      const t = now + idx * 0.04;
-      const osc = this.ctx.createOscillator();
-      const gain = this.ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(freq, t);
-      gain.gain.setValueAtTime(0.06, t);
-      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
-      osc.connect(gain);
-      gain.connect(this.ctx.destination);
-      osc.start(t);
-      osc.stop(t + 0.09);
+      const t = now + 0.06 + idx * 0.05;
+      this.zap(t, { type: 'sine', from: freq, to: freq, gain: 0.06, decay: 0.12 });
     });
+  }
+
+  // GLOOM: teleporter arrival shimmer — a rising cluster of sines over an upward noise sweep
+  playTeleportShimmer() {
+    if (this.muted || !this.ctx) return;
+    this.init();
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+    [330, 495, 660, 880, 1320, 1760].forEach((freq, idx) => {
+      const t = now + idx * 0.07;
+      this.zap(t, { type: 'sine', from: freq * 0.9, to: freq, glide: 0.08, gain: 0.045, attack: 0.02, decay: 0.55 - idx * 0.04 });
+    });
+    const len = Math.floor(ctx.sampleRate * 0.55);
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const f = ctx.createBiquadFilter();
+    f.type = 'bandpass';
+    f.Q.setValueAtTime(2, now);
+    f.frequency.setValueAtTime(700, now);
+    f.frequency.exponentialRampToValueAtTime(5200, now + 0.5);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.linearRampToValueAtTime(0.05, now + 0.1);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + 0.55);
+    src.connect(f);
+    f.connect(g);
+    g.connect(ctx.destination);
+    src.start(now);
+    src.stop(now + 0.56);
+  }
+
+  // GLOOM: the low ambient hum of the base — a detuned sub-saw pair through a slowly breathing lowpass with a
+  // whisper of air; it runs for the whole flip and rises a little as the Menace closes (tension 0..1).
+  // Mute stops it; unmute brings it back while a flip still wants it.
+  startAmbient(kind) {
+    this.ambientWanted = kind || 'gloom';
+    this.ambientTensionValue = 0;
+    if (this.muted || !this.ctx || this.ambient) return;
+    this.init();
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+    const master = ctx.createGain();
+    master.gain.setValueAtTime(0.0001, now);
+    master.gain.linearRampToValueAtTime(1, now + 1.2);
+    master.connect(ctx.destination);
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(170, now);
+    lp.Q.setValueAtTime(3, now);
+    const lfo = ctx.createOscillator();
+    const lfoGain = ctx.createGain();
+    lfo.type = 'sine';
+    lfo.frequency.setValueAtTime(0.13, now);
+    lfoGain.gain.setValueAtTime(45, now);
+    lfo.connect(lfoGain);
+    lfoGain.connect(lp.frequency);
+    const hum = ctx.createGain();
+    hum.gain.setValueAtTime(0.028, now);
+    lp.connect(hum);
+    hum.connect(master);
+    const oscs = [];
+    [[55, 'sawtooth', -5], [55, 'sawtooth', 6], [110, 'sine', 0]].forEach(([f, type, det]) => {
+      const o = ctx.createOscillator();
+      o.type = type;
+      o.frequency.setValueAtTime(f, now);
+      o.detune.setValueAtTime(det, now);
+      o.connect(lp);
+      o.start(now);
+      oscs.push(o);
+    });
+    // Air: a quiet band of noise that the tension opens up
+    const len = Math.floor(ctx.sampleRate * 2);
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+    const air = ctx.createBufferSource();
+    air.buffer = buf;
+    air.loop = true;
+    const airF = ctx.createBiquadFilter();
+    airF.type = 'bandpass';
+    airF.frequency.setValueAtTime(420, now);
+    airF.Q.setValueAtTime(0.8, now);
+    const airG = ctx.createGain();
+    airG.gain.setValueAtTime(0.006, now);
+    air.connect(airF);
+    airF.connect(airG);
+    airG.connect(master);
+    air.start(now);
+    oscs.push(lfo, air);
+    lfo.start(now);
+    this.ambient = { master, lp, hum, airG, airF, oscs };
+  }
+
+  ambientTension(t) {
+    this.ambientTensionValue = Math.max(0, Math.min(1, t || 0));
+    if (!this.ambient || !this.ctx) return;
+    const now = this.ctx.currentTime;
+    const a = this.ambient;
+    a.lp.frequency.setTargetAtTime(170 + 260 * this.ambientTensionValue, now, 0.4);
+    a.hum.gain.setTargetAtTime(0.028 + 0.03 * this.ambientTensionValue, now, 0.4);
+    a.airG.gain.setTargetAtTime(0.006 + 0.016 * this.ambientTensionValue, now, 0.4);
+    a.airF.frequency.setTargetAtTime(420 + 900 * this.ambientTensionValue, now, 0.4);
+  }
+
+  stopAmbient(keepWanted) {
+    if (!keepWanted) this.ambientWanted = null;
+    if (!this.ambient || !this.ctx) { this.ambient = null; return; }
+    const a = this.ambient;
+    const now = this.ctx.currentTime;
+    a.master.gain.cancelScheduledValues(now);
+    a.master.gain.setValueAtTime(a.master.gain.value, now);
+    a.master.gain.linearRampToValueAtTime(0.0001, now + 0.25);
+    const oscs = a.oscs;
+    setTimeout(() => { oscs.forEach(o => { try { o.stop(); } catch (e) {} }); try { a.master.disconnect(); } catch (e) {} }, 400);
+    this.ambient = null;
   }
 
   // GLOOM: Menace grab stinger — heavy descending buzz + duck
@@ -1423,18 +1634,43 @@ const KINGDOM_LEAD = [
   15, null, 7, null, 10, null, 3, null, 7, null, 10, null, 15, null, null, null
 ];
 
-// GLOOM riff: a 4-bar low sawtooth line in E minor with the Phrygian F, one entry per sixteenth
-// (semitones from A4, null = rest; the voice drops it an octave). Original composition.
-const GLOOM_RIFF = [
-  // Bar 1 (Em): the march
-  -5, -5, null, -5, -6, null, -5, null, -2, null, -5, -5, null, -7, null, -6,
-  // Bar 2 (Em): reach up to the fifth
-  -5, -5, null, -5, -6, null, -5, null, 2, null, -5, -5, null, 1, null, -2,
-  // Bar 3 (F): the half-step above
-  -4, -4, null, -4, -2, null, -4, null, 0, null, -4, -4, null, -5, null, -4,
-  // Bar 4 (Em): the fall back down
-  -5, -5, null, -5, -6, null, -5, null, 2, null, 1, null, 0, null, -2, -6
+// GLOOM chug (Round 9): an 8-bar palm-muted gallop riff in E minor with the Phrygian F and a tritone stab, one
+// entry per sixteenth (semitones from A4, null = rest; the chug voice drops it two octaves to E2). Original
+// composition — it evokes the genre's driving minor-key chug, it reproduces nothing.
+const GLOOM_CHUG = [
+  // Bar 1 (Em): the gallop
+  -5, -5, null, -5, -5, null, -5, null, -5, -5, null, -5, -4, null, -5, null,
+  // Bar 2 (Em): a reach to the minor third, the tritone stab, the fourth
+  -5, -5, null, -5, -5, null, -2, null, -5, -5, null, -5, 1, null, 0, null,
+  // Bar 3 (F): the half-step above the root grinds
+  -4, -4, null, -4, -4, null, -4, null, -4, -4, null, -4, -2, null, -4, null,
+  // Bar 4 (Em): dip below the root, climb to the tritone
+  -5, -5, null, -5, -5, null, -5, null, -7, null, -5, null, -2, null, 1, null,
+  // Bar 5 (Em): the gallop again
+  -5, -5, null, -5, -5, null, -5, null, -5, -5, null, -5, -4, null, -5, null,
+  // Bar 6 (Em): up to the fifth and down through the fourth
+  -5, -5, null, -5, -5, null, 2, null, -5, -5, null, -5, 0, null, -2, null,
+  // Bar 7 (F): F to G, the tritone and the fourth
+  -4, -4, null, -4, -4, null, -4, null, -2, -2, null, -2, 1, null, 0, null,
+  // Bar 8 (Em): the turnaround — D, the tritone, the fifth, back to E
+  -5, -5, null, -5, -5, null, -5, null, -7, -7, null, -7, 1, null, 2, 2
 ];
+
+// GLOOM lead (Round 9): a sparse, long-note line two octaves above the chug that holds the tension — mostly
+// rests, landing on the minor third, the seventh, the Phrygian second. One entry per sixteenth over 8 bars.
+const GLOOM_LEAD = (() => {
+  const L = new Array(128).fill(null);
+  const put = (bar, step, semi) => { L[bar * 16 + step] = semi; };
+  put(0, 8, 2);                 // B4
+  put(1, 0, 5); put(1, 8, 3);   // D5, C5
+  put(2, 0, 2);                 // B4 over the F
+  put(3, 8, -2); put(3, 12, -3); // G4, F#4 — the slide down
+  put(4, 0, -5);                // E4, long
+  put(5, 8, 2);                 // B4
+  put(6, 0, 3); put(6, 8, 1);   // C5, Bb4
+  put(7, 0, 2); put(7, 8, -4); put(7, 12, -5);   // B4, F4 (Phrygian), E4
+  return L;
+})();
 
 // Phantom Grand Prix lead: a 4-bar square-wave fanfare in C major over C · Am · F · G, per sixteenth. Original.
 const PRIX_LEAD = [
@@ -1501,19 +1737,24 @@ const MUSIC_MODES = {
     hat: { steps: [4, 12], gain: 0.028, dur: 0.035 },
     bells: null
   },
+  // GLOOM (Round 9): a proper 8-bar loop — the palm-muted chug riff (short detuned saw bursts through a snapping
+  // lowpass, two octaves down), a driving kick / snare / hat pattern with an open hat and a bar-8 snare fill, a
+  // sparse long-note lead and a dark fifth pad under it all. 128 BPM, E minor with the Phrygian F.
   gloom: {
-    bpm: 126,
-    bars: 4,
-    // Em · Em · F · Em — the Phrygian half-step, the corridor's dread
-    chords: [[-5, -2, 2], [-5, -2, 2], [-4, 0, 3], [-5, -2, 2]],
-    // Grinding low octave bass, sawtooth through a closed filter
-    bass: { steps: 'eighths', octaveLow: -36, octaveHigh: -24, type: 'sawtooth', gain: 0.11, decay: 0.14, lp: 190 },
-    lead: { notes: GLOOM_RIFF, octave: -12, type: 'sawtooth', gain: 0.034, decay: 0.11, lp: 820 },
+    bpm: 128,
+    bars: 8,
+    // Em · Em · F · Em · Em · Em · F · Em
+    chords: [[-5, -2, 2], [-5, -2, 2], [-4, 0, 3], [-5, -2, 2], [-5, -2, 2], [-5, -2, 2], [-4, 0, 3], [-5, -2, 2]],
+    bass: null,
+    chug: { notes: GLOOM_CHUG, octave: -24, gain: 0.1, decay: 0.1, lp: 560 },
+    lead: { notes: GLOOM_LEAD, octave: 0, type: 'square', gain: 0.02, decay: 0.6, lp: 1500 },
     arp: null,
-    pad: { octave: -24, type: 'sawtooth', gain: 0.013, lp: 320, detune: 9 },
-    kick: { steps: [0, 4, 8, 12, 14], gain: 0.22, decay: 0.26, freq: 140 },
-    snare: { steps: [4, 12], gain: 0.05, dur: 0.1, filter: 'bandpass', freq: 1700 },
-    hat: { steps: [2, 6, 10, 14], gain: 0.016, dur: 0.03 },
+    pad: { octave: -24, type: 'sawtooth', gain: 0.011, lp: 300, detune: 9 },
+    kick: { steps: [0, 4, 6, 8, 12, 14], gain: 0.24, decay: 0.24, freq: 150 },
+    snare: { steps: [4, 12], gain: 0.07, dur: 0.12, filter: 'bandpass', freq: 1900, body: true },
+    fill: { bar: 7, steps: [10, 11, 13, 14, 15], gain: 0.05, dur: 0.08, filter: 'bandpass', freq: 2100, body: true },
+    hat: { steps: [0, 2, 4, 6, 8, 10, 12, 14], gain: 0.014, dur: 0.028 },
+    hat2: { steps: [7, 15], gain: 0.012, dur: 0.11 },
     bells: null
   },
   grandprix: {
@@ -1658,9 +1899,22 @@ class MusicEngine {
       }
     }
 
+    if (s.chug) {
+      const n = s.chug.notes[step % s.chug.notes.length];
+      if (n !== null && n !== undefined) this.chug(NOTE(n + s.chug.octave), t, s.chug);
+    }
+
     if (s.lead) {
       const n = s.lead.notes[step % s.lead.notes.length];
       if (n !== null && n !== undefined) this.tone(NOTE(n + s.lead.octave), t, s.lead);
+    }
+
+    if (s.hat2 && s.hat2.steps.includes(i)) {
+      this.hat(t, s.hat2);
+    }
+
+    if (s.fill && bar === s.fill.bar && s.fill.steps.includes(i)) {
+      this.snare(t, s.fill);
     }
 
     if (s.arp && s.arp.mask[i]) {
@@ -1681,7 +1935,7 @@ class MusicEngine {
     }
 
     if (s.snare && s.snare.steps.includes(i)) {
-      this.hat(t, s.snare);
+      if (s.snare.body) this.snare(t, s.snare); else this.hat(t, s.snare);
     }
 
     if (s.bells && i === 0 && Math.random() < s.bells.chance) {
@@ -1737,6 +1991,66 @@ class MusicEngine {
         osc.stop(t + dur + 0.02);
       });
     });
+  }
+
+  // Palm-muted chug (GLOOM): two detuned sawtooths and a sub-square through a lowpass that snaps shut over the
+  // note, a pick click on the attack, and a fast envelope — the short "chunk" of a muted low string
+  chug(freq, t, v) {
+    const ctx = this.ctx;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.linearRampToValueAtTime(v.gain, t + 0.005);
+    gain.gain.setValueAtTime(v.gain, t + 0.03);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + v.decay);
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.Q.setValueAtTime(2.5, t);
+    filter.frequency.setValueAtTime(v.lp * 2.4, t);
+    filter.frequency.exponentialRampToValueAtTime(v.lp * 0.55, t + v.decay);
+    filter.connect(gain);
+    gain.connect(this.master);
+    [['sawtooth', 1, -7, 0.8], ['sawtooth', 1, 7, 0.8], ['square', 0.5, 0, 0.45]].forEach(([type, ratio, cents, amp]) => {
+      const osc = ctx.createOscillator();
+      const og = ctx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq * ratio, t);
+      osc.detune.setValueAtTime(cents, t);
+      og.gain.setValueAtTime(amp, t);
+      osc.connect(og);
+      og.connect(filter);
+      osc.start(t);
+      osc.stop(t + v.decay + 0.02);
+    });
+    // Pick click
+    const len = Math.floor(ctx.sampleRate * 0.012);
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const cg = ctx.createGain();
+    cg.gain.setValueAtTime(v.gain * 0.5, t);
+    src.connect(cg);
+    cg.connect(this.master);
+    src.start(t);
+    src.stop(t + 0.013);
+  }
+
+  // Snare with a body: band-passed noise over a short dropping triangle (GLOOM's backbeat and fills)
+  snare(t, v) {
+    this.hat(t, v);
+    const ctx = this.ctx;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(200, t);
+    osc.frequency.exponentialRampToValueAtTime(120, t + 0.07);
+    gain.gain.setValueAtTime(v.gain * 1.6, t);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.09);
+    osc.connect(gain);
+    gain.connect(this.master);
+    osc.start(t);
+    osc.stop(t + 0.1);
   }
 
   hat(t, v) {
@@ -2505,6 +2819,7 @@ class Game {
     const ghostIndex = run.ghostIndex;
 
     this.snapshotCanvas();
+    if (run.dispose) run.dispose();   // a module may hold audio (GLOOM's ambient bed)
     this.flip = null;
     this.flipRequestedKind = null;
     this.isFrightMode = false;
@@ -2530,6 +2845,7 @@ class Game {
 
   // Silent cleanup used by every screen change that leaves the flip behind
   abortFlip() {
+    if (this.flip && this.flip.dispose) this.flip.dispose();
     this.flip = null;
     this.flipRequestedKind = null;
     this.isFrightMode = false;
@@ -7069,6 +7385,14 @@ class GloomRun {
     this.depth = new Float32Array(this.RW);
     this.zbufDirty = true;
     this.grain = null;
+
+    // Round 9 sound: the base's ambient hum runs under the track for the whole flip (see dispose)
+    if (this.game.sound.startAmbient) this.game.sound.startAmbient('gloom');
+  }
+
+  // Called by the Game when the flip ends or is abandoned: stops the ambient bed
+  dispose() {
+    if (this.game.sound.stopAmbient) this.game.sound.stopAmbient();
   }
 
   // ===== Map (original 14x14 layout) =====
@@ -7425,7 +7749,7 @@ class GloomRun {
     if (this.cell(Math.floor(p.x), Math.floor(p.y)) === 'E') {
       this.outcome = 'survived';
       this.phase = 'survived';
-      this.game.sound.playGateBurst();
+      if (this.game.sound.playTeleportShimmer) this.game.sound.playTeleportShimmer(); else this.game.sound.playGateBurst();
     }
   }
 
@@ -7441,7 +7765,10 @@ class GloomRun {
       const before = d.open;
       if (d.open < d.target) d.open = Math.min(1, d.open + dt / 0.55);
       else if (d.open > d.target) d.open = Math.max(0, d.open - dt / 0.8);
-      if (before < 0.5 && d.open >= 0.5) { d.opened++; if (this.game.sound.playBonk) this.game.sound.playBonk(); }
+      // Round 9: the pneumatic slide-and-clunk as a panel starts to open, and a softer one as it closes
+      if (before <= 0 && d.open > 0 && this.game.sound.playDoorSlide) this.game.sound.playDoorSlide(true);
+      if (before >= 1 && d.open < 1 && this.game.sound.playDoorSlide) this.game.sound.playDoorSlide(false);
+      if (before < 0.5 && d.open >= 0.5) d.opened++;
     }
   }
 
@@ -7485,12 +7812,16 @@ class GloomRun {
     this.nerve = Math.max(0, Math.min(100, this.nerve));
     if (this.menaceDist < 2 && Math.random() < dt * 2) this.screenShake = Math.max(this.screenShake, 0.08);
 
+    // The ambient hum rises as he closes (Round 9 sound)
+    if (this.game.sound.ambientTension) this.game.sound.ambientTension(Math.max(0, Math.min(1, 1 - this.menaceDist / 8)));
+
     // His touch is the catch
     if (this.menaceDist < 0.55) {
       this.outcome = 'caught';
       this.phase = 'caught';
       this.redFlash = 1;
       if (this.game.sound.playGrabStinger) this.game.sound.playGrabStinger();
+      if (this.game.sound.playMenaceGrowl) this.game.sound.playMenaceGrowl(true);   // his low triumphant growl
     }
   }
 
@@ -7518,6 +7849,7 @@ class GloomRun {
         this.game.score += 50;
         this.game.updateHUD();
         if (this.game.sound.playGloomHit) this.game.sound.playGloomHit();
+        if (this.game.sound.playMenaceGrowl) this.game.sound.playMenaceGrowl(false);   // his pained shout
         this.puffSparks(m.x, m.y);
         this.toast = { text: 'HIT! HE STAGGERS', t: 0.8, color: '#fde047' };
       }
