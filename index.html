@@ -6973,6 +6973,13 @@ class KingdomRun {
 // with bob and recoil; the Menace as a pathing sprite enemy (BFS toward the player, occluded per column by the
 // depth buffer, clamped scaling as he closes); limited pellets as ammo; an exit teleporter across the maze.
 // Controls: Up/W forward, Down/S back, Left/Right turn, A/D strafe, Space / tap fires; swipe sidesteps.
+// Round 9: the GLOOM blaster viewmodel sprite (operator-provided render, art/gloom-blaster.png). Loaded once at
+// page load; `ready` flips when it has decoded, and stays false if the file is missing so the vector gun draws.
+const GLOOM_BLASTER = { img: new Image(), ready: false };
+GLOOM_BLASTER.img.onload = () => { GLOOM_BLASTER.ready = GLOOM_BLASTER.img.naturalWidth > 0; };
+GLOOM_BLASTER.img.onerror = () => { GLOOM_BLASTER.ready = false; };
+GLOOM_BLASTER.img.src = 'art/gloom-blaster.png';
+
 class GloomRun {
   constructor(game, ghostIndex) {
     this.game = game;
@@ -7234,7 +7241,7 @@ class GloomRun {
     this.pellets--;
     this.fireCooldown = 0.2;
     this.recoil = 1.0;
-    this.muzzleFlash = 0.09;
+    this.muzzleFlash = 0.14;
     this.screenShake = Math.max(this.screenShake, 0.12);
     this.faceState = 'firing';
     this.faceTimer = 0.32;
@@ -7780,7 +7787,66 @@ class GloomRun {
     return drawn;
   }
 
+  // Round 9: the viewmodel is the operator-provided blaster sprite (art/gloom-blaster.png, a side view with the
+  // muzzle lens at its left end). It hangs bottom-centre-right as a right-handed FPS weapon: pinned by its muzzle,
+  // tilted so the barrel points up at the crosshair, the stock running off the bottom-right edge. Walk bob, recoil
+  // (a kick down and a tilt) and the muzzle flash over the lens are the Round 8 behaviours; a touch of contrast /
+  // saturation and a soft drop shadow lift the render off the corridor. Until the sprite is in (or if it never
+  // loads) the Round 8 vector blaster draws instead, so the game is playable at every stage.
   drawWeapon(ctx, time, mf) {
+    if (!GLOOM_BLASTER.ready) { this.drawWeaponVector(ctx, time, mf); return; }
+    const W = this.W, viewH = this.viewH, p = this.player;
+    const img = GLOOM_BLASTER.img;
+    const bobX = Math.sin(this.bobTime * 4.5) * 9 * p.moving + this.lookDir * 5, bobY = Math.abs(Math.cos(this.bobTime * 4.5)) * 7 * p.moving;
+    const kick = this.recoil * 22;
+    const s = (W * 0.74) / img.width;                                   // the gun reads large: ~74% of the view width before the tilt
+    const mx = W / 2 + 34 + bobX + this.recoil * 10, my = viewH - 126 + bobY + kick;   // where the muzzle lens sits on screen
+    const lensX = img.width * 0.062, lensY = img.height * 0.385;        // the lens centre inside the sprite
+    ctx.save();
+    ctx.translate(mx, my);
+    ctx.rotate(0.36 + this.recoil * 0.1);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.55)';
+    ctx.shadowBlur = 18;
+    ctx.shadowOffsetX = -6;
+    ctx.shadowOffsetY = 8;
+    try { ctx.filter = 'contrast(1.12) saturate(1.12) brightness(1.03)'; } catch (e) {}
+    ctx.drawImage(img, -lensX * s, -lensY * s, img.width * s, img.height * s);
+    try { ctx.filter = 'none'; } catch (e) {}
+    ctx.shadowBlur = 0; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
+    // The lens glows with the next pellet (dull when empty); the muzzle light bleeds along the barrel on a shot
+    ctx.globalCompositeOperation = 'lighter';
+    const lensR = 0.11 * img.height * s;
+    const lg = ctx.createRadialGradient(0, 0, 0, 0, 0, lensR * 1.6);
+    const glow = this.pellets > 0 ? 0.35 + 0.15 * Math.sin(time * 6) : 0.08;
+    lg.addColorStop(0, `rgba(255, 220, 120, ${glow + mf * 0.5})`);
+    lg.addColorStop(1, 'rgba(255, 160, 40, 0)');
+    ctx.fillStyle = lg;
+    ctx.beginPath(); ctx.arc(0, 0, lensR * 1.6, 0, Math.PI * 2); ctx.fill();
+    ctx.globalCompositeOperation = 'source-over';
+    if (mf > 0) {
+      // Muzzle flash drawn over the lens: a spinning eight-point star with a white core and a hot halo
+      ctx.save();
+      ctx.translate(-lensR * 0.9, 0);
+      ctx.globalAlpha = mf;
+      ctx.fillStyle = '#fff275';
+      ctx.shadowColor = '#fbbf24'; ctx.shadowBlur = 36;
+      ctx.beginPath();
+      for (let i = 0; i < 8; i++) {
+        const a = i / 8 * Math.PI * 2 + time * 20, rr = i % 2 ? 16 : 42;
+        if (i === 0) ctx.moveTo(Math.cos(a) * rr, Math.sin(a) * rr); else ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr);
+      }
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath(); ctx.arc(0, 0, 12, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  // The Round 8 vector blaster, kept as the fallback viewmodel
+  drawWeaponVector(ctx, time, mf) {
     const W = this.W, viewH = this.viewH, p = this.player;
     const bobX = Math.sin(this.bobTime * 4.5) * 9 * p.moving, bobY = Math.abs(Math.cos(this.bobTime * 4.5)) * 7 * p.moving;
     const kick = this.recoil * 26;
@@ -7836,7 +7902,7 @@ class GloomRun {
 
   draw(ctx, time) {
     const W = this.W, H = this.H, viewH = this.viewH;
-    const mf = this.muzzleFlash > 0 ? Math.min(1, this.muzzleFlash / 0.09) : 0;
+    const mf = this.muzzleFlash > 0 ? Math.min(1, this.muzzleFlash / 0.1) : 0;
     const p = this.player, m = this.menace;
 
     ctx.save();

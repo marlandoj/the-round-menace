@@ -8,9 +8,12 @@ async function runAcceptanceTests() {
   console.log('Section 10 Compliance Verification (Headless Playwright)');
   console.log('====================================================\n');
 
+  // --allow-file-access-from-files: the battery opens index.html over file://, and Round 9's GLOOM viewmodel draws
+  // the art/gloom-blaster.png sprite onto the canvas; without the flag Chromium treats that file:// image as
+  // cross-origin, taints the canvas, and the pixel checks (20, 21, 24) could no longer read it back.
   const browser = await chromium.launch({
     headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu']
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu', '--allow-file-access-from-files']
   });
 
   const context = await browser.newContext({
