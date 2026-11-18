@@ -7526,27 +7526,69 @@ class GloomRun {
   // The Menace as a FIGURE, seen head-on down the corridor: the round yellow glutton on two stubby
   // legs, running straight at the camera. Drawn centred on the origin in a unit space (body radius 1)
   // so the caller scales it with the projection. `look` nudges the pupils toward the player's lane.
+  // Round 9: the Menace as a CHARACTER — an original limbed mascot drawn in code: the round yellow body
+  // (which is also his head), thin dark arms and legs, oversized white four-finger gloves, big red shoes, big eyes
+  // under angry brows and the wide toothy grin. Seen head-on, running at the camera: the legs pump (the near foot
+  // swings down and out, the far one lifts), the arms swing opposite the legs, the body bobs on each stride.
   drawMenaceFigure(ctx, stride, chomp, look, hit) {
-    const legLen = 0.28;
-    // Legs + feet pumping toward the camera
-    ctx.strokeStyle = '#7c2d12';
-    ctx.fillStyle = '#7c2d12';
-    ctx.lineWidth = 0.17;
-    ctx.lineCap = 'round';
+    const legLen = 0.34;
+    const bob = Math.abs(Math.sin(stride)) * 0.07;         // the body rides up on each stride
+    const LINE = '#1c1917';
+
+    // Legs + red shoes pumping toward the camera (feet stay on the ground; the body bobs above them)
     for (let i = 0; i < 2; i++) {
       const phase = stride + i * Math.PI;
-      const lift = Math.max(0, Math.sin(phase)) * 0.16;
-      const fx = (i ? 0.42 : -0.42) + Math.cos(phase) * 0.05;
+      const lift = Math.max(0, Math.sin(phase)) * 0.24;
+      const fx = (i ? 0.44 : -0.44) + Math.cos(phase) * 0.14;
       const fy = 1.0 + legLen - lift;
+      const kneeX = (i ? 0.34 : -0.34) + Math.cos(phase) * 0.06, kneeY = 0.92 + legLen * 0.45 - lift * 0.5;
+      ctx.strokeStyle = LINE;
+      ctx.lineWidth = 0.13;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
       ctx.beginPath();
-      ctx.moveTo(i ? 0.3 : -0.3, 0.86);
-      ctx.lineTo(fx, fy);
+      ctx.moveTo(i ? 0.3 : -0.3, 0.84 - bob);
+      ctx.lineTo(kneeX, kneeY);
+      ctx.lineTo(fx, fy - 0.04);
       ctx.stroke();
-      ctx.beginPath();
-      ctx.ellipse(fx, fy, 0.26, 0.11, 0, 0, Math.PI * 2);
-      ctx.fill();
+      // The shoe: a big red oval with a dark sole and a white toe highlight, flared toward the camera
+      ctx.fillStyle = '#7f1d1d';
+      ctx.beginPath(); ctx.ellipse(fx, fy + 0.05, 0.36, 0.13, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#dc2626';
+      ctx.beginPath(); ctx.ellipse(fx, fy - 0.02, 0.34, 0.15, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+      ctx.beginPath(); ctx.ellipse(fx - 0.08, fy - 0.1, 0.13, 0.05, 0, 0, Math.PI * 2); ctx.fill();
     }
 
+    // Arms swing opposite the legs, out from the body to the oversized white gloves
+    for (let i = 0; i < 2; i++) {
+      const phase = stride + i * Math.PI + Math.PI;
+      const swing = Math.sin(phase) * 0.32;
+      const side = i ? 1 : -1;
+      const sx = side * 0.82, sy = 0.08 - bob;
+      const ex = side * 0.72, ey = 0.55 + swing * 0.5;                      // elbow
+      const gx = side * (1.3 + Math.cos(phase) * 0.08), gy = 0.1 + swing;   // glove
+      ctx.strokeStyle = LINE;
+      ctx.lineWidth = 0.12;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.quadraticCurveTo(ex, ey, gx, gy);
+      ctx.stroke();
+      // Glove: a big white mitt — palm disc, three fingers and a thumb, dark outline
+      ctx.fillStyle = '#ffffff';
+      ctx.strokeStyle = LINE;
+      ctx.lineWidth = 0.05;
+      ctx.beginPath(); ctx.arc(gx, gy, 0.3, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      const fa = side > 0 ? 0.35 : Math.PI - 0.35;                             // fingers fan toward the outside
+      for (let f = -1; f <= 1; f++) {
+        const a = fa + f * 0.5 * (side > 0 ? 1 : -1);
+        ctx.beginPath(); ctx.arc(gx + Math.cos(a) * 0.28, gy - Math.sin(a) * 0.28, 0.12, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      }
+      ctx.beginPath(); ctx.arc(gx - side * 0.05, gy + 0.3, 0.11, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    }
+
+    ctx.save();
+    ctx.translate(0, -bob);
     // Body with the hunter's red glow and rim
     ctx.shadowColor = 'rgba(255, 51, 68, 0.9)';
     ctx.shadowBlur = 0.6;
@@ -7594,31 +7636,49 @@ class GloomRun {
     ctx.lineTo(0.14, -0.6);
     ctx.stroke();
 
-    // The grin: a wide dark mouth that chomps, white teeth strip, red tongue
+    // The grin: a wide dark mouth that chomps, a row of big white teeth top and bottom, red tongue
     ctx.save();
     ctx.translate(0, 0.18);
     ctx.scale(1, chomp);
     ctx.fillStyle = '#3b0a0a';
     ctx.beginPath();
-    ctx.arc(0, 0, 0.64, 0.05, Math.PI - 0.05);
+    ctx.arc(0, 0, 0.66, 0.05, Math.PI - 0.05);
     ctx.closePath();
     ctx.fill();
     ctx.fillStyle = 'rgba(239, 68, 68, 0.85)';
     ctx.beginPath();
-    ctx.ellipse(0, 0.4, 0.3, 0.16, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, 0.42, 0.3, 0.16, 0, 0, Math.PI * 2);
     ctx.fill();
-    ctx.restore();
+    // Lower teeth rise from the jaw as it closes
     ctx.fillStyle = '#ffffff';
-    ctx.fillRect(-0.6, 0.18, 1.2, 0.11);
-    // Fangs
+    for (let t = -2; t <= 2; t++) {
+      const tx = t * 0.22;
+      ctx.beginPath();
+      ctx.moveTo(tx - 0.09, 0.62 - Math.abs(t) * 0.07);
+      ctx.lineTo(tx + 0.09, 0.62 - Math.abs(t) * 0.07);
+      ctx.lineTo(tx + 0.06, 0.46 - Math.abs(t) * 0.05);
+      ctx.lineTo(tx - 0.06, 0.46 - Math.abs(t) * 0.05);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+    // Upper teeth: a white strip under the lip with pointed tips
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(-0.62, 0.18, 1.24, 0.1);
     ctx.beginPath();
-    [-0.42, -0.14, 0.14, 0.42].forEach(tx => {
-      ctx.moveTo(tx - 0.07, 0.29);
-      ctx.lineTo(tx + 0.07, 0.29);
-      ctx.lineTo(tx, 0.29 + 0.12 * chomp);
+    [-0.5, -0.3, -0.1, 0.1, 0.3, 0.5].forEach(tx => {
+      ctx.moveTo(tx - 0.08, 0.28);
+      ctx.lineTo(tx + 0.08, 0.28);
+      ctx.lineTo(tx, 0.28 + 0.14 * chomp);
       ctx.closePath();
     });
     ctx.fill();
+    // Lip line
+    ctx.strokeStyle = '#7c2d12';
+    ctx.lineWidth = 0.05;
+    ctx.beginPath();
+    ctx.arc(0, 0.18, 0.66, 0.05, Math.PI - 0.05);
+    ctx.stroke();
 
     // Hit flash: a translucent white wash and a bright rim; the face stays readable
     if (hit) {
@@ -7632,6 +7692,7 @@ class GloomRun {
       ctx.arc(0, 0, 1.04, 0, Math.PI * 2);
       ctx.stroke();
     }
+    ctx.restore(); // body bob
   }
 
   // ===== Rendering =====
@@ -7933,12 +7994,12 @@ class GloomRun {
         const ms = this.menaceScreen;
         if (!ms) continue;
         const l = Math.min(1, this.light(ms.depth, mf) + 0.25);
-        menaceDrawn = this.drawOccluded(ctx, ms.x, ms.r * 1.1, ms.depth, () => {
-          // Floor shadow, then the figure in unit space scaled to his screen radius
+        menaceDrawn = this.drawOccluded(ctx, ms.x, ms.r * 1.8, ms.depth, () => {
+          // Floor shadow under his shoes, then the character in unit space scaled to his body radius
           ctx.save();
           ctx.globalAlpha = 0.35;
           ctx.fillStyle = '#000';
-          ctx.beginPath(); ctx.ellipse(ms.x, ms.y + ms.r * 1.25, ms.r * 0.9, ms.r * 0.22, 0, 0, Math.PI * 2); ctx.fill();
+          ctx.beginPath(); ctx.ellipse(ms.x, ms.y + ms.r * 1.42, ms.r * 1.0, ms.r * 0.2, 0, 0, Math.PI * 2); ctx.fill();
           ctx.restore();
           ctx.save();
           ctx.translate(ms.x, ms.y);
