@@ -860,6 +860,7 @@
         Left / Right or A / D steers; Space hop-drifts; Down uses an item or brakes. Touch: hold a screen half, with DRIFT and ITEM buttons.
       </div>
     </div>
+    <p class="flip-guide-refill-note" style="margin: 8px 0 12px; font-size: 0.76rem; color: #a3e635; text-align: center;">Win the flip and the pickups you grabbed pour back into the maze as restored pellets; lose, and they're gone.</p>
     <button id="btn-back-how" class="menu-btn secondary">Back to Menu</button>
   </div>
 
@@ -2621,6 +2622,9 @@ class Game {
           return;
         }
         if (!e.repeat && this.flipKey(e.code, true)) e.preventDefault();
+        // Repeated Space keydowns must be cancelled too: an un-cancelled repeat re-arms the focused
+        // Play button's native keyup click, which aborts the flip through startNewGame with no outcome.
+        else if (e.repeat && e.code === 'Space') e.preventDefault();
         return; // Possession is locked to the flipped ghost
       }
 
@@ -2990,6 +2994,7 @@ class Game {
     }
     this.pelletsRemaining = this.totalPelletsInMaze;
     this.pelletsEatenByMenace = 0;
+    this.mazeSnapshot = this.grid.map(row => row.slice());
 
     // Reset the flip
     this.abortFlip();
@@ -3153,9 +3158,30 @@ class Game {
     const g = this.ghosts[ghostIndex];
     if (outcome === 'survived') {
       this.score += 200;
+      const haul = Math.max(0, run.collected || 0);
+      let restored = 0;
+      const eaten = Math.max(0, Math.min(this.pelletsEatenByMenace, this.totalPelletsInMaze - this.pelletsRemaining));
+      const toRestore = Math.min(haul, eaten);
+      if (toRestore > 0 && this.mazeSnapshot) {
+        for (let r = 0; r < this.rows && restored < toRestore; r++) {
+          for (let c = 0; c < this.cols && restored < toRestore; c++) {
+            const orig = this.mazeSnapshot[r][c];
+            if ((orig === '.' || orig === 'o') && this.grid[r][c] === ' ') {
+              this.grid[r][c] = orig;
+              restored++;
+            }
+          }
+        }
+        this.pelletsRemaining = Math.min(this.totalPelletsInMaze, this.pelletsRemaining + restored);
+        this.pelletsEatenByMenace = Math.max(0, this.pelletsEatenByMenace - restored);
+      }
       this.updateHUD();
       for (let i = 0; i < 22; i++) this.particles.push(new Particle(g.x, g.y, g.color));
-      this.showNotification(run.surviveText);
+      if (restored > 0) {
+        this.showNotification(`+${restored} pellets restored`);
+      } else {
+        this.showNotification(run.surviveText);
+      }
     } else {
       // Caught: the existing bench flow (eyes float home, possession moves on, squad wipe = game over)
       this.handleGhostEatenByMenace(ghostIndex);
@@ -4933,7 +4959,7 @@ class ValleyRun {
     }
     if (cmd === 'placeMenace') { m.x = arg.x; m.y = this.groundY(m.x) - m.r; m.vx = arg.speed !== undefined ? arg.speed : m.vx; m.vy = 0; m.grounded = true; m.inLoop = false; return { x: m.x }; }
     if (cmd === 'freezeMenace') { m.frozen = !!arg; return m.frozen; }
-    if (cmd === 'rings') { g.rings = arg | 0; return g.rings; }
+    if (cmd === 'rings' || cmd === 'collected') { g.rings = arg | 0; this.collected = g.rings; return g.rings; }
     if (cmd === 'terrain') {
       // Representative points: a flat stretch and the top of the long downhill, each with room to run
       return { flatX: 60, downhillX: 1560, downhillGrade: this.slopeAt(1700), loop: this.loop, spikes: this.spikes, springs: this.springs };
@@ -6504,6 +6530,7 @@ class KingdomRun {
     if (cmd === 'placeGhost') { g.x = arg.x; g.y = arg.y; g.vx = arg.vx || 0; g.vy = arg.vy || 0; g.grounded = false; g.feetBefore = g.y; g.input = 0; return true; }
     if (cmd === 'placeMenace') { m.x = arg.x; m.y = arg.y !== undefined ? arg.y : this.groundTopAt(arg.x); m.vx = 0; m.vy = 0; return true; }
     if (cmd === 'freezeMenace') { m.frozen = !!arg; return m.frozen; }
+    if (cmd === 'coins' || cmd === 'collected') { this.collected = arg | 0; return this.collected; }
     if (cmd === 'hold') { g.hold = !!arg; return g.hold; }   // Stand still instead of the hold-forward run
     if (cmd === 'tile') return this.tileAt(arg.c, arg.r);
     if (cmd === 'findTile') {
@@ -8049,6 +8076,7 @@ class GloomRun {
     if (cmd === 'doors') return this.doors.map(d => ({ x: d.x, y: d.y, open: d.open, horiz: d.horiz }));
     if (cmd === 'map') return this.rows;
     if (cmd === 'ammo') { this.pellets = arg | 0; return this.pellets; }
+    if (cmd === 'pellets' || cmd === 'collected') { this.collected = arg | 0; return this.collected; }
     return null;
   }
 

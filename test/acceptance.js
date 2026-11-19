@@ -36,7 +36,7 @@ async function runAcceptanceTests() {
 
   const indexPath = `file://${path.resolve(__dirname, '../index.html')}`;
   let passedCount = 0;
-  let totalCount = 32;
+  let totalCount = 33;
 
   // Screenshot directory
   const screenshotDir = path.resolve(__dirname, '../screenshots');
@@ -1770,6 +1770,155 @@ async function runAcceptanceTests() {
     console.log(`  ✓ PASS: Space pauses and resumes with focus on Play (run untouched: score ${before.score}, pellets ${before.pellets}) and resumes exactly once with focus on Pause; 0 console errors across all 32 checks.`);
     passedCount++;
 
+  } catch (err) {
+    console.error(`\n❌ TEST FAILED: ${err.message}`);
+    await browser.close();
+    process.exit(1);
+  }
+
+  // Check 33: a held GP slide cannot activate the focused Play button and silently abort the flip;
+  // only a survival pours the run's pickup haul back into the snapshot's eaten maze cells.
+  try {
+    console.log('\n[Check 33/33] Grand Prix held-slide invariant, flag-only resolution, and win-a-flip pellet refill...');
+    const slideResults = [];
+    for (const scenario of ['start-straight verge', 'tightest corner']) {
+      await page.reload({ waitUntil: 'load' });
+      await page.waitForTimeout(700);
+      await page.click('#btn-play');
+      await page.waitForTimeout(200);
+      if ((await page.evaluate(() => document.activeElement.id)) !== 'btn-play') throw new Error(`${scenario}: Play did not retain focus, so the original silent-exit trap is not armed`);
+      await page.evaluate(() => window.__RM_GAME__.triggerFlip('grandprix'));
+      await page.waitForFunction(() => window.__RM_GAME__.getFlip().phase === 'run', null, { timeout: 4000 });
+      const start = await page.evaluate((label) => {
+        const G = window.__RM_GAME__, r = window.__game.flip;
+        G.flipDebug('freezeRivals', true);
+        let s = 90;
+        if (label === 'tightest corner') s = r.path.reduce((best, p) => Math.abs(p.curv) > Math.abs(r.pathAt(best).curv) ? p.s : best, 0);
+        G.flipDebug('place', { s, speed: 250, lane: 0 });
+        Object.assign(r.player, { lap: 0, prog: s - r.L, finished: false, finishTime: 0 });
+        window.__r17SlideLog = [];
+        const step = r.stepKart.bind(r);
+        r.stepKart = function(k, input, dt) {
+          const before = { x: k.x, y: k.y, s: k.s, lap: k.lap, prog: k.prog };
+          step(k, input, dt);
+          if (k !== r.player) return;
+          let ds = k.s - before.s;
+          if (ds < -r.L / 2) ds += r.L;
+          if (ds > r.L / 2) ds -= r.L;
+          window.__r17SlideLog.push({
+            phase: r.phase, outcome: r.outcome, prevS: before.s, s: k.s,
+            prevLap: before.lap, lap: k.lap, prevProg: before.prog, prog: k.prog,
+            ds, travel: Math.hypot(k.x - before.x, k.y - before.y),
+            lat: r.lateralAt(k.x, k.y, k.s), stage: k.driftStage
+          });
+        };
+        return { s, L: r.L, step: r.step };
+      }, scenario);
+      const steer = scenario === 'start-straight verge' ? 'ArrowRight' : 'ArrowLeft';
+      await page.keyboard.down(steer);
+      await page.keyboard.down('Space');
+      for (let i = 0; i < 14; i++) {
+        await page.waitForTimeout(180);
+        // Playwright has no OS key-repeat timer: repeat the real keydown to exercise the native-button trap.
+        if (i > 0 && i % 2 === 0) await page.keyboard.down('Space');
+        const state = await page.evaluate(() => ({ state: window.__game.state, phase: window.__game.flip && window.__game.flip.phase, outcome: window.__game.flip && window.__game.flip.outcome }));
+        if (state.state !== 'flip' || state.phase !== 'run' || state.outcome) throw new Error(`${scenario}: slide closed or resolved during the hold (${JSON.stringify(state)})`);
+      }
+      await page.keyboard.up('Space');
+      await page.keyboard.up(steer);
+      await page.waitForTimeout(150);
+      const after = await page.evaluate(() => ({ state: window.__game.state, phase: window.__game.flip && window.__game.flip.phase, outcome: window.__game.flip && window.__game.flip.outcome, logs: window.__r17SlideLog }));
+      if (after.state !== 'flip' || after.phase !== 'run' || after.outcome) throw new Error(`${scenario}: Space release silently closed the slide (${after.state}/${after.phase}/${after.outcome})`);
+      const maxStage = Math.max(...after.logs.map(l => l.stage));
+      const lapChanges = after.logs.filter(l => l.lap !== l.prevLap).length;
+      const maxStationOverrun = Math.max(0, ...after.logs.map(l => Math.abs(l.ds) - l.travel));
+      const maxProgMismatch = Math.max(0, ...after.logs.map(l => Math.abs((l.prog - l.prevProg) - l.ds)));
+      const maxAbsLat = Math.max(...after.logs.map(l => Math.abs(l.lat)));
+      if (maxStage < 2) throw new Error(`${scenario}: drift only reached stage ${maxStage}`);
+      if (maxStationOverrun > start.step + 2) throw new Error(`${scenario}: station moved ${maxStationOverrun.toFixed(2)} beyond the kart's own travel (one station ${start.step})`);
+      if (maxProgMismatch > 0.001 || lapChanges !== 0) throw new Error(`${scenario}: prog/lap discontinuity (prog mismatch ${maxProgMismatch}, lap changes ${lapChanges})`);
+      const last = after.logs[after.logs.length - 1];
+      console.log(`  · ${scenario}: start s=${start.s}, end prog/s/lap=${last.prog.toFixed(0)}/${last.s.toFixed(0)}/${last.lap}; stage ${maxStage}, max |lateral| ${maxAbsLat.toFixed(1)}, station excess ${maxStationOverrun.toFixed(2)} (quantisation allowance ${start.step + 2}), 0 outcome after Space repeats + release`);
+      slideResults.push(`${scenario}: end prog/s/lap ${last.prog.toFixed(0)}/${last.s.toFixed(0)}/${last.lap}, excess ${maxStationOverrun.toFixed(2)}`);
+
+      // Put the same live kart just before the line on its racing lap. Only its normal crossing
+      // may enter endRace, play the finish phase, and call back through endFlip('survived').
+      const scoreBeforeFlag = await page.evaluate(() => {
+        const G = window.__RM_GAME__, game = window.__game, r = game.flip, p = r.player;
+        G.flipDebug('place', { s: r.L - 140, speed: 250, lane: 0 });
+        Object.assign(p, { lap: 1, prog: p.s, finished: false, finishTime: 0 });
+        window.__r17FlagResult = null;
+        window.__r17EndOutcome = null;
+        const endRace = r.endRace.bind(r);
+        r.endRace = result => { window.__r17FlagResult = result; return endRace(result); };
+        const endFlip = game.endFlip.bind(game);
+        game.endFlip = outcome => { window.__r17EndOutcome = outcome; return endFlip(outcome); };
+        return G.getScore();
+      });
+      await page.waitForFunction(() => window.__game.state === 'playing', null, { timeout: 5000 });
+      const resolution = await page.evaluate(() => ({
+        flag: window.__r17FlagResult, end: window.__r17EndOutcome,
+        banner: window.__game.banner && window.__game.banner.text,
+        benched: window.__RM_GAME__.getSquad().some(g => g.isBenched), score: window.__RM_GAME__.getScore()
+      }));
+      if (resolution.flag !== 'survived' || resolution.end !== 'survived' || resolution.banner !== 'CHECKERED FLAG!' || resolution.benched || resolution.score - scoreBeforeFlag !== 200) {
+        throw new Error(`${scenario}: the post-slide race did not resolve through its flag and banner (${JSON.stringify(resolution)})`);
+      }
+      console.log(`  · ${scenario}: normal line crossing → endRace('survived') → endFlip('survived'), banner "${resolution.banner}", +200, unbenched`);
+    }
+
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForTimeout(700);
+    await page.click('#btn-play');
+    await page.waitForTimeout(200);
+    await page.evaluate(() => { window.__game.menace.speed = 0; });
+    const stageEaten = cells => page.evaluate(cells => {
+      const game = window.__game;
+      game.grid = game.mazeSnapshot.map(row => row.slice());
+      for (const [c, r] of cells) {
+        if (game.grid[r][c] !== '.' && game.grid[r][c] !== 'o') throw new Error(`Refill staging cell (${c},${r}) is not a pellet`);
+        game.grid[r][c] = ' ';
+      }
+      game.pelletsEatenByMenace = cells.length;
+      game.pelletsRemaining = game.totalPelletsInMaze - cells.length;
+      game.updateHUD();
+      return { before: game.pelletsRemaining, total: game.totalPelletsInMaze, eaten: game.pelletsEatenByMenace };
+    }, cells);
+    const readRefill = () => page.evaluate(() => ({
+      remaining: window.__game.pelletsRemaining, eaten: window.__game.pelletsEatenByMenace,
+      hud: document.getElementById('hud-pellets').textContent, toast: document.getElementById('notification-toast').textContent,
+      cells: [[1, 1], [2, 1], [3, 1], [4, 1], [5, 1]].map(([c, r]) => ({ c, r, actual: window.__game.grid[r][c], original: window.__game.mazeSnapshot[r][c] }))
+    }));
+
+    const gpEaten = [[1, 1], [2, 1], [3, 1], [4, 1], [5, 1]];
+    const gpBefore = await stageEaten(gpEaten);
+    await page.evaluate(() => { window.__RM_GAME__.triggerFlip('grandprix'); window.__game.flip.collected = 8; window.__RM_GAME__.forceFlipSurvive(); });
+    await page.waitForTimeout(80);
+    const gpWin = await readRefill();
+    const gpExpected = Math.min(8, gpBefore.eaten);
+    if (gpWin.remaining - gpBefore.before !== gpExpected || gpWin.remaining !== gpBefore.total || gpWin.eaten !== 0) throw new Error(`GP win refill wrong: ${gpBefore.before} → ${gpWin.remaining}, expected +${gpExpected}`);
+    for (const cell of gpWin.cells) if (cell.actual !== cell.original) throw new Error(`Restored cell (${cell.c},${cell.r}) is "${cell.actual}", snapshot says "${cell.original}"`);
+    if (gpWin.cells[0].actual !== 'o' || gpWin.hud !== `${gpBefore.total} / ${gpBefore.total}` || gpWin.toast !== `+${gpExpected} pellets restored`) throw new Error(`GP refill feedback/layout wrong (${JSON.stringify(gpWin)})`);
+    console.log(`  · GP win: haul 8, eaten 5 → +${gpExpected} (min(haul,eaten)); corner ${gpWin.cells[0].original} restored as ${gpWin.cells[0].actual}; pellet count/HUD ${gpBefore.before} → ${gpWin.remaining}; toast "${gpWin.toast}"`);
+
+    const lossBefore = await stageEaten(gpEaten);
+    await page.evaluate(() => { window.__RM_GAME__.triggerFlip('grandprix'); window.__game.flip.collected = 6; window.__RM_GAME__.forceFlipCatch(); });
+    await page.waitForTimeout(80);
+    const gpLoss = await readRefill();
+    if (gpLoss.remaining !== lossBefore.before || gpLoss.eaten !== lossBefore.eaten || gpLoss.cells.some(cell => cell.actual !== ' ')) throw new Error(`Caught flip refilled pellets (${lossBefore.before} → ${gpLoss.remaining})`);
+    console.log(`  · GP loss: haul 6, eaten 5 → +0; PELLETS LEFT / grid stayed ${gpLoss.remaining}, all five eaten cells empty`);
+
+    const valleyBefore = await stageEaten([[1, 1], [2, 1], [3, 1]]);
+    const valleyHaul = await page.evaluate(() => { window.__RM_GAME__.triggerFlip('valley'); const n = window.__RM_GAME__.flipDebug('rings', 2); window.__RM_GAME__.forceFlipSurvive(); return n; });
+    await page.waitForTimeout(80);
+    const valleyWin = await readRefill();
+    if (valleyHaul !== 2 || valleyWin.remaining - valleyBefore.before !== 2 || valleyWin.cells[0].actual !== 'o' || valleyWin.cells[1].actual !== '.' || valleyWin.cells[2].actual !== ' ') throw new Error(`Green Valley haul refill wrong (${JSON.stringify(valleyWin)})`);
+    const teaching = await page.$eval('.flip-guide-refill-note', el => el.textContent);
+    if (!/Win the flip.*pour back into the maze.*lose.*gone/i.test(teaching)) throw new Error(`How to Play does not teach the refill rule (${teaching})`);
+    if (consoleErrors.length > 0) throw new Error(`Console errors during the Round 17 check: ${consoleErrors.join(' | ')}`);
+    console.log(`  · Green Valley win: rings haul ${valleyHaul}, eaten 3 → +2; power/ordinary cells restored from snapshot, third cell remains eaten`);
+    console.log(`  ✓ PASS: both stage-2 keyboard slides stayed continuous and unresolved, both races then took the flag normally; survived hauls refill min(haul,eaten) with correct layouts/HUD/toast, caught hauls vanish, and How to Play teaches the rule; 0 console errors across all 33 checks.`);
+    passedCount++;
   } catch (err) {
     console.error(`\n❌ TEST FAILED: ${err.message}`);
     await browser.close();
