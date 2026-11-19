@@ -1,5 +1,9 @@
 # The Round Menace
 
+**[Play The Round Menace](https://marlandoj.github.io/the-round-menace/)**
+
+**Demo video:** `[OPERATOR: add demo video URL at submission]`
+
 > **"Pac-Man, except you're the ghosts — and he's eating your maze."**
 
 ## What Was Remixed & The Twist
@@ -26,11 +30,11 @@ Tap **1–4**, tap a ghost directly on screen, or click any portrait in the bott
 
 ## Gameplay Mechanics
 
-1. **Catch Him 3 Times:** Steer your squad to corner the Menace. Each catch costs him 1 life. Strip all 3 lives before he eats your pellets to win the maze.
-2. **The Flips:** When the Menace grabs a corner power pellet, the maze tears open and the hunt flips into that pellet's mini-game — Green Valley (top-left) or Block Kingdom (top-right); see *The Second Twist* and *Round 3* below. Get caught and that ghost is **benched** (eyes float back to the house, out until the next catch). If all 4 ghosts are benched, the maze is lost immediately!
+1. **Catch Him 3 Times:** Steer your squad to corner the Menace. Each catch costs him 1 life and scores +500. Strip all 3 lives before he eats your pellets to win the maze. In Maze 1 he runs at 0.93× speed until the first catch of the run, then returns to full speed.
+2. **The Flips:** When the Menace grabs a corner power pellet, the maze tears open and the hunt flips into that pellet's mini-game — Green Valley (top-left), Block Kingdom (top-right), GLOOM (bottom-left), or Phantom Grand Prix (bottom-right). A caught ghost is **benched**, then re-enters after 15 seconds in the house; a catch or the next maze also returns the squad. If all 4 ghosts are benched, the maze is lost immediately!
 3. **Fruit Defense:** A glowing lantern-orb fruit spawns at 70 and 140 pellets eaten. If you guard it and let it expire uneaten, you gain a +500 PTS bonus. If the Menace eats it, it reduces your final score.
 4. **Three Escalating Mazes:**
-   - **Maze 1:** Indigo neon palette, base speed, the rolling Menace gains +2.4 px/s² in the valley.
+   - **Maze 1:** Indigo neon palette, first-catch grace above, the rolling Menace gains +2.4 px/s² in the valley.
    - **Maze 2:** Violet / magenta shift, faster Menace (107%), +2.7 px/s² in the valley.
    - **Maze 3:** Deep red-violet warning mood, fastest Menace (114%), +3.0 px/s² in the valley.
 
@@ -122,6 +126,30 @@ Rebuilt as a real two-kart race seen from a chase camera that sits behind the gh
 
 ### Battery
 `test/acceptance.js` changed in screenshot timing only: the Grand Prix capture (check 18) now steers for 0.3 s and waits 1.5 s so the frame is a mid-race moment with both karts whole in shot. The `npm test` command is byte-identical. The Grand Prix module reports both kart rects and `bothInFrame` through `getFlip().extra`; Block Kingdom reports the ghost/Menace positions and `bothInFrame` too.
+
+## Round 15 — Final panel slate: teaching, feel and audio
+
+Commissioned by Marlando on 2026-11-19 as the final polish round. No new art or audio assets were added; every sound below is synthesized in code.
+
+### Teaching and touch clarity
+- How to Play keeps its original orders and replaces the long flip paragraph with four compact objective-and-controls cards. GLOOM now teaches Left/Right to turn, A/D or swipe to strafe, Space or tap to fire, and the EXIT teleporter objective. Green Valley teaches its shipped spikes, springs and momentum loop.
+- The first catch of each run shows one possession lesson on the existing banner channel. The first entry to each flip kind shows its real control line under the flip HUD, persisted across sessions so it does not repeat.
+- In play the countdown reads **PELLETS LEFT**; **Pellets Saved** remains the accurate term on title and results screens. A first-catch possession hint and first-entry flip hints teach without changing the Menace brain or flip engines.
+- The arrow cluster no longer renders on non-touch devices. On touch it dims after the first successful steer or swipe, brightens under a finger, and returns to full strength in pause and How to Play. Grand Prix retains its separate Round 12 half-screen steering and DRIFT / ITEM controls.
+
+### Feel and balance
+- Maze 1 runs at 0.93× Menace speed until the run's first catch, then 1.0×; other maze and flip tuning is unchanged. A benched ghost re-enters after 15 seconds in the house, with its countdown on the squad portrait. Catch and next-maze returns remain, and all-four-benched still loses instantly.
+- Catch awards are +500. GLOOM's compass follows the existing exit distance field to the lowest-valued neighbouring corridor cell instead of the straight-line bearing.
+- Maze swipes fire at 24px during the drag and re-anchor for chained turns. Possession requires a short tap below 12px of travel, so a steering drag that starts on a ghost cannot possess it accidentally.
+
+### Audio
+- Grand Prix starts with three 220Hz beeps and an 880Hz GO. Item cubes and pellet coins use a dedicated kart pickup chirp instead of the maze chomp or valley pickup ladder.
+- Every SFX and music path passes through one DynamicsCompressor (−18dB threshold, 20:1 ratio, 2ms attack) before the destination. Hiding the document suspends audio and scheduler work; returning resumes the context and rebases the next music step, avoiding a backlog burst.
+
+### Battery and docs
+`npm test` is byte-identical. Checks 1–29 retain their established coverage (check 6's expectation follows the new +500 award), and check 30 measures every panel-slate item, including the one-shot nudge, timer-based return without a catch, 0.93× → 1.0× grace, wall-safe compass, real mid-drag CDP touch, GP beep schedule, limiter graph, visibility suspension and zero failed GP image loads. Check 26 continues to prove early power-pellet access in the same modified build.
+
+The README now links the public build and marks the operator-owned demo-video placeholder. `package.json` names `index.html` as its entry point and describes the game. Per-round sections below remain the historical changelog, including retired crowd features.
 
 ## Round 14 — Phantom Grand Prix: open verges and race presentation
 
@@ -327,7 +355,7 @@ Music starts only after the first user gesture, ducks under the catch and flip s
 
 ## Running Automated Acceptance Checks
 
-The project includes headless Playwright test coverage: the 10 Round 1 checks, the 3 Round 2 checks, the 2 Round 3 checks, the 4 Round 4 checks, the 2 Round 5 pixel-level render checks, the 4 Round 8 engine checks, the Round 9 Menace-brain check, the Round 11 Grand Prix physics proof, the Round 12 Grand Prix touch proof, and the Round 14 crowd-absence / race-presentation proof (29 total checks).
+The project includes headless Playwright test coverage: the 10 Round 1 checks, the 3 Round 2 checks, the 2 Round 3 checks, the 4 Round 4 checks, the 2 Round 5 pixel-level render checks, the 4 Round 8 engine checks, the Round 9 Menace-brain check, the Round 11 Grand Prix physics proof, the Round 12 Grand Prix touch proof, the Round 14 crowd-absence / race-presentation proof, and the Round 15 panel-slate proof (30 total checks).
 
 ```bash
 npm test
@@ -363,6 +391,7 @@ The test suite automatically validates:
 27. Phantom Grand Prix physics proof: (a) a forced spin-out on the ghost's kart must be drawn as at least 8 distinct yaw frames in sequence stepping one way round over about two turns, by the sprite path, with the canvas transform at every kart draw carrying zero in-plane rotation and zero shear, and the heading unchanged; (b) two karts set overlapping at speed must separate to at least the sum of their contact radii within the step and stay apart, with the rammed kart shoved (gain along the normal, run up, yaw wobble) and neither kart spun; the frame convention (0° → 00, −90° → 04, 180° → 08, +90° → 12) is asserted; zero console errors across all 27 checks.
 28. Phantom Grand Prix touch proof: a real touch held on the right half of the canvas engages right steering and the wheel, and releases to centre on touch end; a DRIFT press rides alongside a held steer (multi-touch); the arrow cluster is hidden and inert for the kart; keyboard steering still holds; zero console errors across all 28 checks. The Round 12 crowd clauses are retired.
 29. Phantom Grand Prix crowd absence and race presentation: pre-load `Image.src` and `drawImage` instrumentation proves zero crowd / fan asset requests or draws; every kart reports and pixel-samples a contact shadow; rendered red / white kerbs and black / white start-line samples are reported; zero console errors across all 29 checks.
+30. Round 15 panel slate: validates four teaching cards and PELLETS LEFT; a one-time post-catch possession nudge and +500 award; 0.93× → 1.0× Maze 1 grace plus check 26's early-corner soak; a timed bench return and portrait countdown; a field-following GLOOM compass; real chained mid-drag swipes without accidental possession; touch / non-touch D-pad states and pause / How to Play restoration; GP countdown beeps and pickup audio; a compressor-to-destination graph and visibility suspend / resume; and ready kart / tree sprites with zero failed GP image loads; zero console errors across all 30 checks.
 
 Screenshots of title, gameplay, the flip transition, Green Valley, Block Kingdom (banner and mid-level), GLOOM mid-corridor, Phantom Grand Prix mid-race, maze clear, and game over screens are saved into `screenshots/`. Since Round 6 the three fixed flips' frames (`valley.png`, `kingdom.png`, `grandprix.png`) are peak-action captures with both the ghost and the Menace in shot; since Round 14 `grandprix.png` shows the open start straight with no stands or crowd, kart shadows, striped kerbs, the chequered line and the touch layout.
 

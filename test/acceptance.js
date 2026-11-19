@@ -36,7 +36,7 @@ async function runAcceptanceTests() {
 
   const indexPath = `file://${path.resolve(__dirname, '../index.html')}`;
   let passedCount = 0;
-  let totalCount = 29;
+  let totalCount = 30;
 
   // Screenshot directory
   const screenshotDir = path.resolve(__dirname, '../screenshots');
@@ -46,7 +46,7 @@ async function runAcceptanceTests() {
 
   try {
     // Check 1: Page loads with zero console errors
-    console.log('[Check 1/29] Loading game page...');
+    console.log('[Check 1/30] Loading game page...');
     await page.goto(indexPath, { waitUntil: 'load' });
     await page.waitForTimeout(500);
 
@@ -62,7 +62,7 @@ async function runAcceptanceTests() {
     console.log('  📸 Captured screenshot: screenshots/title.png');
 
     // Check 2: Game starts from PLAY
-    console.log('\n[Check 2/29] Starting game from PLAY button...');
+    console.log('\n[Check 2/30] Starting game from PLAY button...');
     await page.click('#btn-play');
     await page.waitForTimeout(400);
 
@@ -79,7 +79,7 @@ async function runAcceptanceTests() {
     console.log('  📸 Captured screenshot: screenshots/gameplay.png');
 
     // Check 3: Menace eats pellets autonomously
-    console.log('\n[Check 3/29] Testing autonomous Menace pellet eating...');
+    console.log('\n[Check 3/30] Testing autonomous Menace pellet eating...');
     const initialPellets = await page.evaluate(() => window.__RM_GAME__.getPellets().remaining);
     // Let Menace move and eat for 2 seconds
     await page.waitForTimeout(2000);
@@ -92,7 +92,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 4: Possession switching works for all four ghosts (1-4 and squad bar clicks)
-    console.log('\n[Check 4/29] Testing possession switching across all 4 squad ghosts...');
+    console.log('\n[Check 4/30] Testing possession switching across all 4 squad ghosts...');
     const ghostNames = ['Ember', 'Rosé', 'Tide', 'Goldie'];
     for (let i = 0; i < 4; i++) {
       // Test key press
@@ -113,7 +113,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 5: Touch input moves the possessed ghost
-    console.log('\n[Check 5/29] Testing touch input steering...');
+    console.log('\n[Check 5/30] Testing touch input steering...');
     // Ensure ghost 0 is possessed and positioned at open corridor (5, 5)
     await page.evaluate(() => {
       window.__RM_GAME__.possess(0);
@@ -133,7 +133,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 6: A catch registers when a ghost is steered onto Menace
-    console.log('\n[Check 6/29] Testing ghost catch detection...');
+    console.log('\n[Check 6/30] Testing ghost catch detection...');
     // The hunting squad may have caught him by chance during checks 3–5; a catch (or a flip
     // return) grants him 1s of flashing immunity during which collisions are ignored. Wait it
     // out so the staged catch below is judged on its own merits.
@@ -162,15 +162,15 @@ async function runAcceptanceTests() {
     if (!catchRegistered || livesAfterCatch !== initialLives - 1) {
       throw new Error(`Catch failed: expected lives ${initialLives - 1}, got ${livesAfterCatch}`);
     }
-    if (scoreAfterCatch < initialScore + 300) {
-      throw new Error(`Catch score failed: expected at least ${initialScore + 300}, got ${scoreAfterCatch}`);
+    if (scoreAfterCatch < initialScore + 500) {
+      throw new Error(`Catch score failed: expected at least ${initialScore + 500}, got ${scoreAfterCatch}`);
     }
 
-    console.log(`  ✓ PASS: Catch registered! Menace lives decremented (${initialLives} -> ${livesAfterCatch}) and score awarded (+300).`);
+    console.log(`  ✓ PASS: Catch registered! Menace lives decremented (${initialLives} -> ${livesAfterCatch}) and score awarded (+500).`);
     passedCount++;
 
     // Check 7: Fright mode flips on power pellet and ghost can be eaten & benched
-    console.log('\n[Check 7/29] Testing Fright Mode & ghost benching...');
+    console.log('\n[Check 7/30] Testing Fright Mode & ghost benching...');
     await page.evaluate(() => window.__RM_GAME__.triggerFright(5.0));
     await page.waitForTimeout(200);
 
@@ -197,7 +197,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 8: Win / Maze Clear screen reachable
-    console.log('\n[Check 8/29] Testing Win / Maze Clear screen...');
+    console.log('\n[Check 8/30] Testing Win / Maze Clear screen...');
     await page.evaluate(() => window.__RM_GAME__.forceWin());
     await page.waitForTimeout(300);
 
@@ -213,7 +213,7 @@ async function runAcceptanceTests() {
     console.log('  📸 Captured screenshot: screenshots/win.png');
 
     // Check 9: Lose screen reachable
-    console.log('\n[Check 9/29] Testing Game Over screen...');
+    console.log('\n[Check 9/30] Testing Game Over screen...');
     await page.evaluate(() => window.__RM_GAME__.forceLose());
     await page.waitForTimeout(300);
 
@@ -229,7 +229,7 @@ async function runAcceptanceTests() {
     console.log('  📸 Captured screenshot: screenshots/gameover.png');
 
     // Check 10: Squad exits the house and hunts (regression: ghosts once looped in the house pocket)
-    console.log('\n[Check 10/29] Testing squad house exit and hunting range...');
+    console.log('\n[Check 10/30] Testing squad house exit and hunting range...');
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(400);
     await page.click('#btn-play');
@@ -310,7 +310,7 @@ async function runAcceptanceTests() {
     // ===== Round 2 checks: the Green Valley Flip and the soundtrack =====
 
     // Check 11: Flip triggers on a real power-pellet pickup; forced survival returns to playing unbenched
-    console.log('\n[Check 11/29] Testing the Green Valley Flip on a real power-pellet pickup...');
+    console.log('\n[Check 11/30] Testing the Green Valley Flip on a real power-pellet pickup...');
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(400);
     const musicBeforeGesture = await page.evaluate(() => window.__RM_GAME__.getMusicState());
@@ -381,7 +381,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 12: Flip caught path benches that ghost and returns to playing
-    console.log('\n[Check 12/29] Testing the flip caught path (bench + return to maze)...');
+    console.log('\n[Check 12/30] Testing the flip caught path (bench + return to maze)...');
     await page.evaluate(() => window.__RM_GAME__.triggerFlip());
     await page.waitForTimeout(300);
     const freshFlipState = await page.evaluate(() => window.__RM_GAME__.getState());
@@ -405,7 +405,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 13: Soundtrack states + zero console errors across the whole battery
-    console.log('\n[Check 13/29] Testing soundtrack states and console cleanliness...');
+    console.log('\n[Check 13/30] Testing soundtrack states and console cleanliness...');
     if (musicBeforeGesture !== 'off') throw new Error(`Music should be off before the first gesture, got "${musicBeforeGesture}"`);
     if (musicAfterPlay !== 'maze') throw new Error(`Music should read "maze" after PLAY, got "${musicAfterPlay}"`);
     if (musicDuringFlip !== 'valley') throw new Error(`Music should read "valley" during the flip, got "${musicDuringFlip}"`);
@@ -437,7 +437,7 @@ async function runAcceptanceTests() {
 
     // Check 14: The top-right pellet routes to Block Kingdom; forced survival returns to playing unbenched with the bonus;
     // the music reads "kingdom" during the segment.
-    console.log('\n[Check 14/29] Testing flip routing (top-right pellet → Block Kingdom) and kingdom survival...');
+    console.log('\n[Check 14/30] Testing flip routing (top-right pellet → Block Kingdom) and kingdom survival...');
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(400);
     await page.click('#btn-play');
@@ -516,7 +516,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 15: Kingdom caught path benches that ghost and returns to playing
-    console.log('\n[Check 15/29] Testing the Block Kingdom caught path (bench + return to maze)...');
+    console.log('\n[Check 15/30] Testing the Block Kingdom caught path (bench + return to maze)...');
     await page.evaluate(() => window.__RM_GAME__.triggerFlip('kingdom'));
     await page.waitForTimeout(300);
     const freshKingdom = await page.evaluate(() => window.__RM_GAME__.getFlip());
@@ -545,7 +545,7 @@ async function runAcceptanceTests() {
     // ===== Round 4 checks: GLOOM corridor shooter flip & Phantom Grand Prix kart racer flip =====
 
     // Check 16: GLOOM routing and survival (bottom-left pellet)
-    console.log('\n[Check 16/29] Testing GLOOM routing and survival (bottom-left pellet)...');
+    console.log('\n[Check 16/30] Testing GLOOM routing and survival (bottom-left pellet)...');
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(400);
     await page.click('#btn-play');
@@ -607,7 +607,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 17: GLOOM caught path
-    console.log('\n[Check 17/29] Testing GLOOM caught path (bench + return to maze)...');
+    console.log('\n[Check 17/30] Testing GLOOM caught path (bench + return to maze)...');
     await page.evaluate(() => window.__RM_GAME__.triggerFlip('gloom'));
     await page.waitForTimeout(300);
     const freshGloom = await page.evaluate(() => window.__RM_GAME__.getFlip());
@@ -632,7 +632,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 18: Phantom Grand Prix routing and survival (bottom-right pellet)
-    console.log('\n[Check 18/29] Testing Phantom Grand Prix routing and survival (bottom-right pellet)...');
+    console.log('\n[Check 18/30] Testing Phantom Grand Prix routing and survival (bottom-right pellet)...');
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(400);
     await page.click('#btn-play');
@@ -694,7 +694,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 19: Grand Prix caught path
-    console.log('\n[Check 19/29] Testing Phantom Grand Prix caught path (bench + return to maze)...');
+    console.log('\n[Check 19/30] Testing Phantom Grand Prix caught path (bench + return to maze)...');
     await page.evaluate(() => window.__RM_GAME__.triggerFlip('grandprix'));
     await page.waitForTimeout(300);
     const freshGP = await page.evaluate(() => window.__RM_GAME__.getFlip());
@@ -791,7 +791,7 @@ async function runAcceptanceTests() {
     const describeFrame = s => `${s.distinct} distinct colours, dominant ${s.dominantColour} at ${(s.dominantShare * 100).toFixed(1)}%`;
 
     // Check 20: GLOOM render sanity — a real frame of live corridor play shows a corridor and a Menace figure
-    console.log('\n[Check 20/29] GLOOM render sanity (pixel analysis of a live mid-corridor frame)...');
+    console.log('\n[Check 20/30] GLOOM render sanity (pixel analysis of a live mid-corridor frame)...');
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(400);
     await page.click('#btn-play');
@@ -872,7 +872,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 21: Render sanity for the other three flips — a mid-play frame of each is a real picture
-    console.log('\n[Check 21/29] Render sanity for Green Valley, Block Kingdom and Phantom Grand Prix...');
+    console.log('\n[Check 21/30] Render sanity for Green Valley, Block Kingdom and Phantom Grand Prix...');
     const otherFlips = [
       { kind: 'valley', name: 'Green Valley' },
       { kind: 'kingdom', name: 'Block Kingdom' },
@@ -923,7 +923,7 @@ async function runAcceptanceTests() {
     const leaveEngine = async () => { await page.evaluate(() => window.__RM_GAME__.forceFlipSurvive()); await page.waitForTimeout(250); };
 
     // Check 22: Block Kingdom engine — a stomp flattens a minion; a bumped block releases its pickup
-    console.log('\n[Check 22/29] Block Kingdom engine: a stomp flattens a minion and a bumped block releases its pickup...');
+    console.log('\n[Check 22/30] Block Kingdom engine: a stomp flattens a minion and a bumped block releases its pickup...');
     await startEngine('kingdom');
     await D('freezeMenace', true);
     let kf = await F();
@@ -958,7 +958,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 23: Green Valley engine — a hit scatters rings; a downhill measurably builds speed over the flat
-    console.log('\n[Check 23/29] Green Valley engine: a Menace hit scatters rings, downhill builds speed over flat...');
+    console.log('\n[Check 23/30] Green Valley engine: a Menace hit scatters rings, downhill builds speed over flat...');
     await startEngine('valley');
     await D('freezeMenace', true);
     await D('place', { x: 300, speed: 200, rings: 12 });
@@ -993,7 +993,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 24: GLOOM engine — turning in place changes the rendered view; a door opens on approach
-    console.log('\n[Check 24/29] GLOOM engine: turning in place changes the rendered view, a door opens on approach...');
+    console.log('\n[Check 24/30] GLOOM engine: turning in place changes the rendered view, a door opens on approach...');
     await startEngine('gloom');
     await D('freezeMenace', true);
     const sampleCentre = () => page.evaluate(() => {
@@ -1039,7 +1039,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 25: Phantom Grand Prix engine — a held drift releases a measurable speed boost
-    console.log('\n[Check 25/29] Phantom Grand Prix engine: a held drift releases a measurable speed boost...');
+    console.log('\n[Check 25/30] Phantom Grand Prix engine: a held drift releases a measurable speed boost...');
     await startEngine('grandprix');
     await D('freezeRivals', true);
     const trackInfo = await D('track', null);
@@ -1076,7 +1076,7 @@ async function runAcceptanceTests() {
     //     Each flip he triggers is survived through the hook (all four hunters stay on the board). He must eat at
     //     least 2 DISTINCT power pellets before his second catch, inside a bounded window of maze time — the proof
     //     that the flips are reachable in a normal game.
-    console.log('\n[Check 26/29] Menace brain: head-on avoidance trials and an AI-vs-AI power-pellet soak...');
+    console.log('\n[Check 26/30] Menace brain: head-on avoidance trials and an AI-vs-AI power-pellet soak...');
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(400);
     await page.click('#btn-play');
@@ -1180,7 +1180,7 @@ async function runAcceptanceTests() {
     // (b) Two karts set overlapping at speed (the ghost behind and faster, a squad kart ahead and slower, both on
     //     the centre line) must separate to at least the sum of their contact radii within the step, and the
     //     rammed kart must be shoved (a measurable gain of run / sideways push and a yaw wobble), never spun.
-    console.log('\n[Check 27/29] Phantom Grand Prix physics: a spin-out cycles yaw frames flat with zero in-plane rotation; overlapping karts separate and a soft contact shoves, never spins...');
+    console.log('\n[Check 27/30] Phantom Grand Prix physics: a spin-out cycles yaw frames flat with zero in-plane rotation; overlapping karts separate and a soft contact shoves, never spins...');
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(600);
     await page.click('#btn-play');
@@ -1240,7 +1240,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // ===== Round 12 touch controls, kept at full rigour in Round 14 =====
-    console.log('\n[Check 28/29] Grand Prix touch steering: screen-half holds, multi-touch DRIFT and keyboard controls...');
+    console.log('\n[Check 28/30] Grand Prix touch steering: screen-half holds, multi-touch DRIFT and keyboard controls...');
     await startEngine('grandprix');
     await D('freezeRivals', true);
     // A real touch on the right half of the canvas, then multi-touch DRIFT.
@@ -1312,7 +1312,7 @@ async function runAcceptanceTests() {
     // ===== Round 14 check: no audience assets; contact shadows, striped kerbs and a chequered line =====
     // Instrument every image source assignment and canvas drawImage source before a fresh page load. This catches
     // both direct requests and fallback requests, and any retired image that somehow reaches the renderer.
-    console.log('\n[Check 29/29] Grand Prix crowd absence and race presentation: asset audit and rendered pixel samples...');
+    console.log('\n[Check 29/30] Grand Prix crowd absence and race presentation: asset audit and rendered pixel samples...');
     await page.addInitScript(() => {
       const audit = window.__gpAssetAudit = { loads: [], draws: [] };
       const src = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src');
@@ -1430,6 +1430,196 @@ async function runAcceptanceTests() {
     console.log(`  ✓ PASS: zero retired audience files, source references, image loads or draws; contact shadows drawn for all 4 karts and pixel-sampled; red/white kerbs and black/white start line confirmed in the rendered frame; 0 console errors across all 29 checks.`);
     passedCount++;
     }
+
+    // ===== Round 15 check: the complete panel slate, measured through live state and real input =====
+    console.log('\n[Check 30/30] Panel slate: teaching, grace, bench return, compass, mid-drag touch, audio and sprites...');
+    await page.addInitScript(() => {
+      const audit = window.__panelAudioAudit = { compressorsCreated: 0, limiterToDestination: 0 };
+      const createCompressor = AudioContext.prototype.createDynamicsCompressor;
+      AudioContext.prototype.createDynamicsCompressor = function(...args) {
+        audit.compressorsCreated++;
+        return createCompressor.apply(this, args);
+      };
+      const connect = AudioNode.prototype.connect;
+      AudioNode.prototype.connect = function(destination, ...args) {
+        if (this instanceof DynamicsCompressorNode && destination === this.context.destination) audit.limiterToDestination++;
+        return connect.call(this, destination, ...args);
+      };
+    });
+    await page.reload({ waitUntil: 'load' });
+    await page.evaluate(() => localStorage.removeItem('rm_flip_entry_hints'));
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForTimeout(700);
+    await page.click('#btn-play');
+    await page.waitForTimeout(300);
+
+    let panel = await page.evaluate(() => window.__RM_GAME__.getPanelState());
+    if (panel.hudLabel.toUpperCase() !== 'PELLETS LEFT') throw new Error(`In-play pellet label is "${panel.hudLabel}"`);
+    if (panel.guideCards.length !== 4) throw new Error(`How to Play has ${panel.guideCards.length} flip cards instead of 4`);
+    if (!/spikes, use springs, and carry speed through the loop/i.test(panel.guideCards[0])) throw new Error('Green Valley does not teach its shipped spikes, springs and loop');
+    if (!/Left \/ Right turn; A \/ D or swipe strafes; Space or tap fires/i.test(panel.guideCards[2]) || !/EXIT teleporter/i.test(panel.guideCards[2])) throw new Error('GLOOM card does not teach turn / strafe / fire / teleporter');
+    console.log(`  · teaching: HUD "${panel.hudLabel.toUpperCase()}", ${panel.guideCards.length} compact flip cards; GLOOM and Green Valley wording matches the engines`);
+
+    const beforeCatch = await page.evaluate(() => ({ menace: window.__RM_GAME__.getMenace(), score: window.__RM_GAME__.getScore(), nudge: window.__RM_GAME__.getPanelState().possessionNudgeCount }));
+    if (beforeCatch.menace.speedFactor !== 0.93 || beforeCatch.nudge !== 0) throw new Error(`Maze 1 initial grace is wrong (factor ${beforeCatch.menace.speedFactor}, nudges ${beforeCatch.nudge})`);
+    await page.evaluate(() => window.__RM_GAME__.simulateCatch());
+    await page.waitForTimeout(120);
+    const firstCatch = await page.evaluate(() => ({ menace: window.__RM_GAME__.getMenace(), score: window.__RM_GAME__.getScore(), panel: window.__RM_GAME__.getPanelState(), taunt: window.__RM_GAME__.getLastTaunt() }));
+    if (firstCatch.panel.possessionNudgeCount !== 1 || !/POSSESS ANOTHER GHOST/.test(firstCatch.taunt)) throw new Error(`First-catch nudge did not land exactly once (${firstCatch.panel.possessionNudgeCount}, "${firstCatch.taunt}")`);
+    if (firstCatch.menace.speedFactor !== 1) throw new Error(`Post-catch Menace speed factor is ${firstCatch.menace.speedFactor}, expected 1`);
+    if (firstCatch.score - beforeCatch.score !== 500) throw new Error(`Catch award was ${firstCatch.score - beforeCatch.score}, expected 500`);
+    await page.evaluate(() => window.__RM_GAME__.simulateCatch());
+    await page.waitForTimeout(120);
+    const secondCatch = await page.evaluate(() => ({ menace: window.__RM_GAME__.getMenace(), panel: window.__RM_GAME__.getPanelState() }));
+    if (secondCatch.panel.possessionNudgeCount !== 1) throw new Error(`Possession nudge repeated (${secondCatch.panel.possessionNudgeCount} times)`);
+    if (secondCatch.menace.speedFactor !== 1) throw new Error('Second catch changed the full-speed factor');
+    console.log(`  · first catch: nudges ${beforeCatch.nudge} → ${firstCatch.panel.possessionNudgeCount} → ${secondCatch.panel.possessionNudgeCount}; award +${firstCatch.score - beforeCatch.score}; Maze 1 speed factor ${beforeCatch.menace.speedFactor.toFixed(2)}× → ${firstCatch.menace.speedFactor.toFixed(2)}× → ${secondCatch.menace.speedFactor.toFixed(2)}×`);
+    console.log(`  · same-build AI soak (check 26): ${(mazeMs / 1000).toFixed(1)}s maze time, ${powersEaten.size} distinct corner pellets (${[...powersEaten].join(' ')}), ${soakCatches} catches${firstCatchAt >= 0 ? `, first at ${firstCatchAt.toFixed(1)}s` : ''}`);
+
+    // GLOOM's start cell: the first field step goes up the corridor, rather than left toward the wall at (9,12).
+    await page.evaluate(() => window.__RM_GAME__.triggerFlip('gloom'));
+    await page.waitForTimeout(120);
+    const gloomStart = await F();
+    const compass = gloomStart.extra.compass;
+    const compassMap = await D('map', null);
+    const expectedBearing = Math.atan2(compass.target.y + 0.5 - gloomStart.extra.py, compass.target.x + 0.5 - gloomStart.extra.px);
+    if (compassMap[compass.target.y][compass.target.x] === '#') throw new Error('Compass targets a wall');
+    if (!(compass.target.field < compass.currentField)) throw new Error(`Compass does not descend the exit field (${compass.currentField} → ${compass.target.field})`);
+    if (Math.abs(compass.bearing - expectedBearing) > 1e-9) throw new Error('Compass bearing does not point at its chosen neighbouring cell');
+    if (compass.target.x !== 12 || compass.target.y !== 11 || Math.abs(compass.bearing - compass.straightBearing) < 1) throw new Error(`Spawn compass did not take the upward corridor: ${JSON.stringify(compass)}`);
+    panel = await page.evaluate(() => window.__RM_GAME__.getPanelState());
+    if (!panel.flipHint.visible || !/TURN · A \/ D OR SWIPE STRAFES · SPACE OR TAP FIRES · REACH THE EXIT/.test(panel.flipHint.text) || !panel.flipHint.storedHints.gloom) throw new Error(`First GLOOM entry hint missing or not persisted (${JSON.stringify(panel.flipHint)})`);
+    await leaveEngine();
+    await page.evaluate(() => window.__RM_GAME__.triggerFlip('gloom'));
+    await page.waitForTimeout(100);
+    const secondHint = (await page.evaluate(() => window.__RM_GAME__.getPanelState())).flipHint;
+    if (secondHint.visible) throw new Error('Persisted GLOOM entry hint appeared a second time');
+    await leaveEngine();
+    console.log(`  · GLOOM spawn field ${compass.currentField} → ${compass.target.field} at (${compass.target.x},${compass.target.y}); bearing ${compass.bearing.toFixed(3)} rad along corridor vs ${compass.straightBearing.toFixed(3)} rad straight-line; hint first entry shown, repeat hidden`);
+
+    // Reload against the same origin: storage survives, the hint does not appear, and the fresh run supports the timer proof.
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForTimeout(600);
+    await page.click('#btn-play');
+    await page.waitForTimeout(200);
+    await page.evaluate(() => window.__RM_GAME__.triggerFlip('gloom'));
+    await page.waitForTimeout(100);
+    const reloadedHint = (await page.evaluate(() => window.__RM_GAME__.getPanelState())).flipHint;
+    if (reloadedHint.visible || !reloadedHint.storedHints.gloom) throw new Error(`GLOOM hint did not persist across reload (${JSON.stringify(reloadedHint)})`);
+    await leaveEngine();
+
+    // Timer: no catch resets the squad; the Menace is immobilised only as staging for this unrelated 15-second test.
+    await page.evaluate(() => {
+      for (let i = 0; i < 3; i++) window.__RM_GAME__.parkGhost(i);
+      window.__game.menace.speed = 0;
+      window.__RM_GAME__.forceEatGhost(3);
+    });
+    await page.waitForFunction(() => {
+      const g = window.__RM_GAME__.getSquad()[3];
+      return g.isBenched && g.state === 'HOUSE' && Number.isFinite(g.benchTimer);
+    }, { timeout: 3000 });
+    const benchStart = Date.now();
+    const benchInitial = await page.evaluate(() => ({ ghost: window.__RM_GAME__.getSquad()[3], label: window.__RM_GAME__.getPanelState().benchLabels[3] }));
+    if (!(benchInitial.ghost.benchTimer > 14 && benchInitial.ghost.benchTimer <= 15) || !/^\d+s$/.test(benchInitial.label)) throw new Error(`Bench countdown not visible (${benchInitial.ghost.benchTimer}, "${benchInitial.label}")`);
+    await page.waitForFunction(() => {
+      const g = window.__RM_GAME__.getSquad()[3];
+      return !g.isBenched && (g.state === 'EXITING' || g.state === 'CHASE');
+    }, { timeout: 18000 });
+    const benchSeconds = (Date.now() - benchStart) / 1000;
+    if (benchSeconds < 14.5 || benchSeconds > 17.5) throw new Error(`Bench return took ${benchSeconds.toFixed(2)}s, expected about 15s`);
+    console.log(`  · bench: countdown ${benchInitial.ghost.benchTimer.toFixed(2)}s visible as "${benchInitial.label}"; ghost re-entered without a catch after another ${benchSeconds.toFixed(2)}s (${(await page.evaluate(() => window.__RM_GAME__.getSquad()[3])).state})`);
+
+    // A real drag beginning over two ghosts steers before release, chains, and never possesses the other ghost.
+    await page.evaluate(() => {
+      window.__RM_GAME__.setGhostPos(0, 5, 5);
+      window.__RM_GAME__.setGhostPos(1, 5, 5);
+      window.__RM_GAME__.possess(0);
+    });
+    const panelCdp = await context.newCDPSession(page);
+    const mazeBox = await page.$eval('#gameCanvas', el => { const r = el.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; });
+    const ghostTouch = { x: mazeBox.x + mazeBox.w * 5.5 / 19, y: mazeBox.y + mazeBox.h * 5.5 / 21 };
+    const swipeBefore = await page.evaluate(() => ({ x: window.__RM_GAME__.getSquad()[0].x, swipes: window.__RM_GAME__.getPanelState().midDragSwipeCount }));
+    await panelCdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: ghostTouch.x, y: ghostTouch.y, id: 41 }] });
+    await panelCdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: ghostTouch.x + 42, y: ghostTouch.y, id: 41 }] });
+    await page.waitForTimeout(140);
+    const midDrag = await page.evaluate(() => ({ squad: window.__RM_GAME__.getSquad(), panel: window.__RM_GAME__.getPanelState() }));
+    if (midDrag.panel.midDragSwipeCount <= swipeBefore.swipes || !(midDrag.squad[0].x > swipeBefore.x)) throw new Error('The 42px drag did not steer before touchend');
+    if (midDrag.squad.findIndex(g => g.isPossessed) !== 0) throw new Error('The drag beginning on a ghost possessed it before release');
+    await panelCdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: ghostTouch.x + 42, y: ghostTouch.y + 42, id: 41 }] });
+    await page.waitForTimeout(300);
+    const chainedDrag = await page.evaluate(() => window.__RM_GAME__.getPanelState());
+    if (chainedDrag.midDragSwipeCount - swipeBefore.swipes < 2) throw new Error('The re-anchored drag did not chain a second turn');
+    if (chainedDrag.dpad.opacity > 0.25) throw new Error(`D-pad did not dim after steering (${chainedDrag.dpad.opacity})`);
+    await panelCdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await page.waitForTimeout(80);
+    if ((await page.evaluate(() => window.__RM_GAME__.getSquad().findIndex(g => g.isPossessed))) !== 0) throw new Error('Touchend possessed the ghost where the steering drag began');
+    console.log(`  · mid-drag: ${chainedDrag.midDragSwipeCount - swipeBefore.swipes} swipes at 42px before touchend, ghost x ${swipeBefore.x.toFixed(1)} → ${midDrag.squad[0].x.toFixed(1)}, possession stayed Ember; resting D-pad opacity ${chainedDrag.dpad.opacity.toFixed(2)}`);
+
+    await page.$eval('.dpad-right', el => el.dispatchEvent(new TouchEvent('touchstart', { bubbles: true, cancelable: true })));
+    await page.waitForTimeout(250);
+    const heldDpad = (await page.evaluate(() => window.__RM_GAME__.getPanelState())).dpad;
+    if (!heldDpad.touched || heldDpad.opacity < 0.95) throw new Error(`Touched D-pad did not brighten (${heldDpad.opacity})`);
+    await page.$eval('.dpad-right', el => el.dispatchEvent(new TouchEvent('touchend', { bubbles: true, cancelable: true })));
+    await page.click('#btn-pause');
+    await page.waitForTimeout(250);
+    const pausedDpad = (await page.evaluate(() => window.__RM_GAME__.getPanelState())).dpad;
+    if (pausedDpad.opacity !== 1) throw new Error(`Pause did not restore D-pad strength (${pausedDpad.opacity})`);
+    await page.click('#btn-pause-quit');
+    await page.click('#btn-how-to-play');
+    await page.waitForTimeout(100);
+    const howDpad = (await page.evaluate(() => window.__RM_GAME__.getPanelState())).dpad;
+    if (howDpad.opacity !== 1) throw new Error(`How to Play did not restore D-pad strength (${howDpad.opacity})`);
+    console.log(`  · D-pad: touched ${heldDpad.opacity.toFixed(2)}, paused ${pausedDpad.opacity.toFixed(2)}, How to Play ${howDpad.opacity.toFixed(2)}`);
+    const desktop = await browser.newPage({ viewport: { width: 480, height: 800 }, hasTouch: false });
+    await desktop.goto(indexPath, { waitUntil: 'load' });
+    await desktop.waitForTimeout(400);
+    await desktop.click('#btn-play');
+    const desktopDpad = await desktop.evaluate(() => window.__RM_GAME__.getPanelState().dpad);
+    await desktop.close();
+    if (desktopDpad.display !== 'none') throw new Error(`Non-touch D-pad renders (${desktopDpad.display})`);
+    await page.click('#btn-back-how');
+    await page.click('#btn-play');
+    await page.waitForTimeout(200);
+
+    // Grand Prix: real scheduled countdown, a pickup on the real item path, the limiter graph and visibility handling.
+    await page.evaluate(() => window.__RM_GAME__.triggerFlip('grandprix'));
+    await page.waitForTimeout(1200);
+    await D('freezeRivals', true);
+    const gpStartAudio = await page.evaluate(() => window.__RM_GAME__.getAudioState());
+    const countdownEvents = gpStartAudio.audioEvents.filter(e => e.kind === 'gp-countdown');
+    if (countdownEvents.length !== 1) throw new Error(`GP start scheduled ${countdownEvents.length} countdowns`);
+    const countdownEvent = countdownEvents[0];
+    if (countdownEvent.frequencies.join(',') !== '220,220,220,880' || countdownEvent.goFrequency !== 880 || countdownEvent.startTimes.some((t, i, a) => i && Math.abs((t - a[i - 1]) - 0.3) > 0.001)) throw new Error(`Wrong GP beep schedule (${JSON.stringify(countdownEvent)})`);
+    await D('place', { s: 320, lane: 0, speed: 0 });
+    await page.waitForTimeout(220);
+    const pickupAudio = await page.evaluate(() => window.__RM_GAME__.getAudioState());
+    const pickupEvents = pickupAudio.audioEvents.filter(e => e.kind === 'gp-pickup');
+    if (!pickupEvents.length) throw new Error('A real GP coin pickup did not use the kart pickup voice');
+    const graphAudit = await page.evaluate(() => window.__panelAudioAudit);
+    const limiter = pickupAudio.limiter;
+    if (!pickupAudio.hasLimiter || graphAudit.compressorsCreated !== 1 || graphAudit.limiterToDestination !== 1) throw new Error(`Master limiter graph wrong (${JSON.stringify(graphAudit)})`);
+    if (!(limiter.threshold === -18 && limiter.ratio === 20 && limiter.attack < 0.003 && limiter.attack > 0)) throw new Error(`Limiter settings wrong (${JSON.stringify(limiter)})`);
+    const gpSprites = await D('sprites', null);
+    const gpExtra = (await F()).extra;
+    if (!gpSprites.kartsReady || !gpSprites.treesReady || gpSprites.kartFrames !== 80 || gpSprites.treeFrames !== 3 || gpSprites.failedImageLoads !== 0 || gpExtra.failedImageLoads !== 0) throw new Error(`Grand Prix sprite integrity failed (${JSON.stringify(gpSprites)})`);
+    console.log(`  · GP audio: ${countdownEvent.frequencies.join('/')} Hz at 0.3s steps, ${pickupEvents.length} kart-pickup blip(s); compressor→destination ${graphAudit.limiterToDestination}, threshold ${limiter.threshold}dB, ratio ${limiter.ratio}:1, attack ${(limiter.attack * 1000).toFixed(1)}ms`);
+    console.log(`  · GP sprites: karts ${gpSprites.kartFrames}/${gpSprites.kartTotal} ready=${gpSprites.kartsReady}, trees ${gpSprites.treeFrames}/${gpSprites.treeTotal} ready=${gpSprites.treesReady}, failed image loads ${gpSprites.failedImageLoads}`);
+
+    await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, get: () => true }); document.dispatchEvent(new Event('visibilitychange')); });
+    const hiddenSchedulerStart = (await page.evaluate(() => window.__RM_GAME__.getAudioState())).musicNextTime;
+    await page.waitForTimeout(300);
+    const hiddenAudio = await page.evaluate(() => window.__RM_GAME__.getAudioState());
+    if (hiddenAudio.contextState !== 'suspended' || hiddenAudio.visibilitySuspendCount < 1) throw new Error(`Hide did not suspend audio (${hiddenAudio.contextState})`);
+    if (hiddenAudio.musicNextTime !== hiddenSchedulerStart) throw new Error(`Hidden scheduler kept advancing (${hiddenSchedulerStart} → ${hiddenAudio.musicNextTime})`);
+    await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, get: () => false }); document.dispatchEvent(new Event('visibilitychange')); });
+    await page.waitForFunction(() => window.__RM_GAME__.getAudioState().contextState === 'running', { timeout: 2000 });
+    const visibleAudio = await page.evaluate(() => window.__RM_GAME__.getAudioState());
+    if (visibleAudio.visibilityResumeCount < 1) throw new Error('Visible transition did not resume audio');
+    console.log(`  · visibility: hidden state ${hiddenAudio.contextState}, suspend calls ${hiddenAudio.visibilitySuspendCount}; scheduler nextTime held at ${hiddenAudio.musicNextTime.toFixed(3)}s; visible state ${visibleAudio.contextState}, resume calls ${visibleAudio.visibilityResumeCount}`);
+
+    if (consoleErrors.length > 0) throw new Error(`Console errors during the panel-slate check: ${consoleErrors.join(' | ')}`);
+    console.log('  ✓ PASS: all Round 15 teaching, balance, touch, audio and sprite checks passed; 0 console errors across all 30 checks.');
+    passedCount++;
 
   } catch (err) {
     console.error(`\n❌ TEST FAILED: ${err.message}`);

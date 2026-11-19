@@ -530,14 +530,63 @@
       height: 160px;
       z-index: 15;
       pointer-events: auto;
-      opacity: 0.45;
+      opacity: 0.85;
       transition: opacity 0.2s;
     }
 
-    @media (pointer: coarse) {
-      #touch-controls {
-        display: block;
-      }
+    body.touch-device #touch-controls { display: block; }
+    #touch-controls.dimmed { opacity: 0.16; }
+    #touch-controls.touched,
+    #touch-controls.force-full { opacity: 1; }
+
+    #how-screen {
+      justify-content: flex-start;
+      overflow-y: auto;
+    }
+
+    .flip-guide-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      width: 100%;
+      max-width: 380px;
+      margin-bottom: 12px;
+    }
+
+    .flip-guide-card {
+      background: rgba(18, 20, 39, 0.95);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 10px;
+      text-align: left;
+      font-size: 11px;
+      line-height: 1.4;
+      color: #cbd5e1;
+    }
+
+    .flip-guide-card strong {
+      display: block;
+      color: #ffd32a;
+      font-size: 12px;
+      margin-bottom: 3px;
+    }
+
+    #flip-entry-hint {
+      display: none;
+      color: #f8fafc;
+      font-size: 10px;
+      line-height: 1.35;
+      text-align: center;
+      letter-spacing: 0.25px;
+    }
+
+    #flip-entry-hint.visible { display: block; }
+    #taunt-banner.teaching {
+      width: calc(100% - 32px);
+      white-space: normal;
+      font-size: 12px;
+      line-height: 1.35;
+      letter-spacing: 0.5px;
     }
 
     .dpad-btn {
@@ -651,7 +700,7 @@
     </div>
 
     <div class="hud-group">
-      <span class="hud-label">Pellets Saved</span>
+      <span class="hud-label">Pellets Left</span>
       <span id="hud-pellets" class="hud-value">0 / 0</span>
     </div>
 
@@ -679,6 +728,7 @@
     <div class="fright-progress-track">
       <div id="fright-progress-fill"></div>
     </div>
+    <div id="flip-entry-hint"></div>
   </div>
 
   <!-- Canvas Viewport -->
@@ -770,7 +820,7 @@
       </div>
       <div class="info-rule">
         <span class="info-rule-bullet">4.</span>
-        <span><strong>The Flips.</strong> When he grabs a power pellet the maze tears open and your ghost is thrown into that corner's mini-game with the Menace right behind you. Top-left: <strong>Green Valley</strong> (jump rocks and logs as he rolls). Top-right: <strong>Block Kingdom</strong> (hold to jump higher, land on sprouts for +50). Bottom-left: <strong>GLOOM</strong> (strafe 3 lanes with Left/Right or A/D, blast pellets with Space/tap to knock him back, reach EXIT). Bottom-right: <strong>Phantom Grand Prix</strong> (touch: press and hold the left or right half of the screen to steer, let go to straighten, with DRIFT and ITEM buttons in the bottom corners — hold DRIFT while turning, release to boost; keyboard: Left/Right or A/D steer, Space hop-to-drift, Down uses your item or brakes; hit boost pads, finish 1 lap ahead of him). Survive (+200) or get benched!</span>
+        <span><strong>The Flips.</strong> A corner power pellet throws your ghost into that corner's mini-game. Survive (+200) or get benched!</span>
       </div>
 
       <div class="squad-info-grid">
@@ -790,6 +840,24 @@
           <strong style="color: var(--accent-goldie);">Goldie (Shy One)</strong>
           Hunts until close, then holds quadrant block.
         </div>
+      </div>
+    </div>
+    <div class="flip-guide-grid">
+      <div class="flip-guide-card">
+        <strong>GREEN VALLEY · Reach the Maze Gate</strong>
+        Space / ↑ / W or tap jumps; ↓ / S or swipe down fast-falls. Clear spikes, use springs, and carry speed through the loop.
+      </div>
+      <div class="flip-guide-card">
+        <strong>BLOCK KINGDOM · Reach the banner pole</strong>
+        Hold Space / ↑ / W or tap to jump higher; release to land. ↓ / S fast-falls. Stomp sprouts for +50.
+      </div>
+      <div class="flip-guide-card">
+        <strong>GLOOM · Reach the EXIT teleporter</strong>
+        Left / Right turn; A / D or swipe strafes; Space or tap fires. Up / W moves forward through the corridors.
+      </div>
+      <div class="flip-guide-card">
+        <strong>GRAND PRIX · Finish one lap ahead</strong>
+        Left / Right or A / D steers; Space hop-drifts; Down uses an item or brakes. Touch: hold a screen half, with DRIFT and ITEM buttons.
       </div>
     </div>
     <button id="btn-back-how" class="menu-btn secondary">Back to Menu</button>
@@ -902,21 +970,52 @@ class SoundEngine {
     this.ambient = null;        // Running ambient bed (GLOOM's hum), see startAmbient
     this.ambientWanted = null;  // Which bed a live flip wants, so unmute can bring it back
     this.ambientTensionValue = 0;
+    this.limiter = null;
+    this.audioEvents = [];
+    this.backgroundHidden = document.hidden;
+    this.visibilitySuspendCount = 0;
+    this.visibilityResumeCount = 0;
+    document.addEventListener('visibilitychange', () => this.handleVisibility());
   }
 
   init() {
     if (!this.ctx) {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
       if (AudioCtx) {
-        try { this.ctx = new AudioCtx(); } catch (e) { this.ctx = null; }
+        try {
+          this.ctx = new AudioCtx();
+          this.limiter = this.ctx.createDynamicsCompressor();
+          this.limiter.threshold.value = -18;
+          this.limiter.knee.value = 6;
+          this.limiter.ratio.value = 20;
+          this.limiter.attack.value = 0.002;
+          this.limiter.release.value = 0.15;
+          this.limiter.connect(this.ctx.destination);
+        } catch (e) { this.ctx = null; this.limiter = null; }
       }
     }
-    if (this.ctx && this.ctx.state === 'suspended') {
+    if (this.ctx && this.ctx.state === 'suspended' && !this.backgroundHidden) {
       this.ctx.resume().catch(() => {});
     }
     if (!this.gestureSeen) {
       this.gestureSeen = true;
       if (this.onGesture) this.onGesture();
+    }
+  }
+
+  outputNode() { return this.limiter || this.ctx.destination; }
+
+  handleVisibility() {
+    this.backgroundHidden = document.hidden;
+    if (!this.ctx) return;
+    if (this.backgroundHidden) {
+      this.visibilitySuspendCount++;
+      if (this.ctx.state === 'running') this.ctx.suspend().catch(() => {});
+    } else {
+      this.ctx.resume().then(() => {
+        this.visibilityResumeCount++;
+        if (this.music) { this.music.rebaseClock(); this.music.apply(); }
+      }).catch(() => {});
     }
   }
 
@@ -952,7 +1051,7 @@ class SoundEngine {
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.035);
 
     osc.connect(gain);
-    gain.connect(this.ctx.destination);
+    gain.connect(this.outputNode());
     osc.start(now);
     osc.stop(now + 0.04);
   }
@@ -973,7 +1072,7 @@ class SoundEngine {
       gain.gain.setValueAtTime(0.12, t);
       gain.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
       osc.connect(gain);
-      gain.connect(this.ctx.destination);
+      gain.connect(this.outputNode());
       osc.start(t);
       osc.stop(t + 0.13);
     });
@@ -995,7 +1094,7 @@ class SoundEngine {
     gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
     src.connect(filter);
     filter.connect(gain);
-    gain.connect(this.ctx.destination);
+    gain.connect(this.outputNode());
     src.start(t);
     src.stop(t + dur + 0.01);
   }
@@ -1015,7 +1114,7 @@ class SoundEngine {
     gain.gain.setValueAtTime(0.09, now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.55);
     osc.connect(gain);
-    gain.connect(this.ctx.destination);
+    gain.connect(this.outputNode());
     osc.start(now);
     osc.stop(now + 0.56);
   }
@@ -1035,7 +1134,7 @@ class SoundEngine {
     gain.gain.setValueAtTime(0.1, now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.38);
     osc.connect(gain);
-    gain.connect(this.ctx.destination);
+    gain.connect(this.outputNode());
     osc.start(now);
     osc.stop(now + 0.4);
   }
@@ -1052,7 +1151,7 @@ class SoundEngine {
     gain.gain.setValueAtTime(0.045, now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
     osc.connect(gain);
-    gain.connect(this.ctx.destination);
+    gain.connect(this.outputNode());
     osc.start(now);
     osc.stop(now + 0.15);
   }
@@ -1070,7 +1169,7 @@ class SoundEngine {
     gain.gain.setValueAtTime(0.1, now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
     osc.connect(gain);
-    gain.connect(this.ctx.destination);
+    gain.connect(this.outputNode());
     osc.start(now);
     osc.stop(now + 0.21);
   }
@@ -1096,7 +1195,7 @@ class SoundEngine {
     tg.gain.setValueAtTime(0.07, now);
     tg.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
     thump.connect(tg);
-    tg.connect(this.ctx.destination);
+    tg.connect(this.outputNode());
     thump.start(now);
     thump.stop(now + 0.1);
     const boing = this.ctx.createOscillator();
@@ -1108,7 +1207,7 @@ class SoundEngine {
     bg.gain.setValueAtTime(0.05, now + 0.07);
     bg.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
     boing.connect(bg);
-    bg.connect(this.ctx.destination);
+    bg.connect(this.outputNode());
     boing.start(now + 0.07);
     boing.stop(now + 0.23);
   }
@@ -1126,7 +1225,7 @@ class SoundEngine {
     gain.gain.setValueAtTime(0.09, now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
     osc.connect(gain);
-    gain.connect(this.ctx.destination);
+    gain.connect(this.outputNode());
     osc.start(now);
     osc.stop(now + 0.13);
   }
@@ -1144,7 +1243,7 @@ class SoundEngine {
     gain.gain.setValueAtTime(0.05, now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
     osc.connect(gain);
-    gain.connect(this.ctx.destination);
+    gain.connect(this.outputNode());
     osc.start(now);
     osc.stop(now + 0.62);
     this.duck(0.4, 0.8);
@@ -1163,7 +1262,7 @@ class SoundEngine {
     gain.gain.setValueAtTime(0.06, now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
     osc.connect(gain);
-    gain.connect(this.ctx.destination);
+    gain.connect(this.outputNode());
     osc.start(now);
     osc.stop(now + 0.11);
   }
@@ -1182,7 +1281,7 @@ class SoundEngine {
       gain.gain.setValueAtTime(0.09, t);
       gain.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
       osc.connect(gain);
-      gain.connect(this.ctx.destination);
+      gain.connect(this.outputNode());
       osc.start(t);
       osc.stop(t + 0.21);
     });
@@ -1205,7 +1304,7 @@ class SoundEngine {
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
 
     osc.connect(gain);
-    gain.connect(this.ctx.destination);
+    gain.connect(this.outputNode());
     osc.start(now);
     osc.stop(now + 0.36);
   }
@@ -1222,7 +1321,7 @@ class SoundEngine {
     gain.gain.setValueAtTime(0.09, now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
     osc.connect(gain);
-    gain.connect(this.ctx.destination);
+    gain.connect(this.outputNode());
     osc.start(now);
     osc.stop(now + 0.19);
   }
@@ -1242,7 +1341,7 @@ class SoundEngine {
       gain.gain.setValueAtTime(0.08, t);
       gain.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
       osc.connect(gain);
-      gain.connect(this.ctx.destination);
+      gain.connect(this.outputNode());
       osc.start(t);
       osc.stop(t + 0.13);
     });
@@ -1260,7 +1359,7 @@ class SoundEngine {
     gain.gain.setValueAtTime(0.09, now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
     osc.connect(gain);
-    gain.connect(this.ctx.destination);
+    gain.connect(this.outputNode());
     osc.start(now);
     osc.stop(now + 0.23);
   }
@@ -1280,7 +1379,7 @@ class SoundEngine {
       gain.gain.setValueAtTime(0.12, t);
       gain.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
       osc.connect(gain);
-      gain.connect(this.ctx.destination);
+      gain.connect(this.outputNode());
       osc.start(t);
       osc.stop(t + 0.26);
     });
@@ -1301,7 +1400,7 @@ class SoundEngine {
       gain.gain.setValueAtTime(0.08, t);
       gain.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
       osc.connect(gain);
-      gain.connect(this.ctx.destination);
+      gain.connect(this.outputNode());
       osc.start(t);
       osc.stop(t + 0.23);
     });
@@ -1318,7 +1417,7 @@ class SoundEngine {
     gain.gain.setValueAtTime(0.04, now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.02);
     osc.connect(gain);
-    gain.connect(this.ctx.destination);
+    gain.connect(this.outputNode());
     osc.start(now);
     osc.stop(now + 0.025);
   }
@@ -1345,7 +1444,7 @@ class SoundEngine {
       node = f;
     }
     node.connect(g);
-    g.connect(this.ctx.destination);
+    g.connect(this.outputNode());
     osc.start(t);
     osc.stop(t + decay + 0.03);
     return g;
@@ -1401,7 +1500,7 @@ class SoundEngine {
     g.gain.setValueAtTime(0.14, now + dur * 0.55);
     g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
     formant.connect(g);
-    g.connect(ctx.destination);
+    g.connect(this.outputNode());
     [[1, 'sawtooth', 1], [2.01, 'square', 0.35]].forEach(([ratio, type, amp]) => {
       const osc = ctx.createOscillator();
       const og = ctx.createGain();
@@ -1445,7 +1544,7 @@ class SoundEngine {
     g.gain.exponentialRampToValueAtTime(0.0001, now + 0.38);
     src.connect(f);
     f.connect(g);
-    g.connect(ctx.destination);
+    g.connect(this.outputNode());
     src.start(now);
     src.stop(now + 0.4);
     // The clunk as the panel seats
@@ -1495,7 +1594,7 @@ class SoundEngine {
     g.gain.exponentialRampToValueAtTime(0.0001, now + 0.55);
     src.connect(f);
     f.connect(g);
-    g.connect(ctx.destination);
+    g.connect(this.outputNode());
     src.start(now);
     src.stop(now + 0.56);
   }
@@ -1513,7 +1612,7 @@ class SoundEngine {
     const master = ctx.createGain();
     master.gain.setValueAtTime(0.0001, now);
     master.gain.linearRampToValueAtTime(1, now + 1.2);
-    master.connect(ctx.destination);
+    master.connect(this.outputNode());
     const lp = ctx.createBiquadFilter();
     lp.type = 'lowpass';
     lp.frequency.setValueAtTime(170, now);
@@ -1601,9 +1700,32 @@ class SoundEngine {
     gain.gain.setValueAtTime(0.14, now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.32);
     osc.connect(gain);
-    gain.connect(this.ctx.destination);
+    gain.connect(this.outputNode());
     osc.start(now);
     osc.stop(now + 0.33);
+  }
+
+  playGrandPrixStart() {
+    if (this.muted || !this.ctx) return;
+    this.init();
+    const now = this.ctx.currentTime;
+    const frequencies = [220, 220, 220, 880];
+    const startTimes = frequencies.map((f, i) => now + i * 0.3);
+    this.audioEvents.push({ kind: 'gp-countdown', frequencies, startTimes, goFrequency: frequencies[3] });
+    frequencies.forEach((freq, i) => {
+      const go = i === 3;
+      this.zap(startTimes[i], { type: go ? 'triangle' : 'square', from: freq, to: go ? 1320 : 180, glide: go ? 0.16 : 0.09, gain: go ? 0.09 : 0.05, decay: go ? 0.22 : 0.12 });
+    });
+  }
+
+  playKartPickup(count = 0) {
+    if (this.muted || !this.ctx) return;
+    this.init();
+    const now = this.ctx.currentTime;
+    const from = 620 + (count % 5) * 55;
+    this.audioEvents.push({ kind: 'gp-pickup', frequency: from, startTime: now });
+    this.zap(now, { type: 'square', from, to: 1100 + (count % 5) * 60, glide: 0.07, gain: 0.045, decay: 0.1 });
+    this.zap(now + 0.025, { type: 'triangle', from: from * 1.5, to: from * 2, gain: 0.025, decay: 0.09 });
   }
 
   // Grand Prix: boost pad whoosh + rising tone
@@ -1620,7 +1742,7 @@ class SoundEngine {
     gain.gain.setValueAtTime(0.09, now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.26);
     osc.connect(gain);
-    gain.connect(this.ctx.destination);
+    gain.connect(this.outputNode());
     osc.start(now);
     osc.stop(now + 0.27);
   }
@@ -1639,7 +1761,7 @@ class SoundEngine {
     gain.gain.setValueAtTime(0.11, now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
     osc.connect(gain);
-    gain.connect(this.ctx.destination);
+    gain.connect(this.outputNode());
     osc.start(now);
     osc.stop(now + 0.22);
   }
@@ -1657,7 +1779,7 @@ class SoundEngine {
     gain.gain.setValueAtTime(0.025, now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
     osc.connect(gain);
-    gain.connect(this.ctx.destination);
+    gain.connect(this.outputNode());
     osc.start(now);
     osc.stop(now + 0.09);
   }
@@ -1843,6 +1965,11 @@ class MusicEngine {
   }
 
   get ctx() { return this.sound.ctx; }
+  outputNode() { return this.sound.outputNode(); }
+
+  rebaseClock() {
+    if (this.ctx) this.nextTime = this.ctx.currentTime + 0.06;
+  }
 
   // Exposed to the test hooks. Music is 'off' before the first gesture and while muted.
   getState() {
@@ -1872,7 +1999,7 @@ class MusicEngine {
     this.master.gain.setValueAtTime(0, now);
     this.master.gain.linearRampToValueAtTime(1, now + 0.35);
     this.master.connect(this.duckGain);
-    this.duckGain.connect(ctx.destination);
+    this.duckGain.connect(this.outputNode());
 
     this.running = mode;
     this.spec = MUSIC_MODES[mode] || MUSIC_MODES.valley; // Unknown flip music falls back to the valley track
@@ -1910,7 +2037,7 @@ class MusicEngine {
   }
 
   tick() {
-    if (!this.ctx || !this.master) return;
+    if (!this.ctx || !this.master || this.sound.backgroundHidden) return;
     while (this.nextTime < this.ctx.currentTime + this.lookahead) {
       this.scheduleStep(this.step, this.nextTime);
       this.nextTime += this.stepDur;
@@ -2222,6 +2349,14 @@ const MAZE_CONFIGS = [
 // The Menace's four candidate steps (Round 9 brain)
 const MENACE_DIRS = [{ x: 0, y: -1 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 0 }];
 
+const FLIP_ENTRY_HINTS = {
+  valley: 'GREEN VALLEY: SPACE / ↑ / W OR TAP JUMPS · ↓ / S OR SWIPE DOWN FAST-FALLS · REACH THE GATE',
+  kingdom: 'BLOCK KINGDOM: HOLD SPACE / ↑ / W OR TAP TO JUMP HIGHER · RELEASE TO LAND · REACH THE BANNER POLE',
+  gloom: 'GLOOM: LEFT / RIGHT TURN · A / D OR SWIPE STRAFES · SPACE OR TAP FIRES · REACH THE EXIT',
+  grandprix: 'GRAND PRIX: LEFT / RIGHT OR A / D STEER · SPACE HOP-DRIFTS · DOWN USES ITEM / BRAKES · FINISH AHEAD'
+};
+const BENCH_HOUSE_SECONDS = 15;
+
 // 3. Main Game Engine
 class Game {
   constructor() {
@@ -2270,6 +2405,11 @@ class Game {
     this.transition = null;        // Tear / gate effect drawn over whichever scene is active
     this.ghostsEatenInFright = 0;  // Keepers benched by the Menace this maze
     this.lastTaunt = '';
+    this.runCatchCount = 0;
+    this.possessionNudgeCount = 0;
+    this.dpadUsed = false;
+    this.dpadTouched = false;
+    this.mazeTouch = null;
 
     // Fruit
     this.fruit = {
@@ -2401,6 +2541,7 @@ class Game {
     dpadBtns.forEach(btn => {
       const handleDir = (e) => {
         e.preventDefault();
+        this.setDpadTouched(true);
         const dirName = btn.dataset.dir;
         let d = { x: 0, y: 0 };
         if (dirName === 'up') d = { x: 0, y: -1 };
@@ -2409,15 +2550,17 @@ class Game {
         if (dirName === 'right') d = { x: 1, y: 0 };
         if (this.state === 'flip') {
           // A module may own the d-pad (GLOOM: forward / back / turn); otherwise the common grammar
-          if (this.flip && this.flip.dpad && this.flip.dpad(dirName, true)) return;
+          if (this.flip && this.flip.dpad && this.flip.dpad(dirName, true)) { this.markDpadUsed(); return; }
           if (d.y < 0) this.flipJump();
           else if (d.y > 0) this.flipFastFall();
           else if (d.x !== 0) this.flipSteer(d.x);
+          this.markDpadUsed();
           return;
         }
         this.steerPossessed(d);
       };
       const handleRelease = () => {
+        this.setDpadTouched(false);
         if (this.flip && this.flip.dpad && this.flip.dpad(btn.dataset.dir, false)) return;
         if (btn.dataset.dir === 'up') this.flipJumpRelease();
         if (btn.dataset.dir === 'left') this.flipSteerRelease(-1);
@@ -2457,6 +2600,8 @@ class Game {
   setupInput() {
     // Round 12: a touch device (coarse pointer or a touch screen) gets the kart's touch-zone hints and touch wording
     this.touchDevice = !!((window.matchMedia && window.matchMedia('(pointer: coarse)').matches) || ('ontouchstart' in window) || navigator.maxTouchPoints > 0);
+    document.body.classList.toggle('touch-device', this.touchDevice);
+    this.syncDpadAppearance();
 
     window.addEventListener('keydown', (e) => {
       this.sound.init();
@@ -2519,8 +2664,6 @@ class Game {
     // DRIFT / ITEM buttons (their own elements) never disturbs the held wheel; the wheel follows the most recent
     // steering touch, a finger sliding across the midline swaps sides, and the wheel centres when the last steering
     // touch lifts. The other flips keep the single-touch tap / swipe grammar below.
-    let touchStartX = 0;
-    let touchStartY = 0;
     this.touchSteers = new Map();
     this.touchSteerDir = 0;
     const canvasHalf = (clientX) => {
@@ -2550,50 +2693,64 @@ class Game {
         return;
       }
       if (e.touches.length === 1) {
-        touchStartX = e.touches[0].clientX;
-        touchStartY = e.touches[0].clientY;
-        if (this.state === 'flip') {
-          // Hold-to-rise modules jump on the press so the hold length can shape the jump
-          if (this.flip && this.flip.pressToJump) this.flipJump();
-          return;
-        }
-
-        // Check if tapping directly on a ghost
-        const rect = this.canvas.getBoundingClientRect();
-        const scaleX = this.width / rect.width;
-        const scaleY = this.height / rect.height;
-        const clickX = (touchStartX - rect.left) * scaleX;
-        const clickY = (touchStartY - rect.top) * scaleY;
-
-        this.checkGhostClick(clickX, clickY);
+        const t = e.touches[0];
+        this.mazeTouch = {
+          id: t.identifier, startX: t.clientX, startY: t.clientY,
+          lastX: t.clientX, lastY: t.clientY, startedAt: performance.now(),
+          maxDisplacement: 0, swiped: false
+        };
+        if (this.state === 'flip' && this.flip && this.flip.pressToJump) this.flipJump();
       }
     }, { passive: true });
 
     this.canvas.addEventListener('touchmove', (e) => {
-      if (!this.touchSteers.size) return;
-      let changed = false;
-      for (const t of e.changedTouches) {
-        if (!this.touchSteers.has(t.identifier)) continue;
-        const d = canvasHalf(t.clientX);
-        if (d === this.touchSteers.get(t.identifier)) continue;
-        this.touchSteers.delete(t.identifier);          // re-inserted last: crossing the midline makes it the latest hold
-        this.touchSteers.set(t.identifier, d);
-        changed = true;
+      if (this.touchSteers.size) {
+        let changed = false;
+        for (const t of e.changedTouches) {
+          if (!this.touchSteers.has(t.identifier)) continue;
+          const d = canvasHalf(t.clientX);
+          if (d === this.touchSteers.get(t.identifier)) continue;
+          this.touchSteers.delete(t.identifier);          // re-inserted last: crossing the midline makes it the latest hold
+          this.touchSteers.set(t.identifier, d);
+          changed = true;
+        }
+        if (changed) syncTouchSteer();
+        return;
       }
-      if (changed) syncTouchSteer();
+      const g = this.mazeTouch;
+      if (!g) return;
+      const t = [...e.changedTouches].find(touch => touch.identifier === g.id);
+      if (!t) return;
+      const total = Math.hypot(t.clientX - g.startX, t.clientY - g.startY);
+      g.maxDisplacement = Math.max(g.maxDisplacement, total);
+      if (this.state === 'playing' && Math.hypot(t.clientX - g.lastX, t.clientY - g.lastY) >= 24) {
+        if (this.touchSteer(t.clientX - g.lastX, t.clientY - g.lastY)) {
+          g.swiped = true;
+          this.midDragSwipeCount = (this.midDragSwipeCount || 0) + 1;
+          this.lastMidDragSwipe = { dx: t.clientX - g.lastX, dy: t.clientY - g.lastY, at: performance.now() };
+        }
+        g.lastX = t.clientX;
+        g.lastY = t.clientY;
+      }
     }, { passive: true });
 
-    this.canvas.addEventListener('touchcancel', (e) => { endSteerTouches(e); }, { passive: true });
+    this.canvas.addEventListener('touchcancel', (e) => {
+      endSteerTouches(e);
+      if (this.mazeTouch && [...e.changedTouches].some(t => t.identifier === this.mazeTouch.id)) this.mazeTouch = null;
+    }, { passive: true });
 
     this.canvas.addEventListener('touchend', (e) => {
       // A steering hold lifting straightens the wheel (even if the flip ended under the finger)
       if (endSteerTouches(e)) return;
-      if (e.changedTouches.length !== 1) return;
-      const dx = e.changedTouches[0].clientX - touchStartX;
-      const dy = e.changedTouches[0].clientY - touchStartY;
+      const g = this.mazeTouch;
+      if (!g || e.changedTouches.length !== 1 || e.changedTouches[0].identifier !== g.id) return;
+      const t = e.changedTouches[0];
+      this.mazeTouch = null;
+      const dx = t.clientX - g.startX;
+      const dy = t.clientY - g.startY;
+      const total = Math.max(g.maxDisplacement, Math.hypot(dx, dy));
       if (this.state === 'flip') {
-        // Swipe sideways = strafe (GLOOM lanes). Swipe down = fast-fall.
-        // Otherwise a tap is a jump / shot (valley, GLOOM) or the end of a held jump (kingdom).
+        // Swipe sideways = strafe (GLOOM). Swipe down = fast-fall; taps fire or finish a held jump.
         if (Math.abs(dx) > 30 && Math.abs(dx) > Math.abs(dy)) {
           this.flipSteer(dx > 0 ? 1 : -1);
           return;
@@ -2609,7 +2766,12 @@ class Game {
         return;
       }
       if (this.state === 'playing') {
-        this.touchSteer(dx, dy);
+        if (!g.swiped && performance.now() - g.startedAt <= 350 && total < 12) {
+          const rect = this.canvas.getBoundingClientRect();
+          this.checkGhostClick((g.startX - rect.left) * this.width / rect.width, (g.startY - rect.top) * this.height / rect.height);
+        } else if (!g.swiped && total >= 24) {
+          this.touchSteer(dx, dy);
+        }
       }
     }, { passive: true });
 
@@ -2643,12 +2805,30 @@ class Game {
   }
 
   touchSteer(dx, dy) {
-    if (Math.abs(dx) < 15 && Math.abs(dy) < 15) return;
-    if (Math.abs(dx) > Math.abs(dy)) {
-      this.steerPossessed({ x: dx > 0 ? 1 : -1, y: 0 });
-    } else {
-      this.steerPossessed({ x: 0, y: dy > 0 ? 1 : -1 });
-    }
+    if (Math.abs(dx) < 15 && Math.abs(dy) < 15) return false;
+    const dir = Math.abs(dx) > Math.abs(dy)
+      ? { x: dx > 0 ? 1 : -1, y: 0 }
+      : { x: 0, y: dy > 0 ? 1 : -1 };
+    return this.steerPossessed(dir);
+  }
+
+  markDpadUsed() {
+    this.dpadUsed = true;
+    this.syncDpadAppearance();
+  }
+
+  setDpadTouched(touched) {
+    this.dpadTouched = touched;
+    this.syncDpadAppearance();
+  }
+
+  syncDpadAppearance() {
+    const el = document.getElementById('touch-controls');
+    if (!el) return;
+    const forceFull = this.state === 'paused' || document.getElementById('how-screen').classList.contains('visible');
+    el.classList.toggle('dimmed', this.dpadUsed && !this.dpadTouched && !forceFull);
+    el.classList.toggle('touched', this.dpadTouched);
+    el.classList.toggle('force-full', forceFull);
   }
 
   checkGhostClick(x, y) {
@@ -2680,6 +2860,7 @@ class Game {
       const s = document.getElementById(id);
       if (s) s.classList.add('visible');
     }
+    this.syncDpadAppearance();
   }
 
   showTitleScreen() {
@@ -2701,12 +2882,13 @@ class Game {
     this.music.setMode(mode);
   }
 
-  // Villain taunt: a short banner in the Menace's voice
-  taunt(text) {
+  // Villain taunts and the one-time possession lesson share this banner channel.
+  taunt(text, teaching = false) {
     this.lastTaunt = text;
     const el = document.getElementById('taunt-banner');
     if (!el) return;
     el.textContent = text;
+    el.classList.toggle('teaching', teaching);
     el.classList.remove('show');
     // Restart the pop animation even if a taunt is already showing
     void el.offsetWidth;
@@ -2746,8 +2928,11 @@ class Game {
     for (let i = 0; i < 4; i++) {
       const btn = document.querySelectorAll('.squad-btn')[i];
       if (!btn) continue;
+      const g = this.ghosts[i];
       btn.classList.toggle('possessed', i === this.possessedIndex);
-      btn.classList.toggle('benched', this.ghosts[i] ? this.ghosts[i].isBenched : false);
+      btn.classList.toggle('benched', g ? g.isBenched : false);
+      const label = btn.querySelector('.squad-benched-label');
+      if (label && g && g.isBenched) label.textContent = g.state === 'HOUSE' && Number.isFinite(g.benchTimer) ? `${Math.ceil(g.benchTimer)}s` : 'HOME';
     }
   }
 
@@ -2768,6 +2953,10 @@ class Game {
     this.abortFlip();
     this.score = 0;
     this.totalPelletsSaved = 0;
+    this.runCatchCount = 0;
+    this.possessionNudgeCount = 0;
+    this.midDragSwipeCount = 0;
+    this.dpadUsed = false;
     this.mazeIndex = 0;
     this.initMaze(0);
     this.state = 'playing';
@@ -2815,6 +3004,7 @@ class Game {
 
     // Menace Setup
     const baseSpeed = 74; // Logical pixels per second
+    const speedFactor = this.mazeIndex === 0 && this.runCatchCount === 0 ? 0.93 : 1;
     this.menace = {
       tileX: 9,
       tileY: 15,
@@ -2822,8 +3012,9 @@ class Game {
       y: 15 * this.tileSize + this.tileSize / 2,
       dir: { x: -1, y: 0 },
       nextDir: { x: -1, y: 0 },
-      speed: baseSpeed * cfg.menaceSpeedMultiplier,
+      speed: baseSpeed * cfg.menaceSpeedMultiplier * speedFactor,
       baseSpeed: baseSpeed * cfg.menaceSpeedMultiplier,
+      speedFactor,
       lives: 3,
       respawnTimer: 0,
       immuneTimer: 0,
@@ -2869,9 +3060,10 @@ class Game {
 
   steerPossessed(dir) {
     const g = this.ghosts[this.possessedIndex];
-    if (g && !g.isBenched && g.state !== 'HOUSE') {
-      g.setNextDirection(dir, this.grid);
-    }
+    if (!g || g.isBenched || g.state === 'HOUSE') return false;
+    g.setNextDirection(dir, this.grid);
+    this.markDpadUsed();
+    return true;
   }
 
   updateHUD() {
@@ -2921,6 +3113,16 @@ class Game {
     document.getElementById('fright-header-label').textContent = this.flip.hudLabel;
     document.getElementById('fright-progress-fill').style.width = '0%';
     document.getElementById('fright-timer-text').textContent = `${this.flip.duration.toFixed(1)}s`;
+    let seenHints = {};
+    try { seenHints = JSON.parse(localStorage.getItem('rm_flip_entry_hints') || '{}'); } catch (e) {}
+    const hint = document.getElementById('flip-entry-hint');
+    this.flipEntryHintShown = !seenHints[this.flip.kind];
+    hint.classList.toggle('visible', this.flipEntryHintShown);
+    hint.textContent = this.flipEntryHintShown ? FLIP_ENTRY_HINTS[this.flip.kind] : '';
+    if (this.flipEntryHintShown) {
+      seenHints[this.flip.kind] = true;
+      try { localStorage.setItem('rm_flip_entry_hints', JSON.stringify(seenHints)); } catch (e) {}
+    }
     this.syncMusic();
   }
 
@@ -2966,6 +3168,9 @@ class Game {
     this.banner = null;
     const bar = document.getElementById('fright-bar-container');
     if (bar) bar.classList.remove('active');
+    const hint = document.getElementById('flip-entry-hint');
+    if (hint) { hint.classList.remove('visible'); hint.textContent = ''; }
+    this.flipEntryHintShown = false;
     this.setTouchLayout(false);
   }
 
@@ -3084,8 +3289,16 @@ class Game {
     }
 
     this.sound.playCatch();
-    this.taunt('LUCKY.');
-    this.score += 300;
+    this.runCatchCount++;
+    if (this.runCatchCount === 1) {
+      this.possessionNudgeCount++;
+      this.taunt('SQUAD HUNTS ON ITS OWN — TAP A PORTRAIT OR 1–4 TO POSSESS ANOTHER GHOST', true);
+    } else {
+      this.taunt('LUCKY.');
+    }
+    this.menace.speedFactor = 1;
+    this.menace.speed = this.menace.baseSpeed;
+    this.score += 500;
     this.menace.lives--;
     this.updateHUD();
 
@@ -3327,6 +3540,7 @@ class Game {
       const isPossessed = (i === this.possessedIndex) && !this.autopilot;
       g.update(dt, this, isPossessed);
     }
+    this.updateSquadBarUI();
 
     // Check Catch / Collision
     this.checkCollisions();
@@ -7672,6 +7886,25 @@ class GloomRun {
     return isFinite(d) ? d : 99;
   }
 
+  compassTarget() {
+    const p = this.player;
+    const cx = Math.floor(p.x), cy = Math.floor(p.y);
+    let target = null;
+    for (const [dx, dy] of [[0, -1], [-1, 0], [1, 0], [0, 1]]) {
+      const x = cx + dx, y = cy + dy;
+      if (this.cell(x, y) === '#') continue;
+      const field = this.exitField[y][x];
+      if (!target || field < target.field) target = { x, y, field };
+    }
+    if (!target) target = { x: this.exit.x, y: this.exit.y, field: 0 };
+    return {
+      cell: { x: cx, y: cy }, target,
+      currentField: this.exitDistAt(p.x, p.y),
+      bearing: Math.atan2(target.y + 0.5 - p.y, target.x + 0.5 - p.x),
+      straightBearing: Math.atan2(this.exit.y + 0.5 - p.y, this.exit.x + 0.5 - p.x)
+    };
+  }
+
   // ===== Procedural textures (64x64, ABGR words) in the Round 7 gritty brown / grey / olive family =====
   buildTextures() {
     const S = 64;
@@ -7791,7 +8024,7 @@ class GloomRun {
       nerve: this.nerve, ammo: this.pellets, hits: this.hitsLanded, turned: this.turned,
       px: p.x, py: p.y, angle: p.a, mx: m.x, my: m.y, menaceStun: m.stun,
       doors: this.doors.map(d => ({ x: d.x, y: d.y, open: d.open, opened: d.opened })),
-      exit: this.exit, exitDist: this.exitDistAt(p.x, p.y)
+      exit: this.exit, exitDist: this.exitDistAt(p.x, p.y), compass: this.compassTarget()
     };
   }
 
@@ -8732,9 +8965,8 @@ class GloomRun {
       ctx.fillText(this.toast.text, W / 2, viewH * 0.3);
       ctx.restore();
     }
-    // Compass strip: which way the teleporter lies
-    const ex = this.exit.x + 0.5 - p.x, ey = this.exit.y + 0.5 - p.y;
-    let rel = Math.atan2(ey, ex) - p.a;
+    // Compass strip: follow the exit distance field around walls, one corridor cell at a time
+    let rel = this.compassTarget().bearing - p.a;
     while (rel > Math.PI) rel -= Math.PI * 2;
     while (rel < -Math.PI) rel += Math.PI * 2;
     ctx.save();
@@ -8940,7 +9172,7 @@ class GloomRun {
 const GP_SPRITES = {
   colourways: ['ember', 'rose', 'tide', 'goldie', 'menace'],
   karts: {}, kartLoaded: 0, kartFailed: false, kartTotal: 80, ready: false,
-  trees: [], treeLoaded: 0, treeFailed: false, treesReady: false,
+  trees: [], treeLoaded: 0, treeFailed: false, treesReady: false, failedLoads: [],
   // Driver head anchor per yaw frame: seat x / y as fractions of the frame's alpha box (from the left / the top),
   // and `cut` — the fraction of the head radius below the seat point that stays visible before the tub hides the
   // rest (null = the whole dome shows, rear views where the head rides above the seat back).
@@ -8975,29 +9207,30 @@ GP_SPRITES.calibrate = (img) => {
   } catch (e) { /* a tainted canvas (file:// without the flag): the frame is tight-trimmed, keep the full box */ }
   return { img, meta };
 };
+GP_SPRITES.recordFailure = (src) => { GP_SPRITES.failedLoads.push(String(src)); };
 GP_SPRITES.colourways.forEach(cw => {
   GP_SPRITES.karts[cw] = new Array(16).fill(null);
   for (let f = 0; f < 16; f++) {
     const img = new Image();
     img.onload = () => {
-      if (!(img.naturalWidth > 0)) { GP_SPRITES.kartFailed = true; return; }
+      if (!(img.naturalWidth > 0)) { GP_SPRITES.kartFailed = true; GP_SPRITES.recordFailure(img.src); return; }
       GP_SPRITES.karts[cw][f] = GP_SPRITES.calibrate(img);
       GP_SPRITES.kartLoaded++;
       GP_SPRITES.ready = !GP_SPRITES.kartFailed && GP_SPRITES.kartLoaded === GP_SPRITES.kartTotal;
     };
-    img.onerror = () => { GP_SPRITES.kartFailed = true; GP_SPRITES.ready = false; };
+    img.onerror = () => { GP_SPRITES.kartFailed = true; GP_SPRITES.ready = false; GP_SPRITES.recordFailure(img.src); };
     img.src = `art/gp-kart-${cw}-${String(f).padStart(2, '0')}.png`;
   }
 });
 [0, 120, 240].forEach((az, i) => {
   const img = new Image();
   img.onload = () => {
-    if (!(img.naturalWidth > 0)) { GP_SPRITES.treeFailed = true; return; }
+    if (!(img.naturalWidth > 0)) { GP_SPRITES.treeFailed = true; GP_SPRITES.recordFailure(img.src); return; }
     GP_SPRITES.trees[i] = img;
     GP_SPRITES.treeLoaded++;
     GP_SPRITES.treesReady = !GP_SPRITES.treeFailed && GP_SPRITES.treeLoaded === 3;
   };
-  img.onerror = () => { GP_SPRITES.treeFailed = true; GP_SPRITES.treesReady = false; };
+  img.onerror = () => { GP_SPRITES.treeFailed = true; GP_SPRITES.treesReady = false; GP_SPRITES.recordFailure(img.src); };
   img.src = `art/gp-tree-v${az}.png`;
 });
 class GrandPrixRun {
@@ -9116,7 +9349,8 @@ class GrandPrixRun {
     this.whiteFlash = 0;
     this.menaceScreen = null;
     this.playerScreen = null;
-    this.countdown = 0;
+    this.countdown = 3;
+    this.countdownStarted = false;
     this.lastDriftSound = 0;
     this.driftReleases = 0;                  // Behaviour telemetry
     this.lastBoostSpeed = 0;
@@ -9491,6 +9725,7 @@ class GrandPrixRun {
       bothInFrame: !!(this.menaceScreen && this.playerScreen && this.menaceScreen.inFrame && this.playerScreen.inFrame),
       // Round 11: the yaw frame the ghost's kart was last drawn with, her spin state, and the sprite path
       frame: p.frame, spin: p.spin, spinYaw: p.spinYaw, spriteKarts: GP_SPRITES.ready, spriteTrees: GP_SPRITES.treesReady,
+      failedImageLoads: GP_SPRITES.failedLoads.length, countdown: this.countdown, countdownStarted: this.countdownStarted,
       kartRadius: this.kartRadius, lastContact: this.lastContact,
       steerHeld: this.steerHeld || 0, steerInput: p.steer, hopHeld: !!p.hopHeld, brakeHeld: !!p.brakeHeld,
       touchLayout: this.touchLayout, touchHint: this.touchHintAlpha()
@@ -9582,7 +9817,8 @@ class GrandPrixRun {
     if (cmd === 'sprites') {
       return {
         kartsReady: GP_SPRITES.ready, kartFrames: GP_SPRITES.kartLoaded, kartTotal: GP_SPRITES.kartTotal, kartFailed: GP_SPRITES.kartFailed,
-        treesReady: GP_SPRITES.treesReady,
+        treesReady: GP_SPRITES.treesReady, treeFrames: GP_SPRITES.treeLoaded, treeTotal: 3, treeFailed: GP_SPRITES.treeFailed,
+        failedImageLoads: GP_SPRITES.failedLoads.length, failedLoads: GP_SPRITES.failedLoads.slice(),
         convention: 'frame = (16 - round(yaw / 22.5deg)) mod 16; yaw = heading - camera yaw, positive = nose toward the camera right; 00 rear, 04 left flank, 08 front, 12 right flank',
         playerFrame: p.frame, playerYaw: this.relYaw(p)
       };
@@ -9626,6 +9862,11 @@ class GrandPrixRun {
   update(dt) {
     if (this.outcome) return this.outcome;
     dt = Math.min(dt, 0.05);
+    if (!this.countdownStarted && this.countdown > 0) {
+      this.countdownStarted = true;
+      if (this.game.sound.playGrandPrixStart) this.game.sound.playGrandPrixStart();
+    }
+    this.countdown = Math.max(0, this.countdown - dt);
     this.phaseT += dt;
     this.updateJuice(dt);
 
@@ -9937,7 +10178,7 @@ class GrandPrixRun {
           k.roulette = 1.0;
           k.item = 'rolling';
           this.burst(c.wx, c.wy, '#fde047', 14, 36);
-          if (k === p && this.game.sound.playChomp) this.game.sound.playChomp();
+          if (k === p && this.game.sound.playKartPickup) this.game.sound.playKartPickup(this.collected);
           break;
         }
       }
@@ -9952,7 +10193,7 @@ class GrandPrixRun {
         this.collected++;
         this.chain++;
         if (this.playerScreen) this.pops.push({ text: '+25', x: this.playerScreen.x, y: this.playerScreen.y - 70, t: 0 });
-        if (this.game.sound.playValleyPellet) this.game.sound.playValleyPellet(this.chain);
+        if (this.game.sound.playKartPickup) this.game.sound.playKartPickup(this.chain);
         if (this.chain % 5 === 0) { this.flash('PELLET RUSH!', '#fde047', 0.7); this.fireBoost(p, 0.6, 1.08); }
       }
     }
@@ -11417,6 +11658,7 @@ class Ghost {
     this.houseTimer = 0;
     this.state = (houseDelay > 0) ? 'HOUSE' : 'CHASE';
     this.isBenched = false;
+    this.benchTimer = null;
   }
 
   setNextDirection(d, grid) {
@@ -11437,7 +11679,14 @@ class Ghost {
       this.houseTimer += dt;
       // Gentle bobbing inside house
       this.y += Math.sin(this.houseTimer * 6) * 0.4;
-      if (this.houseTimer >= this.houseDelay) {
+      if (this.isBenched) {
+        this.benchTimer = Math.max(0, BENCH_HOUSE_SECONDS - this.houseTimer);
+        if (this.benchTimer <= 0) {
+          this.isBenched = false;
+          this.state = 'EXITING';
+          this.nextDir = { x: -1, y: 0 };
+        }
+      } else if (this.houseTimer >= this.houseDelay) {
         this.state = 'EXITING';
       }
       return;
@@ -11478,7 +11727,9 @@ class Ghost {
         this.tileY = 8;
         this.dir = { x: 0, y: 0 };
         this.state = 'HOUSE';
-        this.houseDelay = Infinity; // Stays benched until catch or next maze
+        this.houseTimer = 0;
+        this.benchTimer = BENCH_HOUSE_SECONDS;
+        this.houseDelay = BENCH_HOUSE_SECONDS;
       } else {
         const angle = Math.atan2(doorY - this.y, doorX - this.x);
         const returnSpeed = this.baseSpeed * 1.5;
@@ -11684,6 +11935,8 @@ window.addEventListener('DOMContentLoaded', () => {
       x: g.x,
       y: g.y,
       isBenched: g.isBenched,
+      state: g.state,
+      benchTimer: g.benchTimer,
       isPossessed: (g.id === game.possessedIndex)
     })),
     getMenace: () => ({
@@ -11694,6 +11947,8 @@ window.addEventListener('DOMContentLoaded', () => {
       lives: game.menace.lives,
       isFrightMode: game.isFrightMode,
       speed: game.menace.speed,
+      speedFactor: game.menace.speedFactor,
+      runCatchCount: game.runCatchCount,
       grin: game.menaceGrin(),
       // Post-catch / post-flip flashing immunity (seconds left); catches are ignored while > 0
       immuneTimer: Math.max(0, game.menace.immuneTimer)
@@ -11777,6 +12032,35 @@ window.addEventListener('DOMContentLoaded', () => {
       eaten: game.pelletsEatenByMenace
     }),
     getScore: () => game.score,
+    getPanelState: () => {
+      const dpad = document.getElementById('touch-controls');
+      const hint = document.getElementById('flip-entry-hint');
+      let storedHints = {};
+      try { storedHints = JSON.parse(localStorage.getItem('rm_flip_entry_hints') || '{}'); } catch (e) {}
+      return {
+        possessionNudgeCount: game.possessionNudgeCount,
+        midDragSwipeCount: game.midDragSwipeCount || 0,
+        lastMidDragSwipe: game.lastMidDragSwipe || null,
+        dpad: { used: game.dpadUsed, touched: game.dpadTouched, display: getComputedStyle(dpad).display, opacity: Number(getComputedStyle(dpad).opacity), classes: dpad.className },
+        flipHint: { text: hint.textContent, visible: hint.classList.contains('visible'), storedHints },
+        hudLabel: document.getElementById('hud-pellets').previousElementSibling.textContent,
+        guideCards: [...document.querySelectorAll('.flip-guide-card')].map(el => el.textContent.trim().replace(/\s+/g, ' ')),
+        benchLabels: [...document.querySelectorAll('.squad-benched-label')].map(el => el.textContent)
+      };
+    },
+    getAudioState: () => ({
+      contextState: game.sound.ctx ? game.sound.ctx.state : 'none',
+      hasLimiter: !!game.sound.limiter,
+      limiter: game.sound.limiter ? {
+        threshold: game.sound.limiter.threshold.value, knee: game.sound.limiter.knee.value,
+        ratio: game.sound.limiter.ratio.value, attack: game.sound.limiter.attack.value, release: game.sound.limiter.release.value
+      } : null,
+      backgroundHidden: game.sound.backgroundHidden,
+      visibilitySuspendCount: game.sound.visibilitySuspendCount,
+      visibilityResumeCount: game.sound.visibilityResumeCount,
+      audioEvents: game.sound.audioEvents.slice(),
+      musicNextTime: game.music.nextTime
+    }),
     isMuted: () => game.sound.muted,
     toggleMute: () => game.sound.toggleMute()
   };

@@ -1,8 +1,8 @@
 {
   "name": "round-menace",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "A mobile-first arcade maze defense game: coordinate four ghosts, catch the Round Menace, and survive four genre-flipping mini-games.",
+  "main": "index.html",
   "scripts": {
     "test": "node test/acceptance.js"
   },
