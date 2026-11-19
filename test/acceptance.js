@@ -36,7 +36,7 @@ async function runAcceptanceTests() {
 
   const indexPath = `file://${path.resolve(__dirname, '../index.html')}`;
   let passedCount = 0;
-  let totalCount = 30;
+  let totalCount = 31;
 
   // Screenshot directory
   const screenshotDir = path.resolve(__dirname, '../screenshots');
@@ -46,7 +46,7 @@ async function runAcceptanceTests() {
 
   try {
     // Check 1: Page loads with zero console errors
-    console.log('[Check 1/30] Loading game page...');
+    console.log('[Check 1/31] Loading game page...');
     await page.goto(indexPath, { waitUntil: 'load' });
     await page.waitForTimeout(500);
 
@@ -62,7 +62,7 @@ async function runAcceptanceTests() {
     console.log('  📸 Captured screenshot: screenshots/title.png');
 
     // Check 2: Game starts from PLAY
-    console.log('\n[Check 2/30] Starting game from PLAY button...');
+    console.log('\n[Check 2/31] Starting game from PLAY button...');
     await page.click('#btn-play');
     await page.waitForTimeout(400);
 
@@ -79,7 +79,7 @@ async function runAcceptanceTests() {
     console.log('  📸 Captured screenshot: screenshots/gameplay.png');
 
     // Check 3: Menace eats pellets autonomously
-    console.log('\n[Check 3/30] Testing autonomous Menace pellet eating...');
+    console.log('\n[Check 3/31] Testing autonomous Menace pellet eating...');
     const initialPellets = await page.evaluate(() => window.__RM_GAME__.getPellets().remaining);
     // Let Menace move and eat for 2 seconds
     await page.waitForTimeout(2000);
@@ -92,7 +92,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 4: Possession switching works for all four ghosts (1-4 and squad bar clicks)
-    console.log('\n[Check 4/30] Testing possession switching across all 4 squad ghosts...');
+    console.log('\n[Check 4/31] Testing possession switching across all 4 squad ghosts...');
     const ghostNames = ['Ember', 'Rosé', 'Tide', 'Goldie'];
     for (let i = 0; i < 4; i++) {
       // Test key press
@@ -113,7 +113,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 5: Touch input moves the possessed ghost
-    console.log('\n[Check 5/30] Testing touch input steering...');
+    console.log('\n[Check 5/31] Testing touch input steering...');
     // Ensure ghost 0 is possessed and positioned at open corridor (5, 5)
     await page.evaluate(() => {
       window.__RM_GAME__.possess(0);
@@ -133,7 +133,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 6: A catch registers when a ghost is steered onto Menace
-    console.log('\n[Check 6/30] Testing ghost catch detection...');
+    console.log('\n[Check 6/31] Testing ghost catch detection...');
     // The hunting squad may have caught him by chance during checks 3–5; a catch (or a flip
     // return) grants him 1s of flashing immunity during which collisions are ignored. Wait it
     // out so the staged catch below is judged on its own merits.
@@ -170,7 +170,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 7: Fright mode flips on power pellet and ghost can be eaten & benched
-    console.log('\n[Check 7/30] Testing Fright Mode & ghost benching...');
+    console.log('\n[Check 7/31] Testing Fright Mode & ghost benching...');
     await page.evaluate(() => window.__RM_GAME__.triggerFright(5.0));
     await page.waitForTimeout(200);
 
@@ -197,7 +197,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 8: Win / Maze Clear screen reachable
-    console.log('\n[Check 8/30] Testing Win / Maze Clear screen...');
+    console.log('\n[Check 8/31] Testing Win / Maze Clear screen...');
     await page.evaluate(() => window.__RM_GAME__.forceWin());
     await page.waitForTimeout(300);
 
@@ -213,7 +213,7 @@ async function runAcceptanceTests() {
     console.log('  📸 Captured screenshot: screenshots/win.png');
 
     // Check 9: Lose screen reachable
-    console.log('\n[Check 9/30] Testing Game Over screen...');
+    console.log('\n[Check 9/31] Testing Game Over screen...');
     await page.evaluate(() => window.__RM_GAME__.forceLose());
     await page.waitForTimeout(300);
 
@@ -229,7 +229,7 @@ async function runAcceptanceTests() {
     console.log('  📸 Captured screenshot: screenshots/gameover.png');
 
     // Check 10: Squad exits the house and hunts (regression: ghosts once looped in the house pocket)
-    console.log('\n[Check 10/30] Testing squad house exit and hunting range...');
+    console.log('\n[Check 10/31] Testing squad house exit and hunting range...');
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(400);
     await page.click('#btn-play');
@@ -310,7 +310,7 @@ async function runAcceptanceTests() {
     // ===== Round 2 checks: the Green Valley Flip and the soundtrack =====
 
     // Check 11: Flip triggers on a real power-pellet pickup; forced survival returns to playing unbenched
-    console.log('\n[Check 11/30] Testing the Green Valley Flip on a real power-pellet pickup...');
+    console.log('\n[Check 11/31] Testing the Green Valley Flip on a real power-pellet pickup...');
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(400);
     const musicBeforeGesture = await page.evaluate(() => window.__RM_GAME__.getMusicState());
@@ -381,7 +381,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 12: Flip caught path benches that ghost and returns to playing
-    console.log('\n[Check 12/30] Testing the flip caught path (bench + return to maze)...');
+    console.log('\n[Check 12/31] Testing the flip caught path (bench + return to maze)...');
     await page.evaluate(() => window.__RM_GAME__.triggerFlip());
     await page.waitForTimeout(300);
     const freshFlipState = await page.evaluate(() => window.__RM_GAME__.getState());
@@ -405,7 +405,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 13: Soundtrack states + zero console errors across the whole battery
-    console.log('\n[Check 13/30] Testing soundtrack states and console cleanliness...');
+    console.log('\n[Check 13/31] Testing soundtrack states and console cleanliness...');
     if (musicBeforeGesture !== 'off') throw new Error(`Music should be off before the first gesture, got "${musicBeforeGesture}"`);
     if (musicAfterPlay !== 'maze') throw new Error(`Music should read "maze" after PLAY, got "${musicAfterPlay}"`);
     if (musicDuringFlip !== 'valley') throw new Error(`Music should read "valley" during the flip, got "${musicDuringFlip}"`);
@@ -437,7 +437,7 @@ async function runAcceptanceTests() {
 
     // Check 14: The top-right pellet routes to Block Kingdom; forced survival returns to playing unbenched with the bonus;
     // the music reads "kingdom" during the segment.
-    console.log('\n[Check 14/30] Testing flip routing (top-right pellet → Block Kingdom) and kingdom survival...');
+    console.log('\n[Check 14/31] Testing flip routing (top-right pellet → Block Kingdom) and kingdom survival...');
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(400);
     await page.click('#btn-play');
@@ -516,7 +516,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 15: Kingdom caught path benches that ghost and returns to playing
-    console.log('\n[Check 15/30] Testing the Block Kingdom caught path (bench + return to maze)...');
+    console.log('\n[Check 15/31] Testing the Block Kingdom caught path (bench + return to maze)...');
     await page.evaluate(() => window.__RM_GAME__.triggerFlip('kingdom'));
     await page.waitForTimeout(300);
     const freshKingdom = await page.evaluate(() => window.__RM_GAME__.getFlip());
@@ -545,7 +545,7 @@ async function runAcceptanceTests() {
     // ===== Round 4 checks: GLOOM corridor shooter flip & Phantom Grand Prix kart racer flip =====
 
     // Check 16: GLOOM routing and survival (bottom-left pellet)
-    console.log('\n[Check 16/30] Testing GLOOM routing and survival (bottom-left pellet)...');
+    console.log('\n[Check 16/31] Testing GLOOM routing and survival (bottom-left pellet)...');
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(400);
     await page.click('#btn-play');
@@ -607,7 +607,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 17: GLOOM caught path
-    console.log('\n[Check 17/30] Testing GLOOM caught path (bench + return to maze)...');
+    console.log('\n[Check 17/31] Testing GLOOM caught path (bench + return to maze)...');
     await page.evaluate(() => window.__RM_GAME__.triggerFlip('gloom'));
     await page.waitForTimeout(300);
     const freshGloom = await page.evaluate(() => window.__RM_GAME__.getFlip());
@@ -632,7 +632,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 18: Phantom Grand Prix routing and survival (bottom-right pellet)
-    console.log('\n[Check 18/30] Testing Phantom Grand Prix routing and survival (bottom-right pellet)...');
+    console.log('\n[Check 18/31] Testing Phantom Grand Prix routing and survival (bottom-right pellet)...');
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(400);
     await page.click('#btn-play');
@@ -694,7 +694,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 19: Grand Prix caught path
-    console.log('\n[Check 19/30] Testing Phantom Grand Prix caught path (bench + return to maze)...');
+    console.log('\n[Check 19/31] Testing Phantom Grand Prix caught path (bench + return to maze)...');
     await page.evaluate(() => window.__RM_GAME__.triggerFlip('grandprix'));
     await page.waitForTimeout(300);
     const freshGP = await page.evaluate(() => window.__RM_GAME__.getFlip());
@@ -791,7 +791,7 @@ async function runAcceptanceTests() {
     const describeFrame = s => `${s.distinct} distinct colours, dominant ${s.dominantColour} at ${(s.dominantShare * 100).toFixed(1)}%`;
 
     // Check 20: GLOOM render sanity — a real frame of live corridor play shows a corridor and a Menace figure
-    console.log('\n[Check 20/30] GLOOM render sanity (pixel analysis of a live mid-corridor frame)...');
+    console.log('\n[Check 20/31] GLOOM render sanity (pixel analysis of a live mid-corridor frame)...');
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(400);
     await page.click('#btn-play');
@@ -872,7 +872,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 21: Render sanity for the other three flips — a mid-play frame of each is a real picture
-    console.log('\n[Check 21/30] Render sanity for Green Valley, Block Kingdom and Phantom Grand Prix...');
+    console.log('\n[Check 21/31] Render sanity for Green Valley, Block Kingdom and Phantom Grand Prix...');
     const otherFlips = [
       { kind: 'valley', name: 'Green Valley' },
       { kind: 'kingdom', name: 'Block Kingdom' },
@@ -923,7 +923,7 @@ async function runAcceptanceTests() {
     const leaveEngine = async () => { await page.evaluate(() => window.__RM_GAME__.forceFlipSurvive()); await page.waitForTimeout(250); };
 
     // Check 22: Block Kingdom engine — a stomp flattens a minion; a bumped block releases its pickup
-    console.log('\n[Check 22/30] Block Kingdom engine: a stomp flattens a minion and a bumped block releases its pickup...');
+    console.log('\n[Check 22/31] Block Kingdom engine: a stomp flattens a minion and a bumped block releases its pickup...');
     await startEngine('kingdom');
     await D('freezeMenace', true);
     let kf = await F();
@@ -958,7 +958,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 23: Green Valley engine — a hit scatters rings; a downhill measurably builds speed over the flat
-    console.log('\n[Check 23/30] Green Valley engine: a Menace hit scatters rings, downhill builds speed over flat...');
+    console.log('\n[Check 23/31] Green Valley engine: a Menace hit scatters rings, downhill builds speed over flat...');
     await startEngine('valley');
     await D('freezeMenace', true);
     await D('place', { x: 300, speed: 200, rings: 12 });
@@ -993,7 +993,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 24: GLOOM engine — turning in place changes the rendered view; a door opens on approach
-    console.log('\n[Check 24/30] GLOOM engine: turning in place changes the rendered view, a door opens on approach...');
+    console.log('\n[Check 24/31] GLOOM engine: turning in place changes the rendered view, a door opens on approach...');
     await startEngine('gloom');
     await D('freezeMenace', true);
     const sampleCentre = () => page.evaluate(() => {
@@ -1039,7 +1039,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // Check 25: Phantom Grand Prix engine — a held drift releases a measurable speed boost
-    console.log('\n[Check 25/30] Phantom Grand Prix engine: a held drift releases a measurable speed boost...');
+    console.log('\n[Check 25/31] Phantom Grand Prix engine: a held drift releases a measurable speed boost...');
     await startEngine('grandprix');
     await D('freezeRivals', true);
     const trackInfo = await D('track', null);
@@ -1076,7 +1076,7 @@ async function runAcceptanceTests() {
     //     Each flip he triggers is survived through the hook (all four hunters stay on the board). He must eat at
     //     least 2 DISTINCT power pellets before his second catch, inside a bounded window of maze time — the proof
     //     that the flips are reachable in a normal game.
-    console.log('\n[Check 26/30] Menace brain: head-on avoidance trials and an AI-vs-AI power-pellet soak...');
+    console.log('\n[Check 26/31] Menace brain: head-on avoidance trials and an AI-vs-AI power-pellet soak...');
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(400);
     await page.click('#btn-play');
@@ -1180,7 +1180,7 @@ async function runAcceptanceTests() {
     // (b) Two karts set overlapping at speed (the ghost behind and faster, a squad kart ahead and slower, both on
     //     the centre line) must separate to at least the sum of their contact radii within the step, and the
     //     rammed kart must be shoved (a measurable gain of run / sideways push and a yaw wobble), never spun.
-    console.log('\n[Check 27/30] Phantom Grand Prix physics: a spin-out cycles yaw frames flat with zero in-plane rotation; overlapping karts separate and a soft contact shoves, never spins...');
+    console.log('\n[Check 27/31] Phantom Grand Prix physics: a spin-out cycles yaw frames flat with zero in-plane rotation; overlapping karts separate and a soft contact shoves, never spins...');
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(600);
     await page.click('#btn-play');
@@ -1240,7 +1240,7 @@ async function runAcceptanceTests() {
     passedCount++;
 
     // ===== Round 12 touch controls, kept at full rigour in Round 14 =====
-    console.log('\n[Check 28/30] Grand Prix touch steering: screen-half holds, multi-touch DRIFT and keyboard controls...');
+    console.log('\n[Check 28/31] Grand Prix touch steering: screen-half holds, multi-touch DRIFT and keyboard controls...');
     await startEngine('grandprix');
     await D('freezeRivals', true);
     // A real touch on the right half of the canvas, then multi-touch DRIFT.
@@ -1312,7 +1312,7 @@ async function runAcceptanceTests() {
     // ===== Round 14 check: no audience assets; contact shadows, striped kerbs and a chequered line =====
     // Instrument every image source assignment and canvas drawImage source before a fresh page load. This catches
     // both direct requests and fallback requests, and any retired image that somehow reaches the renderer.
-    console.log('\n[Check 29/30] Grand Prix crowd absence and race presentation: asset audit and rendered pixel samples...');
+    console.log('\n[Check 29/31] Grand Prix crowd absence and race presentation: asset audit and rendered pixel samples...');
     await page.addInitScript(() => {
       const audit = window.__gpAssetAudit = { loads: [], draws: [] };
       const src = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src');
@@ -1432,7 +1432,7 @@ async function runAcceptanceTests() {
     }
 
     // ===== Round 15 check: the complete panel slate, measured through live state and real input =====
-    console.log('\n[Check 30/30] Panel slate: teaching, grace, bench return, compass, mid-drag touch, audio and sprites...');
+    console.log('\n[Check 30/31] Panel slate: teaching, grace, bench return, compass, mid-drag touch, audio and sprites...');
     await page.addInitScript(() => {
       const audit = window.__panelAudioAudit = { compressorsCreated: 0, limiterToDestination: 0 };
       const createCompressor = AudioContext.prototype.createDynamicsCompressor;
@@ -1619,6 +1619,113 @@ async function runAcceptanceTests() {
 
     if (consoleErrors.length > 0) throw new Error(`Console errors during the panel-slate check: ${consoleErrors.join(' | ')}`);
     console.log('  ✓ PASS: all Round 15 teaching, balance, touch, audio and sprite checks passed; 0 console errors across all 30 checks.');
+    passedCount++;
+
+    // ===== Round 16 check: Tripo pellet / prize-box billboards and their intact vector fallbacks =====
+    console.log('\n[Check 31/31] Grand Prix pickup sprites: readiness, both rock frames, live collection and unreachable-asset fallbacks...');
+    await page.addInitScript(() => {
+      const audit = window.__gpPickupAudit = { draws: { pellet: 0, prizebox: 0, prizeboxSide: 0 } };
+      const drawImage = CanvasRenderingContext2D.prototype.drawImage;
+      CanvasRenderingContext2D.prototype.drawImage = function(image, ...args) {
+        const src = image && String(image.currentSrc || image.src || '');
+        if (/gp-pellet\.png$/.test(src)) audit.draws.pellet++;
+        else if (/gp-prizebox\.png$/.test(src)) audit.draws.prizebox++;
+        else if (/gp-prizebox-side\.png$/.test(src)) audit.draws.prizeboxSide++;
+        return drawImage.call(this, image, ...args);
+      };
+    });
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForTimeout(700);
+    await page.click('#btn-play');
+    await page.waitForTimeout(300);
+    await startEngine('grandprix');
+    await D('freezeRivals', true);
+    await D('park', true);
+
+    const readyPickups = await D('sprites', null);
+    if (!readyPickups.pelletReady || !readyPickups.prizeBoxesReady || readyPickups.pickupFrames !== 3 || readyPickups.pickupTotal !== 3) {
+      throw new Error(`Pickup sprites not fully ready (${JSON.stringify(readyPickups)})`);
+    }
+    if (readyPickups.failedImageLoads !== 0) throw new Error(`Unexpected image failures before the deliberate fallback run (${readyPickups.failedLoads.join(', ')})`);
+    console.log(`  · ready: pellet=${readyPickups.pelletReady}, prize front + side=${readyPickups.prizeBoxesReady}, ${readyPickups.pickupFrames}/${readyPickups.pickupTotal} pickup frames; ordinary GP failed image loads=${readyPickups.failedImageLoads}`);
+
+    await D('place', { s: 235, lane: 0, speed: 0 });
+    await page.waitForTimeout(300);
+    const pickupTrack = await D('track', null);
+    const firstCubeS = Math.round(0.1 * pickupTrack.L / 10) * 10;
+    await D('place', { s: firstCubeS - 120, lane: 0, speed: 0 });
+    await page.waitForTimeout(1850);
+    const spriteDraws = await page.evaluate(() => window.__gpPickupAudit.draws);
+    if (!spriteDraws.pellet || !spriteDraws.prizebox || !spriteDraws.prizeboxSide) throw new Error(`A pickup billboard was never drawn (${JSON.stringify(spriteDraws)})`);
+    const spritePaths = await D('sprites', null);
+    if (spritePaths.pickupDraws.coinVector || spritePaths.pickupDraws.boxVector) throw new Error(`A vector fallback ran despite ready sprites (${JSON.stringify(spritePaths.pickupDraws)})`);
+    console.log(`  · instrumented drawImage: pellet=${spriteDraws.pellet}, prize front=${spriteDraws.prizebox}, prize side=${spriteDraws.prizeboxSide}; vector coin/cube draws=${spritePaths.pickupDraws.coinVector}/${spritePaths.pickupDraws.boxVector}`);
+
+    const spriteCoinBefore = await page.evaluate(() => window.__RM_GAME__.getScore());
+    await D('place', { s: 320, lane: 0, speed: 0 });
+    await page.waitForTimeout(120);
+    const spriteCoinAfter = await page.evaluate(() => window.__RM_GAME__.getScore());
+    if (spriteCoinAfter - spriteCoinBefore !== 25) throw new Error(`Sprite coin awarded ${spriteCoinAfter - spriteCoinBefore}, expected +25`);
+    await D('place', { s: firstCubeS, lane: 0, speed: 0 });
+    await page.waitForTimeout(1300);
+    const spriteItem = (await F()).extra.item;
+    if (!['boost', 'bomb', 'shield'].includes(spriteItem)) throw new Error(`Ready-sprite prize box did not grant a settled item (${spriteItem})`);
+    console.log(`  · live sprite collection: coin ${spriteCoinBefore} → ${spriteCoinAfter} (+25); prize box granted ${spriteItem}`);
+
+    // Only the three Round 16 sources become invalid images; the real loader error handlers and every other GP asset run normally.
+    await page.addInitScript(() => {
+      const audit = window.__gpPickupFallbackAudit = { blocked: [] };
+      const src = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src');
+      Object.defineProperty(HTMLImageElement.prototype, 'src', {
+        configurable: true,
+        get() { return src.get.call(this); },
+        set(value) {
+          const original = String(value);
+          if (/art\/gp-(?:pellet|prizebox|prizebox-side)\.png$/.test(original)) {
+            audit.blocked.push(original);
+            return src.set.call(this, 'data:image/png;base64,');
+          }
+          return src.set.call(this, value);
+        }
+      });
+    });
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForTimeout(700);
+    await page.click('#btn-play');
+    await page.waitForTimeout(300);
+    await startEngine('grandprix');
+    await D('freezeRivals', true);
+    await D('park', true);
+    const fallbackReady = await D('sprites', null);
+    const blockedPickups = await page.evaluate(() => window.__gpPickupFallbackAudit.blocked);
+    if (blockedPickups.length !== 3 || !blockedPickups.some(s => /gp-pellet/.test(s)) || !blockedPickups.some(s => /gp-prizebox\.png/.test(s)) || !blockedPickups.some(s => /gp-prizebox-side/.test(s))) throw new Error(`The deliberate fallback did not block exactly the three pickup assets (${JSON.stringify(blockedPickups)})`);
+    if (fallbackReady.pelletReady || fallbackReady.prizeBoxesReady || fallbackReady.failedImageLoads !== 3 || fallbackReady.pickupFrames !== 0) throw new Error(`Fallback readiness / expected failures wrong (${JSON.stringify(fallbackReady)})`);
+    if (!fallbackReady.kartsReady || !fallbackReady.treesReady) throw new Error('Blocking pickups also broke kart or tree sprites');
+
+    await D('place', { s: 235, lane: 0, speed: 0 });
+    await page.waitForTimeout(250);
+    await D('place', { s: firstCubeS - 120, lane: 0, speed: 0 });
+    await page.waitForTimeout(500);
+    const fallbackPaths = await D('sprites', null);
+    if (!fallbackPaths.pickupDraws.coinVector || !fallbackPaths.pickupDraws.boxVector) throw new Error(`A vector fallback did not draw (${JSON.stringify(fallbackPaths.pickupDraws)})`);
+    if (fallbackPaths.pickupDraws.coinSprite || fallbackPaths.pickupDraws.prizebox || fallbackPaths.pickupDraws.prizeboxSide) throw new Error(`A blocked sprite still drew (${JSON.stringify(fallbackPaths.pickupDraws)})`);
+    const fallbackDraws = await page.evaluate(() => window.__gpPickupAudit.draws);
+    if (fallbackDraws.pellet || fallbackDraws.prizebox || fallbackDraws.prizeboxSide) throw new Error(`drawImage reached a blocked pickup (${JSON.stringify(fallbackDraws)})`);
+
+    const fallbackCoinBefore = await page.evaluate(() => window.__RM_GAME__.getScore());
+    await D('place', { s: 320, lane: 0, speed: 0 });
+    await page.waitForTimeout(120);
+    const fallbackCoinAfter = await page.evaluate(() => window.__RM_GAME__.getScore());
+    if (fallbackCoinAfter - fallbackCoinBefore !== 25) throw new Error(`Fallback coin awarded ${fallbackCoinAfter - fallbackCoinBefore}, expected +25`);
+    await D('place', { s: firstCubeS, lane: 0, speed: 0 });
+    await page.waitForTimeout(1300);
+    const fallbackItem = (await F()).extra.item;
+    if (!['boost', 'bomb', 'shield'].includes(fallbackItem)) throw new Error(`Fallback prize box did not grant a settled item (${fallbackItem})`);
+    const fallbackTrace = `coin +${fallbackCoinAfter - fallbackCoinBefore}, item ${fallbackItem}, vector coin/cube draws ${fallbackPaths.pickupDraws.coinVector}/${fallbackPaths.pickupDraws.boxVector}`;
+    console.log(`  · deliberate fallback: exactly 3 blocked pickups and 3 expected decode failures; ${fallbackTrace}; blocked drawImage=${fallbackDraws.pellet + fallbackDraws.prizebox + fallbackDraws.prizeboxSide}`);
+    await leaveEngine();
+    if (consoleErrors.length > 0) throw new Error(`Console errors during the pickup sprite check: ${consoleErrors.join(' | ')}`);
+    console.log(`  ✓ PASS: all three pickup sprites ready with 0 ordinary failures; drawImage pellet/front/side ${spriteDraws.pellet}/${spriteDraws.prizebox}/${spriteDraws.prizeboxSide}; +25 and item grants held with sprites and vector fallbacks; 0 console errors across all 31 checks.`);
     passedCount++;
 
   } catch (err) {

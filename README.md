@@ -127,6 +127,10 @@ Rebuilt as a real two-kart race seen from a chase camera that sits behind the gh
 ### Battery
 `test/acceptance.js` changed in screenshot timing only: the Grand Prix capture (check 18) now steers for 0.3 s and waits 1.5 s so the frame is a mid-race moment with both karts whole in shot. The `npm test` command is byte-identical. The Grand Prix module reports both kart rects and `bothInFrame` through `getFlip().extra`; Block Kingdom reports the ghost/Menace positions and `bothInFrame` too.
 
+## Round 16 — Grand Prix pickup sprites
+
+The Grand Prix pellet coins and prize boxes are now operator-generated Tripo sprites: a thick gold coin with a raised star, and a teal gift box with a purple lid, gold ribbon and star. The prize box alternates front and three-quarter frames every 0.8 seconds for a gentle rock. Both pickups draw over the unchanged Round 8 pickup economy (+25 coins, item grants, respawns and cooldowns), with the existing vector coin and cube retained as fallbacks. Check 31 measures sprite readiness, `drawImage` use, both rock frames, live collection and the unreachable-asset fallback with zero console errors.
+
 ## Round 15 — Final panel slate: teaching, feel and audio
 
 Commissioned by Marlando on 2026-11-19 as the final polish round. No new art or audio assets were added; every sound below is synthesized in code.

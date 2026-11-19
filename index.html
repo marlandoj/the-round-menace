@@ -9173,6 +9173,10 @@ const GP_SPRITES = {
   colourways: ['ember', 'rose', 'tide', 'goldie', 'menace'],
   karts: {}, kartLoaded: 0, kartFailed: false, kartTotal: 80, ready: false,
   trees: [], treeLoaded: 0, treeFailed: false, treesReady: false, failedLoads: [],
+  pickups: { pellet: null, prizebox: null, prizeboxSide: null },
+  pickupLoaded: 0, pickupTotal: 3, pelletFailed: false, prizeBoxFailed: false,
+  pelletReady: false, prizeBoxesReady: false,
+  pickupDraws: { coinSprite: 0, coinVector: 0, prizebox: 0, prizeboxSide: 0, boxVector: 0 },
   // Driver head anchor per yaw frame: seat x / y as fractions of the frame's alpha box (from the left / the top),
   // and `cut` — the fraction of the head radius below the seat point that stays visible before the tub hides the
   // rest (null = the whole dome shows, rear views where the head rides above the seat back).
@@ -9232,6 +9236,31 @@ GP_SPRITES.colourways.forEach(cw => {
   };
   img.onerror = () => { GP_SPRITES.treeFailed = true; GP_SPRITES.treesReady = false; GP_SPRITES.recordFailure(img.src); };
   img.src = `art/gp-tree-v${az}.png`;
+});
+[
+  ['pellet', 'gp-pellet.png'],
+  ['prizebox', 'gp-prizebox.png'],
+  ['prizeboxSide', 'gp-prizebox-side.png']
+].forEach(([key, file]) => {
+  const img = new Image();
+  img.onload = () => {
+    if (!(img.naturalWidth > 0)) {
+      if (key === 'pellet') { GP_SPRITES.pelletFailed = true; GP_SPRITES.pelletReady = false; }
+      else { GP_SPRITES.prizeBoxFailed = true; GP_SPRITES.prizeBoxesReady = false; }
+      GP_SPRITES.recordFailure(img.src);
+      return;
+    }
+    GP_SPRITES.pickups[key] = img;
+    GP_SPRITES.pickupLoaded++;
+    GP_SPRITES.pelletReady = !GP_SPRITES.pelletFailed && !!GP_SPRITES.pickups.pellet;
+    GP_SPRITES.prizeBoxesReady = !GP_SPRITES.prizeBoxFailed && !!GP_SPRITES.pickups.prizebox && !!GP_SPRITES.pickups.prizeboxSide;
+  };
+  img.onerror = () => {
+    if (key === 'pellet') { GP_SPRITES.pelletFailed = true; GP_SPRITES.pelletReady = false; }
+    else { GP_SPRITES.prizeBoxFailed = true; GP_SPRITES.prizeBoxesReady = false; }
+    GP_SPRITES.recordFailure(img.src);
+  };
+  img.src = `art/${file}`;
 });
 class GrandPrixRun {
   constructor(game, ghostIndex) {
@@ -9818,6 +9847,10 @@ class GrandPrixRun {
       return {
         kartsReady: GP_SPRITES.ready, kartFrames: GP_SPRITES.kartLoaded, kartTotal: GP_SPRITES.kartTotal, kartFailed: GP_SPRITES.kartFailed,
         treesReady: GP_SPRITES.treesReady, treeFrames: GP_SPRITES.treeLoaded, treeTotal: 3, treeFailed: GP_SPRITES.treeFailed,
+        pelletReady: GP_SPRITES.pelletReady, prizeBoxesReady: GP_SPRITES.prizeBoxesReady,
+        pickupFrames: GP_SPRITES.pickupLoaded, pickupTotal: GP_SPRITES.pickupTotal,
+        pelletFailed: GP_SPRITES.pelletFailed, prizeBoxFailed: GP_SPRITES.prizeBoxFailed,
+        pickupDraws: { ...GP_SPRITES.pickupDraws },
         failedImageLoads: GP_SPRITES.failedLoads.length, failedLoads: GP_SPRITES.failedLoads.slice(),
         convention: 'frame = (16 - round(yaw / 22.5deg)) mod 16; yaw = heading - camera yaw, positive = nose toward the camera right; 00 rear, 04 left flank, 08 front, 12 right flank',
         playerFrame: p.frame, playerYaw: this.relYaw(p)
@@ -10192,6 +10225,8 @@ class GrandPrixRun {
         p.coins++;
         this.collected++;
         this.chain++;
+        this.game.score += 25;
+        this.game.updateHUD();
         if (this.playerScreen) this.pops.push({ text: '+25', x: this.playerScreen.x, y: this.playerScreen.y - 70, t: 0 });
         if (this.game.sound.playKartPickup) this.game.sound.playKartPickup(this.chain);
         if (this.chain % 5 === 0) { this.flash('PELLET RUSH!', '#fde047', 0.7); this.fireBoost(p, 0.6, 1.08); }
@@ -10811,7 +10846,7 @@ class GrandPrixRun {
     ctx.restore();
   }
 
-  // A spinning item cube hovering over the road (original dress: a gold crate with a ring emblem)
+  // The prize box alternates front / three-quarter Tripo sprites every 0.8s; the gold vector cube is the fallback.
   drawCube(ctx, c, pt, time) {
     const hover = 36 + Math.sin(time * 3 + c.spin) * 7;
     const top = this.project(c.wx, c.wy, hover);
@@ -10821,28 +10856,39 @@ class GrandPrixRun {
     ctx.fillStyle = 'rgba(0,0,0,0.25)';
     ctx.beginPath(); ctx.ellipse(pt.x, pt.y, r * 0.8, r * 0.3, 0, 0, Math.PI * 2); ctx.fill();
     ctx.translate(top.x, top.y);
-    const a = c.spin + time * 2.2;
-    const k = Math.abs(Math.cos(a)) * 0.55 + 0.45;
-    ctx.shadowColor = '#ffd32a';
-    ctx.shadowBlur = 14;
-    ctx.fillStyle = '#f59e0b';
-    ctx.beginPath(); ctx.moveTo(-r * k, -r * 0.55); ctx.lineTo(r * k, -r * 0.55); ctx.lineTo(r * k, r * 0.55); ctx.lineTo(-r * k, r * 0.55); ctx.closePath(); ctx.fill();
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = '#fde68a';
-    ctx.fillRect(-r * k, -r * 0.55, r * k * 2, r * 0.18);
-    ctx.fillStyle = '#b45309';
-    ctx.fillRect(-r * k, r * 0.4, r * k * 2, r * 0.15);
-    ctx.strokeStyle = '#fff7cc';
-    ctx.lineWidth = Math.max(1, r * 0.16);
-    ctx.beginPath(); ctx.ellipse(0, 0, r * 0.32 * k, r * 0.32, 0, 0, Math.PI * 2); ctx.stroke();
-    ctx.fillStyle = '#0f172a';
-    ctx.font = `900 ${Math.max(4, r * 0.5)}px system-ui, sans-serif`;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('?', 0, r * 0.02);
+    const boxKey = Math.floor(time / 0.8) % 2 ? 'prizeboxSide' : 'prizebox';
+    const img = GP_SPRITES.prizeBoxesReady ? GP_SPRITES.pickups[boxKey] : null;
+    if (img) {
+      const dh = r * 1.8, dw = dh * img.naturalWidth / img.naturalHeight;
+      ctx.shadowColor = '#ffd32a';
+      ctx.shadowBlur = 14;
+      ctx.drawImage(img, -dw / 2, -dh / 2, dw, dh);
+      GP_SPRITES.pickupDraws[boxKey]++;
+    } else {
+      const a = c.spin + time * 2.2;
+      const k = Math.abs(Math.cos(a)) * 0.55 + 0.45;
+      ctx.shadowColor = '#ffd32a';
+      ctx.shadowBlur = 14;
+      ctx.fillStyle = '#f59e0b';
+      ctx.beginPath(); ctx.moveTo(-r * k, -r * 0.55); ctx.lineTo(r * k, -r * 0.55); ctx.lineTo(r * k, r * 0.55); ctx.lineTo(-r * k, r * 0.55); ctx.closePath(); ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#fde68a';
+      ctx.fillRect(-r * k, -r * 0.55, r * k * 2, r * 0.18);
+      ctx.fillStyle = '#b45309';
+      ctx.fillRect(-r * k, r * 0.4, r * k * 2, r * 0.15);
+      ctx.strokeStyle = '#fff7cc';
+      ctx.lineWidth = Math.max(1, r * 0.16);
+      ctx.beginPath(); ctx.ellipse(0, 0, r * 0.32 * k, r * 0.32, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = '#0f172a';
+      ctx.font = `900 ${Math.max(4, r * 0.5)}px system-ui, sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('?', 0, r * 0.02);
+      GP_SPRITES.pickupDraws.boxVector++;
+    }
     ctx.restore();
   }
 
-  // A pellet coin: a gold disc spinning on its vertical axis, with a soft glow
+  // The Tripo gold star coin uses the coin's projected size and spin; the vector disc remains the fallback.
   drawCoin(ctx, c, pt, time) {
     const h = 14 + Math.sin(time * 4 + c.bob) * 3;
     const top = this.project(c.wx, c.wy, h);
@@ -10854,11 +10900,18 @@ class GrandPrixRun {
     ctx.beginPath(); ctx.ellipse(pt.x, pt.y, r * 0.8, r * 0.28, 0, 0, Math.PI * 2); ctx.fill();
     ctx.shadowColor = '#ffd32a';
     ctx.shadowBlur = 8;
-    ctx.fillStyle = '#fbbf24';
-    ctx.beginPath(); ctx.ellipse(top.x, top.y, r * k, r, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = '#fde68a';
-    ctx.beginPath(); ctx.ellipse(top.x - r * k * 0.2, top.y - r * 0.2, r * k * 0.45, r * 0.5, 0, 0, Math.PI * 2); ctx.fill();
+    const img = GP_SPRITES.pelletReady ? GP_SPRITES.pickups.pellet : null;
+    if (img) {
+      const dh = r * 2, dw = dh * k * img.naturalWidth / img.naturalHeight;
+      ctx.drawImage(img, top.x - dw / 2, top.y - dh / 2, dw, dh);
+      GP_SPRITES.pickupDraws.coinSprite++;
+    } else {
+      ctx.fillStyle = '#fbbf24';
+      ctx.beginPath(); ctx.ellipse(top.x, top.y, r * k, r, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#fde68a';
+      ctx.beginPath(); ctx.ellipse(top.x - r * k * 0.2, top.y - r * 0.2, r * k * 0.45, r * 0.5, 0, 0, Math.PI * 2); ctx.fill();
+      GP_SPRITES.pickupDraws.coinVector++;
+    }
     ctx.restore();
   }
 
