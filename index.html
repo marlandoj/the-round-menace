@@ -569,6 +569,49 @@
       border: 1px dashed rgba(255, 255, 255, 0.2);
     }
 
+    /* Round 12: the Phantom Grand Prix touch layout. The arrow cluster is hidden while the kart is live; steering
+       is a press-and-hold on either half of the canvas, and DRIFT / ITEM are thumb-sized buttons in the bottom
+       corners (their own elements, so a button press rides alongside a held steering touch). */
+    #canvas-wrap.gp-touch #touch-controls { display: none; }
+    #gp-touch {
+      display: none;
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 16px;
+      height: 0;
+      z-index: 15;
+      pointer-events: none;
+    }
+    @media (pointer: coarse) {
+      #canvas-wrap.gp-touch #gp-touch { display: block; }
+    }
+    .gp-btn {
+      position: absolute;
+      bottom: 0;
+      width: 76px;
+      height: 76px;
+      border-radius: 50%;
+      pointer-events: auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      font-weight: 900;
+      letter-spacing: 1.5px;
+      color: #fff;
+      background: rgba(15, 23, 42, 0.55);
+      border: 2px solid rgba(255, 255, 255, 0.55);
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+      opacity: 0.72;
+      transition: transform 0.08s, opacity 0.08s;
+    }
+    .gp-btn.held { opacity: 1; transform: scale(0.94); }
+    #gp-btn-drift { left: 16px; border-color: #38bdf8; }
+    #gp-btn-drift.held { background: rgba(56, 189, 248, 0.6); }
+    #gp-btn-item { right: 16px; border-color: #fde047; }
+    #gp-btn-item.held { background: rgba(253, 224, 71, 0.55); color: #0f172a; }
+
     /* Notification Banner */
     #notification-toast {
       position: absolute;
@@ -652,6 +695,12 @@
       <div class="dpad-btn dpad-left" data-dir="left">◀</div>
       <div class="dpad-btn dpad-right" data-dir="right">▶</div>
     </div>
+
+    <!-- Round 12: Phantom Grand Prix touch buttons (steering is a hold on a canvas half; these are drift and item) -->
+    <div id="gp-touch">
+      <div class="gp-btn" id="gp-btn-drift" data-btn="drift">DRIFT</div>
+      <div class="gp-btn" id="gp-btn-item" data-btn="item">ITEM</div>
+    </div>
   </div>
 
   <!-- Bottom Squad Bar -->
@@ -721,7 +770,7 @@
       </div>
       <div class="info-rule">
         <span class="info-rule-bullet">4.</span>
-        <span><strong>The Flips.</strong> When he grabs a power pellet the maze tears open and your ghost is thrown into that corner's mini-game with the Menace right behind you. Top-left: <strong>Green Valley</strong> (jump rocks and logs as he rolls). Top-right: <strong>Block Kingdom</strong> (hold to jump higher, land on sprouts for +50). Bottom-left: <strong>GLOOM</strong> (strafe 3 lanes with Left/Right or A/D, blast pellets with Space/tap to knock him back, reach EXIT). Bottom-right: <strong>Phantom Grand Prix</strong> (steer kart with Left/Right or touch halves, hit boost pads, finish 1 lap ahead of him). Survive (+200) or get benched!</span>
+        <span><strong>The Flips.</strong> When he grabs a power pellet the maze tears open and your ghost is thrown into that corner's mini-game with the Menace right behind you. Top-left: <strong>Green Valley</strong> (jump rocks and logs as he rolls). Top-right: <strong>Block Kingdom</strong> (hold to jump higher, land on sprouts for +50). Bottom-left: <strong>GLOOM</strong> (strafe 3 lanes with Left/Right or A/D, blast pellets with Space/tap to knock him back, reach EXIT). Bottom-right: <strong>Phantom Grand Prix</strong> (touch: press and hold the left or right half of the screen to steer, let go to straighten, with DRIFT and ITEM buttons in the bottom corners — hold DRIFT while turning, release to boost; keyboard: Left/Right or A/D steer, Space hop-to-drift, Down uses your item or brakes; hit boost pads, finish 1 lap ahead of him). Survive (+200) or get benched!</span>
       </div>
 
       <div class="squad-info-grid">
@@ -2380,9 +2429,35 @@ class Game {
       btn.addEventListener('touchcancel', handleRelease);
       btn.addEventListener('mouseup', handleRelease);
     });
+
+    // Round 12: the Grand Prix thumb buttons — DRIFT (hold: hop into a drift, release: boost) and ITEM (use the
+    // held item; brakes while held when the slot is empty). They are their own elements, so a press lands as its
+    // own touch and never disturbs a steering hold on the canvas.
+    document.querySelectorAll('.gp-btn').forEach(btn => {
+      const press = (e) => {
+        e.preventDefault();
+        this.sound.init();
+        btn.classList.add('held');
+        this.flipButton(btn.dataset.btn, true);
+      };
+      const release = () => {
+        if (!btn.classList.contains('held')) return;
+        btn.classList.remove('held');
+        this.flipButton(btn.dataset.btn, false);
+      };
+      btn.addEventListener('touchstart', press, { passive: false });
+      btn.addEventListener('touchend', release);
+      btn.addEventListener('touchcancel', release);
+      btn.addEventListener('mousedown', press);
+      btn.addEventListener('mouseup', release);
+      btn.addEventListener('mouseleave', release);
+    });
   }
 
   setupInput() {
+    // Round 12: a touch device (coarse pointer or a touch screen) gets the kart's touch-zone hints and touch wording
+    this.touchDevice = !!((window.matchMedia && window.matchMedia('(pointer: coarse)').matches) || ('ontouchstart' in window) || navigator.maxTouchPoints > 0);
+
     window.addEventListener('keydown', (e) => {
       this.sound.init();
 
@@ -2438,22 +2513,46 @@ class Game {
       this.flipKey(e.code, false);
     });
 
-    // Touch swipe steering on canvas
+    // Touch on the canvas.
+    // Round 12: a kart module (touchHalves) takes hold-to-steer with real multi-touch — every touch that starts on
+    // the canvas is a steering hold for the half it landed in, tracked by its identifier, so a second finger on the
+    // DRIFT / ITEM buttons (their own elements) never disturbs the held wheel; the wheel follows the most recent
+    // steering touch, a finger sliding across the midline swaps sides, and the wheel centres when the last steering
+    // touch lifts. The other flips keep the single-touch tap / swipe grammar below.
     let touchStartX = 0;
     let touchStartY = 0;
+    this.touchSteers = new Map();
+    this.touchSteerDir = 0;
+    const canvasHalf = (clientX) => {
+      const rect = this.canvas.getBoundingClientRect();
+      return (clientX - rect.left) < rect.width / 2 ? -1 : 1;
+    };
+    const syncTouchSteer = () => {
+      let want = 0;
+      for (const d of this.touchSteers.values()) want = d;   // insertion order: the latest hold wins
+      if (want === this.touchSteerDir) return;
+      if (this.touchSteerDir) this.flipSteerRelease(this.touchSteerDir);
+      this.touchSteerDir = want;
+      if (want) this.flipSteer(want);
+    };
+    const endSteerTouches = (e) => {
+      let steering = false;
+      for (const t of e.changedTouches) if (this.touchSteers.delete(t.identifier)) steering = true;
+      if (steering) syncTouchSteer();
+      return steering;
+    };
     this.canvas.addEventListener('touchstart', (e) => {
       this.sound.init();
+      if (this.state === 'flip' && this.flip && this.flip.touchHalves) {
+        // Kart steering: press and hold the left or right half of the game area
+        for (const t of e.changedTouches) this.touchSteers.set(t.identifier, canvasHalf(t.clientX));
+        syncTouchSteer();
+        return;
+      }
       if (e.touches.length === 1) {
         touchStartX = e.touches[0].clientX;
         touchStartY = e.touches[0].clientY;
         if (this.state === 'flip') {
-          if (this.flip && this.flip.touchHalves) {
-            // Kart steering: hold the left or right half of the screen
-            const rect = this.canvas.getBoundingClientRect();
-            this.touchSteerDir = (touchStartX - rect.left) < rect.width / 2 ? -1 : 1;
-            this.flipSteer(this.touchSteerDir);
-            return;
-          }
           // Hold-to-rise modules jump on the press so the hold length can shape the jump
           if (this.flip && this.flip.pressToJump) this.flipJump();
           return;
@@ -2470,17 +2569,29 @@ class Game {
       }
     }, { passive: true });
 
+    this.canvas.addEventListener('touchmove', (e) => {
+      if (!this.touchSteers.size) return;
+      let changed = false;
+      for (const t of e.changedTouches) {
+        if (!this.touchSteers.has(t.identifier)) continue;
+        const d = canvasHalf(t.clientX);
+        if (d === this.touchSteers.get(t.identifier)) continue;
+        this.touchSteers.delete(t.identifier);          // re-inserted last: crossing the midline makes it the latest hold
+        this.touchSteers.set(t.identifier, d);
+        changed = true;
+      }
+      if (changed) syncTouchSteer();
+    }, { passive: true });
+
+    this.canvas.addEventListener('touchcancel', (e) => { endSteerTouches(e); }, { passive: true });
+
     this.canvas.addEventListener('touchend', (e) => {
+      // A steering hold lifting straightens the wheel (even if the flip ended under the finger)
+      if (endSteerTouches(e)) return;
       if (e.changedTouches.length !== 1) return;
       const dx = e.changedTouches[0].clientX - touchStartX;
       const dy = e.changedTouches[0].clientY - touchStartY;
       if (this.state === 'flip') {
-        if (this.touchSteerDir) {
-          // Letting go of a steering half straightens the wheel
-          this.flipSteerRelease(this.touchSteerDir);
-          this.touchSteerDir = 0;
-          return;
-        }
         // Swipe sideways = strafe (GLOOM lanes). Swipe down = fast-fall.
         // Otherwise a tap is a jump / shot (valley, GLOOM) or the end of a held jump (kingdom).
         if (Math.abs(dx) > 30 && Math.abs(dx) > Math.abs(dy)) {
@@ -2796,6 +2907,7 @@ class Game {
     this.flipRequestedKind = requestedKind;
     this.isFrightMode = true;
     this.state = 'flip';
+    this.setTouchLayout(this.flip.touchLayout === 'kart');
     this.transition = { mode: 'in', t: 0, dur: 0.7 };
     this.banner = { text: this.flip.openingBanner, t: 0, dur: 1.7, color: this.flip.bannerColor };
     this.shakeDuration = 0.3;
@@ -2824,6 +2936,7 @@ class Game {
     this.flipRequestedKind = null;
     this.isFrightMode = false;
     document.getElementById('fright-bar-container').classList.remove('active');
+    this.setTouchLayout(false);
     this.state = 'playing';
     this.menace.immuneTimer = 1.0; // Flashing re-entry: the return is never an instant catch
     this.transition = { mode: 'out', t: 0, dur: 0.6 };
@@ -2853,6 +2966,24 @@ class Game {
     this.banner = null;
     const bar = document.getElementById('fright-bar-container');
     if (bar) bar.classList.remove('active');
+    this.setTouchLayout(false);
+  }
+
+  // Round 12: the kart's touch layout — the arrow cluster hidden, hold-to-steer halves on the canvas and the
+  // DRIFT / ITEM buttons shown (on coarse pointers). Any held touches are dropped at every switch so no hold sticks.
+  setTouchLayout(kart) {
+    const wrap = document.getElementById('canvas-wrap');
+    if (wrap) wrap.classList.toggle('gp-touch', !!kart);
+    if (this.touchSteers) this.touchSteers.clear();
+    this.touchSteerDir = 0;
+    document.querySelectorAll('.gp-btn.held').forEach(b => b.classList.remove('held'));
+  }
+
+  // A kart touch button (drift / item): the module maps it onto its own controls
+  flipButton(name, down) {
+    if (!this.flip || !this.flip.touchButton) return false;
+    if (down && this.state !== 'flip') return false;
+    return this.flip.touchButton(name, down);
   }
 
   flipJump() {
@@ -8783,8 +8914,17 @@ class GloomRun {
 // the racing line; four karts — the ghost, the Menace and two squad ghosts — with spline-following AI and
 // rubber-banding; live 1st–4th positions; one lap to the finish arch. Finishing ahead of the Menace is
 // survival; him taking the flag first is the catch. Round 7 sky and kart art kept as the skin.
-// Controls: Left/Right (A/D, screen halves, d-pad) steer · Space/Up (W, d-pad up) hop, hold to drift,
-// release to boost · Down/S (d-pad down, swipe down) use item, or brake with no item · X/Shift use item.
+// Controls (keyboard): Left/Right (A/D) steer · Space/Up (W) hop, hold to drift, release to boost · Down/S use item,
+// or brake with no item · X/Shift use item.
+// Controls (touch, Round 12): press and hold the left or right half of the game area to steer (multi-touch, the wheel
+// centres on release) · DRIFT button (bottom-left) hold to hop into a drift, release to boost · ITEM button
+// (bottom-right) use the item, or brake while held with no item. The arrow cluster is retired for the kart: it is
+// hidden while the race is live and its handlers leave the wheel alone (dpad below). Faint touch-zone hints show
+// for the first moments of the race and fade.
+//
+// Round 12 crowd: every grandstand bobs on its own phase and tempo (a vertical bounce with a landing squash, transform
+// only), and jumps harder for about a second when a kart passes its stretch of track, when a kart completes a lap
+// (crossing the line) or finishes, and when the running order changes — see updateCrowd / cheer.
 //
 // Round 11: the Tripo Grand Prix asset set (operator-provided, art/gp-*.png). One chibi kart rendered from 16 yaw
 // angles (22.5° steps) in five hue-anchored colourways — ember / rose / tide / goldie for the four ghosts, menace for
@@ -8863,16 +9003,29 @@ GP_SPRITES.colourways.forEach(cw => {
   img.onerror = () => { GP_SPRITES.treeFailed = true; GP_SPRITES.treesReady = false; };
   img.src = `art/gp-tree-v${az}.png`;
 });
+// Round 12: the crowd is the operator's hand-coloured bleacher (art/gp-crowd2-front/angle.png — pastel ghosts, bright
+// flags, warm wood). If a coloured file fails to load or decode, the grey Round 11 sprite (art/gp-crowd-*.png) stands
+// in for that view; if that fails too the stand is left out of the scene rather than drawn broken. `crowdSource`
+// records which file each view ended up with ('colour' / 'grey' / 'none').
+GP_SPRITES.crowdSource = { front: 'pending', angle: 'pending' };
 ['front', 'angle'].forEach(kind => {
-  const img = new Image();
-  img.onload = () => {
-    if (!(img.naturalWidth > 0)) { GP_SPRITES.crowdFailed = true; return; }
-    GP_SPRITES.crowd[kind] = img;
-    GP_SPRITES.crowdLoaded++;
-    GP_SPRITES.crowdReady = !GP_SPRITES.crowdFailed && GP_SPRITES.crowdLoaded === 2;
+  const tryLoad = (src, label, onFail) => {
+    const img = new Image();
+    img.onload = () => {
+      if (!(img.naturalWidth > 0)) { onFail(); return; }
+      GP_SPRITES.crowd[kind] = img;
+      GP_SPRITES.crowdSource[kind] = label;
+      GP_SPRITES.crowdLoaded++;
+      GP_SPRITES.crowdReady = !GP_SPRITES.crowdFailed && GP_SPRITES.crowdLoaded === 2;
+    };
+    img.onerror = onFail;
+    img.src = src;
   };
-  img.onerror = () => { GP_SPRITES.crowdFailed = true; GP_SPRITES.crowdReady = false; };
-  img.src = `art/gp-crowd-${kind}.png`;
+  tryLoad(`art/gp-crowd2-${kind}.png`, 'colour', () => tryLoad(`art/gp-crowd-${kind}.png`, 'grey', () => {
+    GP_SPRITES.crowdSource[kind] = 'none';
+    GP_SPRITES.crowdFailed = true;
+    GP_SPRITES.crowdReady = false;
+  }));
 });
 
 class GrandPrixRun {
@@ -8891,7 +9044,12 @@ class GrandPrixRun {
     this.exitBanner = 'CHECKERED FLAG!';
     this.surviveText = 'Ahead of the Menace at the flag! Survival +200';
     this.pressToJump = false;
-    this.touchHalves = true;                 // Left / right screen halves steer
+    this.touchHalves = true;                 // Left / right screen halves steer (held, multi-touch since Round 12)
+    this.touchLayout = 'kart';               // Round 12: the game swaps the arrow cluster for DRIFT / ITEM buttons
+    this.steerHeld = 0;                      // The held steering input: -1 left, 0 centred, +1 right
+    this.parked = false;                     // Staging: the ghost's kart sits with the brake on (check 28 reads the crowd still)
+    this.cheers = [];                        // Crowd excitement log: { n, t, reason, s } (check 28 reads it)
+    this.cheerCount = 0;
 
     this.duration = 26;
     this.phase = 'tear_in';                  // tear_in -> run -> finish -> survived | caught
@@ -9274,11 +9432,22 @@ class GrandPrixRun {
     }
     // Grandstands on the start straight. Round 11: v = 0 is the front bleacher facing the track; v = 1 the angled
     // bleacher where the stand sits at a corner (the road bends there, so the stand is turned toward the bend)
-    for (const s of [this.L - 240, this.L - 120, 60, 180, 300]) {
+    // Round 12: each stand is a living crowd instance with its own bob phase and tempo (so the stands ripple rather
+    // than move as one block) and an excitement level the triggers raise; the renderer records what it drew.
+    this.stands = [];
+    [this.L - 240, this.L - 120, 60, 180, 300].forEach((s, i) => {
       const q = this.pointAt(s, -(this.halfW + 150));
       const curv = Math.max(Math.abs(this.pathAt(s).curv), Math.abs(this.pathAt(s + 60).curv), Math.abs(this.pathAt(s - 60).curv));
-      this.props.push({ x: q.x, y: q.y, kind: 'stand', v: curv > 0.0009 ? 1 : 0, s });
-    }
+      const st = {
+        x: q.x, y: q.y, kind: 'stand', v: curv > 0.0009 ? 1 : 0, s, i,
+        ph: rng() * Math.PI * 2,             // bob phase (radians, wraps at 2π)
+        tempo: 1.7 + rng() * 0.7,            // idle bounces per second
+        excite: 0, hold: 0, near: false,     // excitement 0..1, the seconds it is held at full, a kart in the stretch
+        bob: 0, dy: 0, sy: 1, ampPx: 0, drawn: -1, sx: 0, sy0: 0, sw: 0, sh: 0   // what the renderer last drew
+      };
+      this.props.push(st);
+      this.stands.push(st);
+    });
     // Flag poles flanking the line
     for (const side of [-1, 1]) {
       const q = this.pointAt(8, side * (this.halfW + 24));
@@ -9298,14 +9467,22 @@ class GrandPrixRun {
       default: return false;
     }
   }
+  // Round 12: the arrow cluster no longer drives the kart. It is hidden while the race is live; should one of its
+  // handlers still fire, the press is claimed and ignored so no arrow ever steers, hops or brakes the kart.
   dpad(dir, down) {
-    const p = this.player;
-    if (dir === 'left') this.setSteer(-1, down);
-    else if (dir === 'right') this.setSteer(1, down);
-    else if (dir === 'up') { if (down) this.hop(); else this.hopRelease(); }
-    else if (dir === 'down') { if (down) this.useOrBrake(true); else p.brakeHeld = false; }
-    else return false;
-    return true;
+    return dir === 'left' || dir === 'right' || dir === 'up' || dir === 'down';
+  }
+  // Round 12: the touch buttons — DRIFT is the hop / held drift, ITEM uses the item (or brakes while held when empty)
+  touchButton(name, down) {
+    if (name === 'drift') return this.key('Space', down);
+    if (name === 'item') return this.key('ArrowDown', down);
+    return false;
+  }
+  // The touch-zone hints' opacity: full for the first two seconds of the run on a touch device, then a fade
+  touchHintAlpha() {
+    if (this.phase !== 'run' || !this.game.touchDevice) return 0;
+    if (this.elapsed > 3.4) return 0;
+    return Math.max(0, Math.min(1, (3.4 - this.elapsed) / 1.4));
   }
   setSteer(dir, down) {
     if (down) { this.steerHeld = dir; }
@@ -9358,7 +9535,12 @@ class GrandPrixRun {
       bothInFrame: !!(this.menaceScreen && this.playerScreen && this.menaceScreen.inFrame && this.playerScreen.inFrame),
       // Round 11: the yaw frame the ghost's kart was last drawn with, her spin state, and the sprite path
       frame: p.frame, spin: p.spin, spinYaw: p.spinYaw, spriteKarts: GP_SPRITES.ready, spriteTrees: GP_SPRITES.treesReady, spriteCrowd: GP_SPRITES.crowdReady,
-      kartRadius: this.kartRadius, lastContact: this.lastContact
+      kartRadius: this.kartRadius, lastContact: this.lastContact,
+      // Round 12: the held steering input and the eased wheel, the drift hold, the touch layout and hint state, and
+      // which crowd file each view is drawn from
+      steerHeld: this.steerHeld || 0, steerInput: p.steer, hopHeld: !!p.hopHeld, brakeHeld: !!p.brakeHeld,
+      touchLayout: this.touchLayout, touchHint: this.touchHintAlpha(), crowdSource: Object.assign({}, GP_SPRITES.crowdSource),
+      cheers: this.cheerCount
     };
   }
 
@@ -9462,6 +9644,34 @@ class GrandPrixRun {
     }
     if (cmd === 'freezeRivals') { this.frozenRivals = !!arg; return this.frozenRivals; }
     if (cmd === 'giveItem') { p.item = arg; p.roulette = 0; return p.item; }
+    // ----- Round 12 life-proof hooks (check 28) -----
+    if (cmd === 'park') {
+      // Hold the ghost's kart still (brake on, wheel input still eased) so the camera stands and the stands in frame
+      // keep one projection scale while the crowd is measured
+      this.parked = !!arg;
+      if (this.parked) { p.v = 0; p.vx = 0; p.vy = 0; p.px = 0; p.py = 0; }
+      return this.parked;
+    }
+    if (cmd === 'crowd') {
+      // Every stand's cheering state and what the renderer last drew it with: dy = the vertical offset (canvas pixels,
+      // negative = up) the sprite was translated by, sy = the squash / stretch scale, bob = the bounce 0..1, ampPx =
+      // the amplitude the bob is scaled by right now; visible = drawn in the last frame; the screen rect it covered
+      const now = performance.now() / 1000;
+      return {
+        source: Object.assign({}, GP_SPRITES.crowdSource),
+        stands: this.stands.map(st => ({
+          i: st.i, s: st.s, view: st.v ? 'angle' : 'front', phase: st.ph, tempo: st.tempo, excite: st.excite, near: st.near,
+          bob: st.bob, dy: st.dy, sy: st.sy, ampPx: st.ampPx, visible: now - st.drawn < 0.1, drawn: st.drawn,
+          rect: { x: st.sx, y: st.sy0, w: st.sw, h: st.sh }
+        })),
+        cheers: this.cheers.slice(), cheerCount: this.cheerCount, elapsed: this.elapsed
+      };
+    }
+    if (cmd === 'excite') {
+      // Fire the crowd's excitement through the same path the live triggers use (near the ghost's kart by default)
+      const range = arg && arg.range !== undefined ? arg.range : 1e9;
+      return this.cheerNear(arg && arg.s !== undefined ? arg.s : p.s, (arg && arg.reason) || 'hook', range);
+    }
     if (cmd === 'track') {
       let maxCurv = 0;
       for (const q of this.path) maxCurv = Math.max(maxCurv, Math.abs(q.curv));
@@ -9476,6 +9686,7 @@ class GrandPrixRun {
     dt = Math.min(dt, 0.05);
     this.phaseT += dt;
     this.updateJuice(dt);
+    this.updateCrowd(dt);
 
     if (this.phase === 'tear_in') {
       if (this.phaseT >= this.tearInDuration) { this.phase = 'run'; this.phaseT = 0; this.flash('GO!', '#a3e635', 0.7); }
@@ -9503,7 +9714,7 @@ class GrandPrixRun {
     p.steer += (want - p.steer) * Math.min(1, dt * 9);
     if (Math.abs(p.steer) < 0.02 && !want) p.steer = 0;
     if (p.brakeTap > 0) p.brakeTap -= dt;
-    this.stepKart(p, { steer: p.steer, drift: !!p.hopHeld, brake: !!(p.brakeHeld || p.brakeTap > 0) }, dt);
+    this.stepKart(p, this.parked ? { steer: 0, drift: false, brake: true } : { steer: p.steer, drift: !!p.hopHeld, brake: !!(p.brakeHeld || p.brakeTap > 0) }, dt);
 
     // --- AI karts ---
     for (const k of [this.menace, ...this.rivals]) {
@@ -9617,7 +9828,7 @@ class GrandPrixRun {
     // Track position, lap counting, off-road
     const prevS = k.s;
     k.s = this.nearestS(k.x, k.y, k.s);
-    if (prevS > this.L * 0.75 && k.s < this.L * 0.25) k.lap++;
+    if (prevS > this.L * 0.75 && k.s < this.L * 0.25) { k.lap++; this.cheerNear(k.s, 'lap', 900); }   // the crowd on the straight sees the line crossed
     else if (prevS < this.L * 0.25 && k.s > this.L * 0.75) k.lap--;
     k.prog = (k.lap - 1) * this.L + k.s;
     k.offroad = !this.onRoad(k.x, k.y, k.s);
@@ -9635,7 +9846,7 @@ class GrandPrixRun {
       k.a += d * Math.min(1, dt * 6);
       k.slip = 0;
     }
-    if (!k.finished && k.prog >= this.L) { k.finished = true; k.finishTime = this.elapsed; }
+    if (!k.finished && k.prog >= this.L) { k.finished = true; k.finishTime = this.elapsed; this.cheerNear(k.s, 'finish', 1200); }
 
     // Juice: exhaust always, drift sparks and smoke while sliding
     this.kartExhaust(k.fx, dt, k.boost > 0);
@@ -9936,6 +10147,59 @@ class GrandPrixRun {
       this.flash(ahead ? 'HE PASSES!' : 'OVERTAKE!', ahead ? '#ff3344' : '#a3e635', 0.7);
     }
     this.lastAhead = ahead;
+    // Round 12: a change in the running order excites the crowd near the kart that moved up — confirmed once it is a
+    // kart-length clear of the one it displaced, so two karts trading inches on the grid do not keep the stands jumping
+    if (!this.confirmedOrder) this.confirmedOrder = this.positions.slice();
+    else {
+      for (let i = 0; i < this.positions.length; i++) {
+        const k = this.positions[i], was = this.confirmedOrder[i];
+        if (k === was) continue;
+        if (Math.abs(key(k) - key(was)) > 8) { this.confirmedOrder = this.positions.slice(); this.cheerNear(k.s, 'position', 900); break; }
+      }
+    }
+  }
+
+  // ----- Round 12: the living crowd -----
+  // Idle: every stand bobs on its own phase and tempo (1.7–2.4 bounces/s), a bounce of 3.5% of the sprite height with a
+  // landing squash. Excitement: a trigger sets a stand's excitement to 1, held for 0.5 s, then it decays over 0.6 s —
+  // about a second of harder jumping (amplitude up to 11% of the height, tempo up 70%) before it settles back to the
+  // idle bob. Triggers: a kart entering a stand's stretch of track (within 130 units of its position, once per pass),
+  // a kart crossing the line (a lap) or finishing, and a confirmed change in the running order; each excites the
+  // stands near that point of the track. The motion is phase-accumulated per frame, so a tempo change never jumps.
+  updateCrowd(dt) {
+    const L = this.L;
+    for (const st of this.stands) {
+      let near = false;
+      for (const k of this.karts) {
+        let d = ((k.s - st.s) % L + L) % L;
+        if (d > L / 2) d -= L;
+        if (Math.abs(d) < 130) { near = true; break; }
+      }
+      if (near && !st.near) this.cheer(st, 'pass');
+      st.near = near;
+      if (st.hold > 0) st.hold -= dt;
+      else if (st.excite > 0) st.excite = Math.max(0, st.excite - dt / 0.6);
+      st.ph += dt * Math.PI * 2 * st.tempo * (1 + 0.7 * st.excite);
+      if (st.ph > Math.PI * 2) st.ph -= Math.PI * 2;
+    }
+  }
+  cheer(st, reason) {
+    st.excite = 1;
+    st.hold = 0.5;
+    this.cheerCount++;
+    this.cheers.push({ n: this.cheerCount, t: this.elapsed, reason, s: st.s, stand: st.i });
+    if (this.cheers.length > 80) this.cheers.shift();
+  }
+  // Excite every stand within `range` track units of arclength s; returns how many stands cheered
+  cheerNear(s, reason, range) {
+    const L = this.L;
+    let n = 0;
+    for (const st of this.stands) {
+      let d = ((st.s - s) % L + L) % L;
+      if (d > L / 2) d -= L;
+      if (Math.abs(d) <= range) { this.cheer(st, reason); n++; }
+    }
+    return n;
   }
 
   // Chase camera: yaw eases toward the ghost's travel direction so a drift shows the kart angled
@@ -10354,7 +10618,7 @@ class GrandPrixRun {
     ctx.save();
     ctx.translate(pt.x, pt.y);
     const treeImg = pr.kind === 'tree' && GP_SPRITES.treesReady ? GP_SPRITES.trees[pr.v % 3] : null;
-    const standImg = pr.kind === 'stand' && GP_SPRITES.crowdReady ? (pr.v ? GP_SPRITES.crowd.angle : GP_SPRITES.crowd.front) : null;
+    const standImg = pr.kind === 'stand' ? (GP_SPRITES.crowd[pr.v ? 'angle' : 'front'] || null) : null;
     if (treeImg) {
       // Round 11: the Tripo cartoon tree, one of three azimuths per instance, trunk base on the ground point
       const th = (104 + pr.v * 10) * u, tw = th * treeImg.naturalWidth / treeImg.naturalHeight;
@@ -10362,11 +10626,28 @@ class GrandPrixRun {
       ctx.beginPath(); ctx.ellipse(0, 0, tw * 0.42, tw * 0.13, 0, 0, Math.PI * 2); ctx.fill();
       ctx.drawImage(treeImg, -tw / 2, -th + 3 * u, tw, th);
     } else if (standImg) {
-      // Round 11: a bleacher of ghost spectators — the front sprite faces the track, the angled one sits at a corner
+      // Round 11: a bleacher of ghost spectators — the front sprite faces the track, the angled one sits at a corner.
+      // Round 12: the whole stand cheers — a bounce (|sin| of the half phase: a clean landing, a soft top) scaled by the
+      // idle or excited amplitude, with a squash on the boards and a stretch at the top, as a translate + scale about
+      // the stand's ground point. The sprite itself is never redrawn; the shadow stays on the ground and tightens as
+      // the stand lifts.
       const w = 196 * u, h = w * standImg.naturalHeight / standImg.naturalWidth;
+      const j = Math.abs(Math.sin(pr.ph * 0.5));
+      const amp = h * (0.035 + 0.075 * pr.excite);
+      const dy = -amp * j;
+      const sy = 1 + (j - 0.5) * (0.05 + 0.07 * pr.excite);
+      const sx = 1 / sy;
       ctx.fillStyle = 'rgba(0,0,0,0.3)';
-      ctx.beginPath(); ctx.ellipse(0, 0, w * 0.5, w * 0.11, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(0, 0, w * 0.5 * (1 - 0.12 * j), w * 0.11 * (1 - 0.2 * j), 0, 0, Math.PI * 2); ctx.fill();
+      ctx.save();
+      ctx.translate(0, dy);
+      ctx.scale(sx, sy);
       ctx.drawImage(standImg, -w / 2, -h + 4 * u, w, h);
+      ctx.restore();
+      pr.bob = j; pr.dy = dy; pr.sy = sy; pr.ampPx = amp; pr.drawn = time;
+      pr.sx = pt.x - w * sx / 2; pr.sy0 = pt.y + dy - (h - 4 * u) * sy; pr.sw = w * sx; pr.sh = h * sy;
+    } else if (pr.kind === 'stand') {
+      // No crowd image decoded (neither the coloured nor the grey file): the stand is left out, never drawn broken
     } else if (pr.kind === 'tree') {
       const h = (86 + pr.v * 10) * u, w = (34 + pr.v * 4) * u;
       ctx.fillStyle = 'rgba(0,0,0,0.28)';
@@ -10409,23 +10690,6 @@ class GrandPrixRun {
       }
       ctx.fillStyle = '#334155';
       ctx.beginPath(); ctx.ellipse(0, -2 * r * 0.9, r * 0.45, r * 0.22, 0, 0, Math.PI * 2); ctx.fill();
-    } else if (pr.kind === 'stand') {
-      const w = 220 * u, h = 110 * u;
-      ctx.fillStyle = '#334155';
-      ctx.fillRect(-w / 2, -h, w, h);
-      ctx.fillStyle = '#1e293b';
-      ctx.fillRect(-w / 2, -h * 0.98, w, h * 0.08);
-      // The crowd: rows of coloured heads that bob
-      const rows = 4, cols = 11;
-      for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
-        const hx = -w / 2 + (c + 0.5) * (w / cols), hyy = -h * 0.2 - r * (h * 0.2) + Math.sin(time * 6 + c + r * 2) * h * 0.02;
-        ctx.fillStyle = ['#fde047', '#f472b6', '#38bdf8', '#a3e635', '#f8fafc', '#fb923c'][(c * 3 + r * 5) % 6];
-        ctx.beginPath(); ctx.arc(hx, hyy, Math.max(1, w * 0.028), 0, Math.PI * 2); ctx.fill();
-      }
-      ctx.fillStyle = '#ef4444';
-      ctx.fillRect(-w / 2 - 6 * u, -h - 14 * u, w + 12 * u, 14 * u);
-      ctx.fillStyle = '#f8fafc';
-      ctx.fillRect(-w / 2 - 6 * u, -h - 14 * u, w + 12 * u, 3 * u);
     } else if (pr.kind === 'flag') {
       const h = 120 * u;
       ctx.fillStyle = '#e2e8f0';
@@ -11201,6 +11465,7 @@ class GrandPrixRun {
 
     // Control hint for the first seconds
     if (this.elapsed < 4 && this.phase === 'run') {
+      const hint = this.game.touchDevice ? 'HOLD DRIFT WHILE TURNING · RELEASE TO BOOST' : 'HOLD JUMP WHILE TURNING TO DRIFT · RELEASE TO BOOST';
       ctx.save();
       ctx.globalAlpha = Math.min(1, 4 - this.elapsed);
       ctx.font = '800 11px system-ui, sans-serif';
@@ -11208,9 +11473,38 @@ class GrandPrixRun {
       ctx.textBaseline = 'middle';
       ctx.lineWidth = 4;
       ctx.strokeStyle = 'rgba(8, 9, 20, 0.85)';
-      ctx.strokeText('HOLD JUMP WHILE TURNING TO DRIFT · RELEASE TO BOOST', midX, 128);
+      ctx.strokeText(hint, midX, 128);
       ctx.fillStyle = '#f8fafc';
-      ctx.fillText('HOLD JUMP WHILE TURNING TO DRIFT · RELEASE TO BOOST', midX, 128);
+      ctx.fillText(hint, midX, 128);
+      ctx.restore();
+    }
+
+    // Round 12: touch-zone hints — a faint tint over each steering half with a one-line label, shown for the first
+    // moments of the race and fading out. Text only: nothing arrow-shaped stands in for the retired arrow cluster.
+    const ha = this.touchHintAlpha();
+    if (ha > 0) {
+      ctx.save();
+      ctx.globalAlpha = ha * 0.9;
+      ctx.fillStyle = 'rgba(56, 189, 248, 0.10)';
+      ctx.fillRect(0, hy, midX - 2, H - hy);
+      ctx.fillStyle = 'rgba(253, 224, 71, 0.10)';
+      ctx.fillRect(midX + 2, hy, midX - 2, H - hy);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+      ctx.setLineDash([6, 8]);
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(midX, hy + 8); ctx.lineTo(midX, H - 8); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.font = '900 12px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = 'rgba(8, 9, 20, 0.8)';
+      ctx.fillStyle = 'rgba(248, 250, 252, 0.9)';
+      const ty = hy + (H - hy) * 0.42;
+      for (const [x, label] of [[midX / 2, 'HOLD TO STEER LEFT'], [midX * 1.5, 'HOLD TO STEER RIGHT']]) {
+        ctx.strokeText(label, x, ty);
+        ctx.fillText(label, x, ty);
+      }
       ctx.restore();
     }
   }
@@ -11569,6 +11863,9 @@ window.addEventListener('DOMContentLoaded', () => {
     flipFastFall: () => game.flipFastFall(),
     flipSteer: (dir) => game.flipSteer(dir),
     flipSteerRelease: (dir) => game.flipSteerRelease(dir),
+    // Round 12: the kart's touch buttons (drift / item) and whether the page sees itself as a touch device
+    flipButton: (name, down) => game.flipButton(name, down !== false),
+    isTouchDevice: () => game.touchDevice,
     // Round 8 engine hooks: the keyboard path (module key hook, then the common grammar) and the module's
     // own staging hook for behaviour checks (place a body, freeze the pursuer, read a tile)
     flipKey: (code, down) => game.flipKey(code, down !== false),

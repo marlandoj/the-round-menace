@@ -123,6 +123,28 @@ Rebuilt as a real two-kart race seen from a chase camera that sits behind the gh
 ### Battery
 `test/acceptance.js` changed in screenshot timing only: the Grand Prix capture (check 18) now steers for 0.3 s and waits 1.5 s so the frame is a mid-race moment with both karts whole in shot. The `npm test` command is byte-identical. The Grand Prix module reports both kart rects and `bothInFrame` through `getFlip().extra`; Block Kingdom reports the ghost/Menace positions and `bothInFrame` too.
 
+## Round 12 — Phantom Grand Prix: a living crowd and real touch controls
+
+Commissioned 2026-11-18 from Marlando's Round 11 playtest ("the audience is a grey model — they need colours and cheering movements; the game needs touch controls instead of the directional arrows"). Phantom Grand Prix only; the maze, Green Valley, Block Kingdom and GLOOM stand as Round 11 left them, and `npm test` is byte-identical.
+
+### The coloured crowd (operator-provided)
+`art/gp-crowd2-front.png` / `gp-crowd2-angle.png` — the grandstand hand-coloured from the Tripo clay render (pastel ghosts, bright flags, warm wooden bleachers). These are the only new art. They replace the grey `gp-crowd-front/angle` sprites everywhere the crowd appears. Fallback order per view: if a coloured file fails to load or decode, the grey sprite stands in for that view; if that fails too the stand is left out of the scene (never a broken image). `flipDebug('crowd').source` reports which file each view ended up with (`colour` / `grey` / `none`).
+
+### The cheering model
+- **Idle.** Every stand bobs continuously on its own phase and tempo (1.7–2.4 bounces/s, seeded per instance), so the stands ripple instead of moving as one block. A bounce is `|sin(phase / 2)|` — a clean landing, a soft top — scaled by 3.5% of the sprite height, with a squash on the boards and a stretch at the top (±2.5%). The motion is phase-accumulated per frame (`updateCrowd`), so a tempo change never jumps.
+- **Excitement.** A trigger sets a stand's excitement to 1, held for 0.5 s, then decaying over 0.6 s — about a second of harder jumping (amplitude up to 11% of the height, tempo up 70%, squash up to ±6%) before it settles back to the idle bob.
+- **Triggers.** A kart entering a stand's stretch of track (within 130 units of the stand, once per pass); a kart crossing the line (the start crossing and the lap) or finishing; and a confirmed change in the running order (a kart a kart-length clear of the one it displaced). Each excites the stands near that point of the track (900–1200 units), so the whole start straight erupts at the start, at a pass and at the flag.
+- **Rendering.** Transform-only: a translate (the bounce) and a scale about the stand's ground point (the squash), with the sprite never redrawn in code — the flags in the sprite ride the whole-stand bounce. The shadow stays on the ground and tightens as the stand lifts.
+
+### Touch controls (Grand Prix only)
+- **Steering.** Press and hold the left or right half of the game area to steer that way; let go and the wheel centres. Real multi-touch: every touch on the canvas is a steering hold tracked by its identifier, the wheel follows the most recent hold, a finger sliding across the midline swaps sides, and the wheel straightens when the last steering touch lifts.
+- **DRIFT and ITEM.** Thumb-sized buttons in the bottom corners (their own elements, so a press rides alongside a steering hold). DRIFT: hold to hop into a drift, release to boost (the kart's Space mapping). ITEM: use the held item, or brake while held with no item (the Down mapping).
+- **The arrow cluster is retired for the kart.** It is hidden while the race is live, and the module claims its handlers so a stray arrow press never steers, hops or brakes the kart. Faint touch-zone hints (a tint over each half with "HOLD TO STEER LEFT / RIGHT") show for the first two seconds of the race and fade; nothing arrow-shaped stands in for steering.
+- Keyboard steering is unchanged (Left/Right or A/D, Space hop-to-drift, Down item / brake). The other flips' controls are untouched: maze swipe, Green Valley tap, Block Kingdom hold, GLOOM's d-pad.
+
+### Battery
+All 27 existing checks pass and `npm test` is byte-identical. Check 28 is a life proof: (a) with the ghost's kart parked on the start straight (`flipDebug('park')`: brake held, camera still, one projection scale per stand) `flipDebug('crowd')` is polled for about a second — each stand reports the vertical offset (canvas pixels) its sprite was last translated by, its squash scale, bounce, amplitude, excitement and screen rect. One stand must bob (peak-to-peak above zero), a second must be out of phase with it, and after `flipDebug('excite')` (the same `cheer()` the live triggers call) the same stand's peak-to-peak over the next second must grow by at least half again; the kart is then let go down the straight and the cheer log must show real `pass` and `lap` triggers; the stand's drawn rect read back from the canvas must hold at least five distinct saturated hues (the coloured sprite). (b) A real touch (CDP `Input.dispatchTouchEvent`) held on the right half of the canvas must engage `steerHeld = 1` and turn the eased wheel, and release to centre on touch end; a second touch on the DRIFT button must start the drift hold without disturbing a held steer, and lifting that finger alone must keep the steer; the arrow cluster must be hidden and its left handler inert; keyboard Left must still hold. `getFlip().extra` also reports `steerHeld`, `steerInput`, `hopHeld`, `touchLayout`, `touchHint` and `crowdSource`.
+
 ## Round 11 — Phantom Grand Prix: Tripo karts, trees and crowd, and a proper spin
 
 Commissioned 2026-11-18. Phantom Grand Prix only; the maze, Green Valley, Block Kingdom and GLOOM stand as Round 10 left them, and `npm test` is byte-identical.
@@ -286,7 +308,8 @@ Music starts only after the first user gesture, ducks under the catch and flip s
 
 ## Controls
 
-- **Steering:** Arrow Keys / WASD / Swipe Gestures / On-Screen Touch D-Pad.
+- **Steering:** Arrow Keys / WASD / Swipe Gestures / On-Screen Touch D-Pad (maze and the first three flips).
+- **Phantom Grand Prix (touch):** press and hold the left / right half of the game area to steer, release to straighten; DRIFT (hold, release to boost) and ITEM (use item, or brake while held) buttons in the bottom corners. Keyboard: Left/Right or A/D, Space hop-to-drift, Down item / brake.
 - **Possess Squadmates:** Keys `1`, `2`, `3`, `4` or tap ghost / squad bar portrait.
 - **Pause:** `Space` or `P` key, or the on-screen ⏸️ button.
 - **Mute / Unmute Audio:** `M` key or on-screen 🔊 button.
@@ -295,7 +318,7 @@ Music starts only after the first user gesture, ducks under the catch and flip s
 
 ## Running Automated Acceptance Checks
 
-The project includes headless Playwright test coverage: the 10 Round 1 checks, the 3 Round 2 checks, the 2 Round 3 checks, the 4 Round 4 checks, the 2 Round 5 pixel-level render checks, the 4 Round 8 engine checks, the Round 9 Menace-brain check, and the Round 11 Grand Prix physics proof (27 total checks).
+The project includes headless Playwright test coverage: the 10 Round 1 checks, the 3 Round 2 checks, the 2 Round 3 checks, the 4 Round 4 checks, the 2 Round 5 pixel-level render checks, the 4 Round 8 engine checks, the Round 9 Menace-brain check, the Round 11 Grand Prix physics proof, and the Round 12 Grand Prix life proof (28 total checks).
 
 ```bash
 npm test
@@ -329,8 +352,9 @@ The test suite automatically validates:
 25. Phantom Grand Prix engine: a hop with the wheel turned starts a drift, holding it charges a stage, and releasing it fires a boost that lifts the speed measurably above both the held speed and the plain top speed; zero console errors across all 25 checks.
 26. Menace brain (behaviour, not state): (a) eight collision-course trials — the Menace running along an open corridor with a hunting ghost placed ahead of him on the same line, heading at him, every other ghost parked in the house — in which he must leave the line, double back, or end further away than he started, with no catch, in at least 6 of 8; (b) an AI-vs-AI soak (the possessed ghost on her own AI too, every flip survived through the hook) of at most 100 s of maze time in which he must eat at least 2 distinct power pellets before his second catch; zero console errors across all 26 checks.
 27. Phantom Grand Prix physics proof: (a) a forced spin-out on the ghost's kart must be drawn as at least 8 distinct yaw frames in sequence stepping one way round over about two turns, by the sprite path, with the canvas transform at every kart draw carrying zero in-plane rotation and zero shear, and the heading unchanged; (b) two karts set overlapping at speed must separate to at least the sum of their contact radii within the step and stay apart, with the rammed kart shoved (gain along the normal, run up, yaw wobble) and neither kart spun; the frame convention (0° → 00, −90° → 04, 180° → 08, +90° → 12) is asserted; zero console errors across all 27 checks.
+28. Phantom Grand Prix life proof: (a) both crowd views loaded from the coloured files; with the kart parked, one stand's drawn vertical offset over about a second varies (peak-to-peak above zero), a second stand is out of phase with it, and after a triggered cheer the same stand's peak-to-peak grows by at least half again; a real drive down the straight logs `pass` and `lap` triggers; the stand's canvas rect holds at least five distinct saturated hues; (b) a real touch held on the right half of the canvas engages right steering and the wheel, and releases to centre on touch end; a DRIFT press rides alongside a held steer (multi-touch); the arrow cluster is hidden and inert for the kart; keyboard steering still holds; zero console errors across all 28 checks.
 
-Screenshots of title, gameplay, the flip transition, Green Valley, Block Kingdom (banner and mid-level), GLOOM mid-corridor, Phantom Grand Prix mid-race, maze clear, and game over screens are saved into `screenshots/`. Since Round 6 the three fixed flips' frames (`valley.png`, `kingdom.png`, `grandprix.png`) are peak-action captures with both the ghost and the Menace in shot.
+Screenshots of title, gameplay, the flip transition, Green Valley, Block Kingdom (banner and mid-level), GLOOM mid-corridor, Phantom Grand Prix mid-race, maze clear, and game over screens are saved into `screenshots/`. Since Round 6 the three fixed flips' frames (`valley.png`, `kingdom.png`, `grandprix.png`) are peak-action captures with both the ghost and the Menace in shot; since Round 12 `grandprix.png` shows the coloured crowd and the touch layout.
 
 ---
 
