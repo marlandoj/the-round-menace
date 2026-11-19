@@ -2626,6 +2626,11 @@ class Game {
 
       if (e.code === 'Space' || e.code === 'KeyP') {
         if (this.state === 'playing' || this.state === 'paused') {
+          // preventDefault is load-bearing: a button clicked with the mouse keeps keyboard
+          // focus (Play at run start, Pause, Resume), and an un-prevented Space keyup then
+          // "clicks" that focused button — restarting the run or toggling the pause straight
+          // back off. Cancelling the keydown default suppresses that activation entirely.
+          e.preventDefault();
           this.togglePause();
         }
         return;

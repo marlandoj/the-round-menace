@@ -36,7 +36,7 @@ async function runAcceptanceTests() {
 
   const indexPath = `file://${path.resolve(__dirname, '../index.html')}`;
   let passedCount = 0;
-  let totalCount = 31;
+  let totalCount = 32;
 
   // Screenshot directory
   const screenshotDir = path.resolve(__dirname, '../screenshots');
@@ -1726,6 +1726,48 @@ async function runAcceptanceTests() {
     await leaveEngine();
     if (consoleErrors.length > 0) throw new Error(`Console errors during the pickup sprite check: ${consoleErrors.join(' | ')}`);
     console.log(`  ✓ PASS: all three pickup sprites ready with 0 ordinary failures; drawImage pellet/front/side ${spriteDraws.pellet}/${spriteDraws.prizebox}/${spriteDraws.prizeboxSide}; +25 and item grants held with sprites and vector fallbacks; 0 console errors across all 31 checks.`);
+    passedCount++;
+
+  } catch (err) {
+    console.error(`\n❌ TEST FAILED: ${err.message}`);
+    await browser.close();
+    process.exit(1);
+  }
+
+  // Check 32: Space must pause the maze even when a button still holds keyboard focus — the natural
+  // mouse flow (click Play to start, click Pause) leaves that button focused, and an un-prevented
+  // Space keyup re-"clicks" it: Play restarts the run, Pause toggles the pause straight back off.
+  try {
+    console.log('\n[Check 32/32] Space pause with a focused button: the keyup must not re-click Play or Pause...');
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForTimeout(700);
+    await page.click('#btn-play');
+    await page.waitForTimeout(500);
+    const focusAfterPlay = await page.evaluate(() => document.activeElement && document.activeElement.id);
+    if (focusAfterPlay !== 'btn-play') throw new Error(`Play click did not leave focus on the Play button (${focusAfterPlay}) — the trap this check guards is not armed`);
+    const pelletsLeft = () => page.evaluate(() => { let n = 0; for (const row of window.__game.grid) for (const c of row) if (c === '.' || c === 'o') n++; return n; });
+    const before = { state: await page.evaluate(() => window.__game.state), pellets: await pelletsLeft(), score: await page.evaluate(() => window.__RM_GAME__.getScore()) };
+    if (before.state !== 'playing') throw new Error(`Run did not start in the playing state (${before.state})`);
+    await page.keyboard.press('Space');
+    await page.waitForTimeout(250);
+    const pausedState = await page.evaluate(() => window.__game.state);
+    const pauseVisible = await page.evaluate(() => document.getElementById('pause-screen').classList.contains('visible'));
+    const after = { pellets: await pelletsLeft(), score: await page.evaluate(() => window.__RM_GAME__.getScore()) };
+    if (pausedState !== 'paused' || !pauseVisible) throw new Error(`Space with Play focused did not hold the pause (state ${pausedState}, pause screen visible ${pauseVisible})`);
+    if (after.score !== before.score || after.pellets !== before.pellets) throw new Error(`The run moved while pausing (score ${before.score} -> ${after.score}, pellets ${before.pellets} -> ${after.pellets}) — the focused Play button restarted it`);
+    await page.keyboard.press('Space');
+    await page.waitForTimeout(250);
+    const resumedState = await page.evaluate(() => window.__game.state);
+    if (resumedState !== 'playing') throw new Error(`Second Space did not resume (state ${resumedState})`);
+    await page.click('#btn-pause');
+    await page.waitForTimeout(200);
+    if ((await page.evaluate(() => window.__game.state)) !== 'paused') throw new Error('Pause button click did not pause');
+    await page.keyboard.press('Space');
+    await page.waitForTimeout(250);
+    const afterBtnState = await page.evaluate(() => window.__game.state);
+    if (afterBtnState !== 'playing') throw new Error(`Space with Pause focused did not resume exactly once (state ${afterBtnState})`);
+    if (consoleErrors.length > 0) throw new Error(`Console errors during the space-pause check: ${consoleErrors.join(' | ')}`);
+    console.log(`  ✓ PASS: Space pauses and resumes with focus on Play (run untouched: score ${before.score}, pellets ${before.pellets}) and resumes exactly once with focus on Pause; 0 console errors across all 32 checks.`);
     passedCount++;
 
   } catch (err) {
