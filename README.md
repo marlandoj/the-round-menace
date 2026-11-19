@@ -123,6 +123,15 @@ Rebuilt as a real two-kart race seen from a chase camera that sits behind the gh
 ### Battery
 `test/acceptance.js` changed in screenshot timing only: the Grand Prix capture (check 18) now steers for 0.3 s and waits 1.5 s so the frame is a mid-race moment with both karts whole in shot. The `npm test` command is byte-identical. The Grand Prix module reports both kart rects and `bothInFrame` through `getFlip().extra`; Block Kingdom reports the ghost/Menace positions and `bothInFrame` too.
 
+## Round 14 — Phantom Grand Prix: open verges and race presentation
+
+Commissioned 2026-11-19 from Marlando's playtest. The complete audience treatment is retired: no grandstand or fan props are placed, no audience images are loaded or drawn, and the bobbing, cheering and excitement triggers are gone. All `gp-crowd*` and `gp-fan-*` art files are deleted. The start / finish straight retains its track, trees and start furniture on open grass.
+
+The racing model is unchanged. Every visible kart now shares one code-drawn soft contact-shadow path, including hop and fallback rendering, with a ground-fixed ellipse that softens and shrinks slightly during a hop. The map's alternating red / white kerbs gain subtle top highlights and lower-edge shading; its black / white chequered start band remains code-drawn with no new art assets.
+
+### Battery
+All 29 checks pass and `npm test` is byte-identical. Check 28 retains only the Round 12 real-touch, multi-touch DRIFT, hidden / inert arrow-cluster and keyboard assertions; all crowd measurements are retired. Check 29 installs pre-load hooks on `HTMLImageElement.src` and `CanvasRenderingContext2D.drawImage` and verifies zero retired asset references, requests or draws, then checks that all four karts emit contact shadows and reads their rendered road pixels. It also samples red / white kerb pixels and black / white start-line pixels (scanning the local texel neighbourhood to avoid sampling the adjacent stripe or bevel). `screenshots/grandprix.png` shows the start straight without stands or spectators.
+
 ## Round 12 — Phantom Grand Prix: a living crowd and real touch controls
 
 Commissioned 2026-11-18 from Marlando's Round 11 playtest ("the audience is a grey model — they need colours and cheering movements; the game needs touch controls instead of the directional arrows"). Phantom Grand Prix only; the maze, Green Valley, Block Kingdom and GLOOM stand as Round 11 left them, and `npm test` is byte-identical.
@@ -318,7 +327,7 @@ Music starts only after the first user gesture, ducks under the catch and flip s
 
 ## Running Automated Acceptance Checks
 
-The project includes headless Playwright test coverage: the 10 Round 1 checks, the 3 Round 2 checks, the 2 Round 3 checks, the 4 Round 4 checks, the 2 Round 5 pixel-level render checks, the 4 Round 8 engine checks, the Round 9 Menace-brain check, the Round 11 Grand Prix physics proof, and the Round 12 Grand Prix life proof (28 total checks).
+The project includes headless Playwright test coverage: the 10 Round 1 checks, the 3 Round 2 checks, the 2 Round 3 checks, the 4 Round 4 checks, the 2 Round 5 pixel-level render checks, the 4 Round 8 engine checks, the Round 9 Menace-brain check, the Round 11 Grand Prix physics proof, the Round 12 Grand Prix touch proof, and the Round 14 crowd-absence / race-presentation proof (29 total checks).
 
 ```bash
 npm test
@@ -352,9 +361,10 @@ The test suite automatically validates:
 25. Phantom Grand Prix engine: a hop with the wheel turned starts a drift, holding it charges a stage, and releasing it fires a boost that lifts the speed measurably above both the held speed and the plain top speed; zero console errors across all 25 checks.
 26. Menace brain (behaviour, not state): (a) eight collision-course trials — the Menace running along an open corridor with a hunting ghost placed ahead of him on the same line, heading at him, every other ghost parked in the house — in which he must leave the line, double back, or end further away than he started, with no catch, in at least 6 of 8; (b) an AI-vs-AI soak (the possessed ghost on her own AI too, every flip survived through the hook) of at most 100 s of maze time in which he must eat at least 2 distinct power pellets before his second catch; zero console errors across all 26 checks.
 27. Phantom Grand Prix physics proof: (a) a forced spin-out on the ghost's kart must be drawn as at least 8 distinct yaw frames in sequence stepping one way round over about two turns, by the sprite path, with the canvas transform at every kart draw carrying zero in-plane rotation and zero shear, and the heading unchanged; (b) two karts set overlapping at speed must separate to at least the sum of their contact radii within the step and stay apart, with the rammed kart shoved (gain along the normal, run up, yaw wobble) and neither kart spun; the frame convention (0° → 00, −90° → 04, 180° → 08, +90° → 12) is asserted; zero console errors across all 27 checks.
-28. Phantom Grand Prix life proof: (a) both crowd views loaded from the coloured files; with the kart parked, one stand's drawn vertical offset over about a second varies (peak-to-peak above zero), a second stand is out of phase with it, and after a triggered cheer the same stand's peak-to-peak grows by at least half again; a real drive down the straight logs `pass` and `lap` triggers; the stand's canvas rect holds at least five distinct saturated hues; (b) a real touch held on the right half of the canvas engages right steering and the wheel, and releases to centre on touch end; a DRIFT press rides alongside a held steer (multi-touch); the arrow cluster is hidden and inert for the kart; keyboard steering still holds; zero console errors across all 28 checks.
+28. Phantom Grand Prix touch proof: a real touch held on the right half of the canvas engages right steering and the wheel, and releases to centre on touch end; a DRIFT press rides alongside a held steer (multi-touch); the arrow cluster is hidden and inert for the kart; keyboard steering still holds; zero console errors across all 28 checks. The Round 12 crowd clauses are retired.
+29. Phantom Grand Prix crowd absence and race presentation: pre-load `Image.src` and `drawImage` instrumentation proves zero crowd / fan asset requests or draws; every kart reports and pixel-samples a contact shadow; rendered red / white kerbs and black / white start-line samples are reported; zero console errors across all 29 checks.
 
-Screenshots of title, gameplay, the flip transition, Green Valley, Block Kingdom (banner and mid-level), GLOOM mid-corridor, Phantom Grand Prix mid-race, maze clear, and game over screens are saved into `screenshots/`. Since Round 6 the three fixed flips' frames (`valley.png`, `kingdom.png`, `grandprix.png`) are peak-action captures with both the ghost and the Menace in shot; since Round 12 `grandprix.png` shows the coloured crowd and the touch layout.
+Screenshots of title, gameplay, the flip transition, Green Valley, Block Kingdom (banner and mid-level), GLOOM mid-corridor, Phantom Grand Prix mid-race, maze clear, and game over screens are saved into `screenshots/`. Since Round 6 the three fixed flips' frames (`valley.png`, `kingdom.png`, `grandprix.png`) are peak-action captures with both the ghost and the Menace in shot; since Round 14 `grandprix.png` shows the open start straight with no stands or crowd, kart shadows, striped kerbs, the chequered line and the touch layout.
 
 ---
 

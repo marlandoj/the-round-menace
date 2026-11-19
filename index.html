@@ -8922,13 +8922,12 @@ class GloomRun {
 // hidden while the race is live and its handlers leave the wheel alone (dpad below). Faint touch-zone hints show
 // for the first moments of the race and fade.
 //
-// Round 12 crowd: every grandstand bobs on its own phase and tempo (a vertical bounce with a landing squash, transform
-// only), and jumps harder for about a second when a kart passes its stretch of track, when a kart completes a lap
-// (crossing the line) or finishes, and when the running order changes — see updateCrowd / cheer.
+// Round 14: the start / finish straight has an open verge. Code-drawn contact shadows ground every kart; the road map
+// carries red / white kerbs and a chequered start line.
 //
 // Round 11: the Tripo Grand Prix asset set (operator-provided, art/gp-*.png). One chibi kart rendered from 16 yaw
 // angles (22.5° steps) in five hue-anchored colourways — ember / rose / tide / goldie for the four ghosts, menace for
-// him — plus one cartoon tree at three azimuths and a bleacher of ghost spectators (front and angled). Loaded once
+// him — plus one cartoon tree at three azimuths. Loaded once
 // at page load; every kart frame is calibrated on decode (alpha bounding box: the bottom edge is the tyre contact
 // line, the horizontal centre is the kart's axis). FRAME CONVENTION (calibrated against art/gp-kart-contact.png):
 // frame 00 = dead rear, 04 = the kart's LEFT flank (nose to the camera's left), 08 = dead front, 12 = RIGHT flank
@@ -8937,13 +8936,11 @@ class GloomRun {
 //   frame = (16 - round(yaw / 22.5°)) mod 16      i.e. index increases as the nose swings toward the camera's LEFT
 // — which in this world's map-canvas coordinates (y down) is a DECREASING heading angle; seen from above with the
 // usual y-up compass it is a clockwise yaw. `ready` flips when every kart frame has decoded; if any kart frame fails
-// the Round 7 vector kart (drawKart) draws instead. The tree and crowd sprites fall back to the vector props on
-// their own flags.
+// the Round 7 vector kart (drawKart) draws instead. Tree sprites fall back to vector props on their own flag.
 const GP_SPRITES = {
   colourways: ['ember', 'rose', 'tide', 'goldie', 'menace'],
   karts: {}, kartLoaded: 0, kartFailed: false, kartTotal: 80, ready: false,
   trees: [], treeLoaded: 0, treeFailed: false, treesReady: false,
-  crowd: {}, crowdLoaded: 0, crowdFailed: false, crowdReady: false,
   // Driver head anchor per yaw frame: seat x / y as fractions of the frame's alpha box (from the left / the top),
   // and `cut` — the fraction of the head radius below the seat point that stays visible before the tub hides the
   // rest (null = the whole dome shows, rear views where the head rides above the seat back).
@@ -9003,31 +9000,6 @@ GP_SPRITES.colourways.forEach(cw => {
   img.onerror = () => { GP_SPRITES.treeFailed = true; GP_SPRITES.treesReady = false; };
   img.src = `art/gp-tree-v${az}.png`;
 });
-// Round 12: the crowd is the operator's hand-coloured bleacher (art/gp-crowd2-front/angle.png — pastel ghosts, bright
-// flags, warm wood). If a coloured file fails to load or decode, the grey Round 11 sprite (art/gp-crowd-*.png) stands
-// in for that view; if that fails too the stand is left out of the scene rather than drawn broken. `crowdSource`
-// records which file each view ended up with ('colour' / 'grey' / 'none').
-GP_SPRITES.crowdSource = { front: 'pending', angle: 'pending' };
-['front', 'angle'].forEach(kind => {
-  const tryLoad = (src, label, onFail) => {
-    const img = new Image();
-    img.onload = () => {
-      if (!(img.naturalWidth > 0)) { onFail(); return; }
-      GP_SPRITES.crowd[kind] = img;
-      GP_SPRITES.crowdSource[kind] = label;
-      GP_SPRITES.crowdLoaded++;
-      GP_SPRITES.crowdReady = !GP_SPRITES.crowdFailed && GP_SPRITES.crowdLoaded === 2;
-    };
-    img.onerror = onFail;
-    img.src = src;
-  };
-  tryLoad(`art/gp-crowd2-${kind}.png`, 'colour', () => tryLoad(`art/gp-crowd-${kind}.png`, 'grey', () => {
-    GP_SPRITES.crowdSource[kind] = 'none';
-    GP_SPRITES.crowdFailed = true;
-    GP_SPRITES.crowdReady = false;
-  }));
-});
-
 class GrandPrixRun {
   constructor(game, ghostIndex) {
     this.game = game;
@@ -9047,9 +9019,7 @@ class GrandPrixRun {
     this.touchHalves = true;                 // Left / right screen halves steer (held, multi-touch since Round 12)
     this.touchLayout = 'kart';               // Round 12: the game swaps the arrow cluster for DRIFT / ITEM buttons
     this.steerHeld = 0;                      // The held steering input: -1 left, 0 centred, +1 right
-    this.parked = false;                     // Staging: the ghost's kart sits with the brake on (check 28 reads the crowd still)
-    this.cheers = [];                        // Crowd excitement log: { n, t, reason, s } (check 28 reads it)
-    this.cheerCount = 0;
+    this.parked = false;                     // Staging: the ghost's kart sits with the brake on for presentation / control checks
 
     this.duration = 26;
     this.phase = 'tear_in';                  // tear_in -> run -> finish -> survived | caught
@@ -9355,6 +9325,10 @@ class GrandPrixRun {
         c.rotate(q.a);
         c.fillStyle = (Math.floor(s / 16) % 2 === 0) ? '#e11d48' : '#f8fafc';
         c.fillRect(-8 * sc, -7 * sc, 16.5 * sc, 14 * sc);
+        c.fillStyle = 'rgba(255,255,255,0.24)';
+        c.fillRect(-8 * sc, -7 * sc, 16.5 * sc, 2 * sc);
+        c.fillStyle = 'rgba(15,23,42,0.22)';
+        c.fillRect(-8 * sc, 5 * sc, 16.5 * sc, 2 * sc);
         c.restore();
       }
     }
@@ -9430,24 +9404,6 @@ class GrandPrixRun {
       const r = rng();
       this.props.push({ x: q.x, y: q.y, kind: r < 0.62 ? 'tree' : r < 0.8 ? 'sign' : 'tyres', v: Math.floor(rng() * 4), s });
     }
-    // Grandstands on the start straight. Round 11: v = 0 is the front bleacher facing the track; v = 1 the angled
-    // bleacher where the stand sits at a corner (the road bends there, so the stand is turned toward the bend)
-    // Round 12: each stand is a living crowd instance with its own bob phase and tempo (so the stands ripple rather
-    // than move as one block) and an excitement level the triggers raise; the renderer records what it drew.
-    this.stands = [];
-    [this.L - 240, this.L - 120, 60, 180, 300].forEach((s, i) => {
-      const q = this.pointAt(s, -(this.halfW + 150));
-      const curv = Math.max(Math.abs(this.pathAt(s).curv), Math.abs(this.pathAt(s + 60).curv), Math.abs(this.pathAt(s - 60).curv));
-      const st = {
-        x: q.x, y: q.y, kind: 'stand', v: curv > 0.0009 ? 1 : 0, s, i,
-        ph: rng() * Math.PI * 2,             // bob phase (radians, wraps at 2π)
-        tempo: 1.7 + rng() * 0.7,            // idle bounces per second
-        excite: 0, hold: 0, near: false,     // excitement 0..1, the seconds it is held at full, a kart in the stretch
-        bob: 0, dy: 0, sy: 1, ampPx: 0, drawn: -1, sx: 0, sy0: 0, sw: 0, sh: 0   // what the renderer last drew
-      };
-      this.props.push(st);
-      this.stands.push(st);
-    });
     // Flag poles flanking the line
     for (const side of [-1, 1]) {
       const q = this.pointAt(8, side * (this.halfW + 24));
@@ -9534,13 +9490,10 @@ class GrandPrixRun {
       menaceScreen: this.menaceScreen, playerScreen: this.playerScreen,
       bothInFrame: !!(this.menaceScreen && this.playerScreen && this.menaceScreen.inFrame && this.playerScreen.inFrame),
       // Round 11: the yaw frame the ghost's kart was last drawn with, her spin state, and the sprite path
-      frame: p.frame, spin: p.spin, spinYaw: p.spinYaw, spriteKarts: GP_SPRITES.ready, spriteTrees: GP_SPRITES.treesReady, spriteCrowd: GP_SPRITES.crowdReady,
+      frame: p.frame, spin: p.spin, spinYaw: p.spinYaw, spriteKarts: GP_SPRITES.ready, spriteTrees: GP_SPRITES.treesReady,
       kartRadius: this.kartRadius, lastContact: this.lastContact,
-      // Round 12: the held steering input and the eased wheel, the drift hold, the touch layout and hint state, and
-      // which crowd file each view is drawn from
       steerHeld: this.steerHeld || 0, steerInput: p.steer, hopHeld: !!p.hopHeld, brakeHeld: !!p.brakeHeld,
-      touchLayout: this.touchLayout, touchHint: this.touchHintAlpha(), crowdSource: Object.assign({}, GP_SPRITES.crowdSource),
-      cheers: this.cheerCount
+      touchLayout: this.touchLayout, touchHint: this.touchHintAlpha()
     };
   }
 
@@ -9629,7 +9582,7 @@ class GrandPrixRun {
     if (cmd === 'sprites') {
       return {
         kartsReady: GP_SPRITES.ready, kartFrames: GP_SPRITES.kartLoaded, kartTotal: GP_SPRITES.kartTotal, kartFailed: GP_SPRITES.kartFailed,
-        treesReady: GP_SPRITES.treesReady, crowdReady: GP_SPRITES.crowdReady,
+        treesReady: GP_SPRITES.treesReady,
         convention: 'frame = (16 - round(yaw / 22.5deg)) mod 16; yaw = heading - camera yaw, positive = nose toward the camera right; 00 rear, 04 left flank, 08 front, 12 right flank',
         playerFrame: p.frame, playerYaw: this.relYaw(p)
       };
@@ -9644,33 +9597,22 @@ class GrandPrixRun {
     }
     if (cmd === 'freezeRivals') { this.frozenRivals = !!arg; return this.frozenRivals; }
     if (cmd === 'giveItem') { p.item = arg; p.roulette = 0; return p.item; }
-    // ----- Round 12 life-proof hooks (check 28) -----
     if (cmd === 'park') {
-      // Hold the ghost's kart still (brake on, wheel input still eased) so the camera stands and the stands in frame
-      // keep one projection scale while the crowd is measured
       this.parked = !!arg;
       if (this.parked) { p.v = 0; p.vx = 0; p.vy = 0; p.px = 0; p.py = 0; }
       return this.parked;
     }
-    if (cmd === 'crowd') {
-      // Every stand's cheering state and what the renderer last drew it with: dy = the vertical offset (canvas pixels,
-      // negative = up) the sprite was translated by, sy = the squash / stretch scale, bob = the bounce 0..1, ampPx =
-      // the amplitude the bob is scaled by right now; visible = drawn in the last frame; the screen rect it covered
-      const now = performance.now() / 1000;
-      return {
-        source: Object.assign({}, GP_SPRITES.crowdSource),
-        stands: this.stands.map(st => ({
-          i: st.i, s: st.s, view: st.v ? 'angle' : 'front', phase: st.ph, tempo: st.tempo, excite: st.excite, near: st.near,
-          bob: st.bob, dy: st.dy, sy: st.sy, ampPx: st.ampPx, visible: now - st.drawn < 0.1, drawn: st.drawn,
-          rect: { x: st.sx, y: st.sy0, w: st.sw, h: st.sh }
-        })),
-        cheers: this.cheers.slice(), cheerCount: this.cheerCount, elapsed: this.elapsed
+    if (cmd === 'presentation') {
+      const sample = (s, lat) => {
+        const q = this.pointAt(s, lat), pt = this.project(q.x, q.y, 0);
+        return pt ? { x: pt.x, y: pt.y } : null;
       };
-    }
-    if (cmd === 'excite') {
-      // Fire the crowd's excitement through the same path the live triggers use (near the ghost's kart by default)
-      const range = arg && arg.range !== undefined ? arg.range : 1e9;
-      return this.cheerNear(arg && arg.s !== undefined ? arg.s : p.s, (arg && arg.reason) || 'hook', range);
+      const startLat = j => -this.halfW + 16 + j * ((this.halfW - 16) * 2 / 10) + ((this.halfW - 16) / 10);
+      return {
+        shadows: this.karts.map(k => ({ id: k.id, shadow: k.contactShadow || null })),
+        kerbs: { red: sample(0, this.halfW - 7), white: sample(16, this.halfW - 7) },
+        startLine: { white: sample(6, startLat(0)), black: sample(6, startLat(1)) }
+      };
     }
     if (cmd === 'track') {
       let maxCurv = 0;
@@ -9686,7 +9628,6 @@ class GrandPrixRun {
     dt = Math.min(dt, 0.05);
     this.phaseT += dt;
     this.updateJuice(dt);
-    this.updateCrowd(dt);
 
     if (this.phase === 'tear_in') {
       if (this.phaseT >= this.tearInDuration) { this.phase = 'run'; this.phaseT = 0; this.flash('GO!', '#a3e635', 0.7); }
@@ -9828,7 +9769,7 @@ class GrandPrixRun {
     // Track position, lap counting, off-road
     const prevS = k.s;
     k.s = this.nearestS(k.x, k.y, k.s);
-    if (prevS > this.L * 0.75 && k.s < this.L * 0.25) { k.lap++; this.cheerNear(k.s, 'lap', 900); }   // the crowd on the straight sees the line crossed
+    if (prevS > this.L * 0.75 && k.s < this.L * 0.25) k.lap++;
     else if (prevS < this.L * 0.25 && k.s > this.L * 0.75) k.lap--;
     k.prog = (k.lap - 1) * this.L + k.s;
     k.offroad = !this.onRoad(k.x, k.y, k.s);
@@ -9846,7 +9787,7 @@ class GrandPrixRun {
       k.a += d * Math.min(1, dt * 6);
       k.slip = 0;
     }
-    if (!k.finished && k.prog >= this.L) { k.finished = true; k.finishTime = this.elapsed; this.cheerNear(k.s, 'finish', 1200); }
+    if (!k.finished && k.prog >= this.L) { k.finished = true; k.finishTime = this.elapsed; }
 
     // Juice: exhaust always, drift sparks and smoke while sliding
     this.kartExhaust(k.fx, dt, k.boost > 0);
@@ -10147,59 +10088,6 @@ class GrandPrixRun {
       this.flash(ahead ? 'HE PASSES!' : 'OVERTAKE!', ahead ? '#ff3344' : '#a3e635', 0.7);
     }
     this.lastAhead = ahead;
-    // Round 12: a change in the running order excites the crowd near the kart that moved up — confirmed once it is a
-    // kart-length clear of the one it displaced, so two karts trading inches on the grid do not keep the stands jumping
-    if (!this.confirmedOrder) this.confirmedOrder = this.positions.slice();
-    else {
-      for (let i = 0; i < this.positions.length; i++) {
-        const k = this.positions[i], was = this.confirmedOrder[i];
-        if (k === was) continue;
-        if (Math.abs(key(k) - key(was)) > 8) { this.confirmedOrder = this.positions.slice(); this.cheerNear(k.s, 'position', 900); break; }
-      }
-    }
-  }
-
-  // ----- Round 12: the living crowd -----
-  // Idle: every stand bobs on its own phase and tempo (1.7–2.4 bounces/s), a bounce of 3.5% of the sprite height with a
-  // landing squash. Excitement: a trigger sets a stand's excitement to 1, held for 0.5 s, then it decays over 0.6 s —
-  // about a second of harder jumping (amplitude up to 11% of the height, tempo up 70%) before it settles back to the
-  // idle bob. Triggers: a kart entering a stand's stretch of track (within 130 units of its position, once per pass),
-  // a kart crossing the line (a lap) or finishing, and a confirmed change in the running order; each excites the
-  // stands near that point of the track. The motion is phase-accumulated per frame, so a tempo change never jumps.
-  updateCrowd(dt) {
-    const L = this.L;
-    for (const st of this.stands) {
-      let near = false;
-      for (const k of this.karts) {
-        let d = ((k.s - st.s) % L + L) % L;
-        if (d > L / 2) d -= L;
-        if (Math.abs(d) < 130) { near = true; break; }
-      }
-      if (near && !st.near) this.cheer(st, 'pass');
-      st.near = near;
-      if (st.hold > 0) st.hold -= dt;
-      else if (st.excite > 0) st.excite = Math.max(0, st.excite - dt / 0.6);
-      st.ph += dt * Math.PI * 2 * st.tempo * (1 + 0.7 * st.excite);
-      if (st.ph > Math.PI * 2) st.ph -= Math.PI * 2;
-    }
-  }
-  cheer(st, reason) {
-    st.excite = 1;
-    st.hold = 0.5;
-    this.cheerCount++;
-    this.cheers.push({ n: this.cheerCount, t: this.elapsed, reason, s: st.s, stand: st.i });
-    if (this.cheers.length > 80) this.cheers.shift();
-  }
-  // Excite every stand within `range` track units of arclength s; returns how many stands cheered
-  cheerNear(s, reason, range) {
-    const L = this.L;
-    let n = 0;
-    for (const st of this.stands) {
-      let d = ((st.s - s) % L + L) % L;
-      if (d > L / 2) d -= L;
-      if (Math.abs(d) <= range) { this.cheer(st, reason); n++; }
-    }
-    return n;
   }
 
   // Chase camera: yaw eases toward the ghost's travel direction so a drift shows the kart angled
@@ -10416,13 +10304,7 @@ class GrandPrixRun {
     const set = GP_SPRITES.ready ? GP_SPRITES.karts[cw] : null;
     const fr = set ? set[frame] : null, ref = set ? set[0] : null;
     const scared = k === this.player && (((this.menace.prog - k.prog) < 0 && (this.menace.prog - k.prog) > -140) || k.spin > 0);
-    // Shadow stays on the road while the kart hops
-    if (k.hopZ > 0.5) {
-      ctx.save();
-      ctx.fillStyle = 'rgba(0,0,0,0.35)';
-      ctx.beginPath(); ctx.ellipse(pt.x, pt.y + 10 * s, 70 * s, 16 * s, 0, 0, Math.PI * 2); ctx.fill();
-      ctx.restore();
-    }
+    this.drawKartContactShadow(ctx, k, pt, s, yaw);
     this._lastDrawXf = null;
     if (fr && ref) {
       this.drawSpriteKart(ctx, k, pt.x, pt.y + hopY, s, fr, ref, frame, yaw, scared, time);
@@ -10458,6 +10340,19 @@ class GrandPrixRun {
     else if (k === this.menace) this.menaceScreen = rect;
   }
 
+  drawKartContactShadow(ctx, k, pt, s, yaw) {
+    const lift = Math.min(1, k.hopZ / 16);
+    const rx = (70 + 18 * Math.abs(Math.sin(yaw))) * s * (1 - lift * 0.15);
+    const ry = 18 * s * (1 - lift * 0.25), x = pt.x + 4 * s, y = pt.y + 12 * s;
+    ctx.save();
+    const sh = ctx.createRadialGradient(x, y, Math.max(1, 8 * s), x, y, rx);
+    sh.addColorStop(0, 'rgba(0,0,0,0.5)'); sh.addColorStop(0.5, 'rgba(0,0,0,0.34)'); sh.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = sh;
+    ctx.beginPath(); ctx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    k.contactShadow = { x, y, rx, ry, sampleX: x + rx * 0.68, sampleY: y };
+  }
+
   // The sprite kart: (x, y) is the kart's ground point, s = 1 at the ghost's own grid distance. The frame's alpha
   // box is scaled so the rear frame is 136 kart units wide (the Round 7 kart's width), its bottom edge — the tyre
   // contact line — sits 30 units below the ground point (the kart's near edge is closer to the camera), and the
@@ -10466,12 +10361,6 @@ class GrandPrixRun {
     ctx.save();
     ctx.translate(x, y);
     ctx.scale(s, s);
-    const sideness = Math.abs(Math.sin(yaw));
-    // Soft contact shadow, longer under a side view
-    const sh = ctx.createRadialGradient(4, 12, 8, 4, 12, 74);
-    sh.addColorStop(0, 'rgba(0,0,0,0.5)'); sh.addColorStop(0.5, 'rgba(0,0,0,0.34)'); sh.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = sh;
-    ctx.beginPath(); ctx.ellipse(4, 12, 66 + 22 * sideness, 18, 0, 0, Math.PI * 2); ctx.fill();
     // Tyre smoke and exhaust trail behind the kart (kart-local space, under the body)
     const fx = k.fx;
     for (const e of fx.smoke) { ctx.fillStyle = `rgba(226, 232, 240, ${0.55 * (e.life / e.maxLife)})`; ctx.beginPath(); ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2); ctx.fill(); }
@@ -10618,36 +10507,12 @@ class GrandPrixRun {
     ctx.save();
     ctx.translate(pt.x, pt.y);
     const treeImg = pr.kind === 'tree' && GP_SPRITES.treesReady ? GP_SPRITES.trees[pr.v % 3] : null;
-    const standImg = pr.kind === 'stand' ? (GP_SPRITES.crowd[pr.v ? 'angle' : 'front'] || null) : null;
     if (treeImg) {
       // Round 11: the Tripo cartoon tree, one of three azimuths per instance, trunk base on the ground point
       const th = (104 + pr.v * 10) * u, tw = th * treeImg.naturalWidth / treeImg.naturalHeight;
       ctx.fillStyle = 'rgba(0,0,0,0.28)';
       ctx.beginPath(); ctx.ellipse(0, 0, tw * 0.42, tw * 0.13, 0, 0, Math.PI * 2); ctx.fill();
       ctx.drawImage(treeImg, -tw / 2, -th + 3 * u, tw, th);
-    } else if (standImg) {
-      // Round 11: a bleacher of ghost spectators — the front sprite faces the track, the angled one sits at a corner.
-      // Round 12: the whole stand cheers — a bounce (|sin| of the half phase: a clean landing, a soft top) scaled by the
-      // idle or excited amplitude, with a squash on the boards and a stretch at the top, as a translate + scale about
-      // the stand's ground point. The sprite itself is never redrawn; the shadow stays on the ground and tightens as
-      // the stand lifts.
-      const w = 196 * u, h = w * standImg.naturalHeight / standImg.naturalWidth;
-      const j = Math.abs(Math.sin(pr.ph * 0.5));
-      const amp = h * (0.035 + 0.075 * pr.excite);
-      const dy = -amp * j;
-      const sy = 1 + (j - 0.5) * (0.05 + 0.07 * pr.excite);
-      const sx = 1 / sy;
-      ctx.fillStyle = 'rgba(0,0,0,0.3)';
-      ctx.beginPath(); ctx.ellipse(0, 0, w * 0.5 * (1 - 0.12 * j), w * 0.11 * (1 - 0.2 * j), 0, 0, Math.PI * 2); ctx.fill();
-      ctx.save();
-      ctx.translate(0, dy);
-      ctx.scale(sx, sy);
-      ctx.drawImage(standImg, -w / 2, -h + 4 * u, w, h);
-      ctx.restore();
-      pr.bob = j; pr.dy = dy; pr.sy = sy; pr.ampPx = amp; pr.drawn = time;
-      pr.sx = pt.x - w * sx / 2; pr.sy0 = pt.y + dy - (h - 4 * u) * sy; pr.sw = w * sx; pr.sh = h * sy;
-    } else if (pr.kind === 'stand') {
-      // No crowd image decoded (neither the coloured nor the grey file): the stand is left out, never drawn broken
     } else if (pr.kind === 'tree') {
       const h = (86 + pr.v * 10) * u, w = (34 + pr.v * 4) * u;
       ctx.fillStyle = 'rgba(0,0,0,0.28)';
@@ -10949,17 +10814,12 @@ class GrandPrixRun {
   // A kart seen from behind and a little above: (x, y) is the rear contact point; s = 1 at the ghost's own
   // grid position. Round 7: a real drawn kart — a shaded tub, side pods and engine cowl with a highlight line,
   // four tyres with scrolling tread and spoked hubs that turn with the road, front wheels that steer with the
-  // driver's input and the bend, a seat the driver sits in, a steering wheel the driver's arms reach, twin
-  // chrome exhausts, and a soft contact shadow. Original art.
+  // driver's input and the bend, a seat the driver sits in, a steering wheel the driver's arms reach, and twin
+  // chrome exhausts. Original art.
   drawKart(ctx, x, y, s, o) {
     ctx.save();
     ctx.translate(x, y);
     ctx.scale(s, s);
-    // Soft contact shadow (before the roll so it stays on the road)
-    const sh = ctx.createRadialGradient(4, 12, 8, 4, 12, 74);
-    sh.addColorStop(0, 'rgba(0,0,0,0.5)'); sh.addColorStop(0.5, 'rgba(0,0,0,0.34)'); sh.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = sh;
-    ctx.beginPath(); ctx.ellipse(4, 12, 74, 18, 0, 0, Math.PI * 2); ctx.fill();
     // Round 11: no in-plane rotation of the kart, ever (the old roll on a spin-out was the bug). The vector kart is
     // the load-failure fallback; its heading relative to the camera is shown by a shear, and a spin-out slews that
     // shear back and forth flat on the road.
