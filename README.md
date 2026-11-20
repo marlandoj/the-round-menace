@@ -2,7 +2,7 @@
 
 **[Play The Round Menace](https://marlandoj.github.io/the-round-menace/)**
 
-**Demo video:** `[OPERATOR: add demo video URL at submission]`
+**Demo video:** [Watch the demo — one uncut run](https://roundmenace.zouroboros.ai/demo/) · [Direct MP4](https://roundmenace.zouroboros.ai/demo-take-a.mp4)
 
 > **"Pac-Man, except you're the ghosts — and he's eating your maze."**
 
