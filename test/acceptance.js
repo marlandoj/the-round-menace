@@ -36,7 +36,7 @@ async function runAcceptanceTests() {
 
   const indexPath = `file://${path.resolve(__dirname, '../index.html')}`;
   let passedCount = 0;
-  let totalCount = 33;
+  let totalCount = 34;
 
   // Screenshot directory
   const screenshotDir = path.resolve(__dirname, '../screenshots');
@@ -1918,6 +1918,44 @@ async function runAcceptanceTests() {
     if (consoleErrors.length > 0) throw new Error(`Console errors during the Round 17 check: ${consoleErrors.join(' | ')}`);
     console.log(`  · Green Valley win: rings haul ${valleyHaul}, eaten 3 → +2; power/ordinary cells restored from snapshot, third cell remains eaten`);
     console.log(`  ✓ PASS: both stage-2 keyboard slides stayed continuous and unresolved, both races then took the flag normally; survived hauls refill min(haul,eaten) with correct layouts/HUD/toast, caught hauls vanish, and How to Play teaches the rule; 0 console errors across all 33 checks.`);
+    passedCount++;
+  } catch (err) {
+    console.error(`\n❌ TEST FAILED: ${err.message}`);
+    await browser.close();
+    process.exit(1);
+  }
+
+  // Check 34: the pellet that fired a flip is spent — winning that flip must not restore its own corner,
+  // or the Menace re-eats it on his way back across the maze and the same flip runs twice (ship-day report).
+  try {
+    console.log('\nCheck 34: A flip never re-arms its own trigger pellet...');
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForTimeout(700);
+    await page.click('#btn-play');
+    await page.waitForTimeout(250);
+    await page.evaluate(() => {
+      const g = window.__game;
+      for (const [c, r] of [[2, 1], [3, 1]]) { g.grid[r][c] = ' '; g.pelletsRemaining--; g.pelletsEatenByMenace++; }
+      g.updateHUD();
+    });
+    await page.evaluate(() => window.__RM_GAME__.setMenacePos(16, 1, 1, 0));
+    await page.waitForFunction(() => window.__game.state === 'flip' && window.__game.flip && window.__game.flip.kind === 'kingdom', null, { timeout: 6000 });
+    await page.evaluate(() => { window.__game.flip.collected = 30; window.__RM_GAME__.forceFlipSurvive(); });
+    await page.waitForTimeout(300);
+    const afterWin = await page.evaluate(() => ({ state: window.__game.state, corner: window.__game.grid[1][17], ordinary: window.__game.grid[1][2] }));
+    if (afterWin.state !== 'playing') throw new Error(`flip did not return to the maze (${afterWin.state})`);
+    if (afterWin.corner !== ' ') throw new Error(`the firing corner was restored by its own win (cell="${afterWin.corner}") — the same flip can re-fire`);
+    if (afterWin.ordinary !== '.') throw new Error(`ordinary eaten pellets were not refilled (cell="${afterWin.ordinary}")`);
+    await page.evaluate(() => window.__RM_GAME__.setMenacePos(16, 1, 1, 0));
+    let refired = false;
+    for (let i = 0; i < 12; i++) {
+      await page.waitForTimeout(250);
+      const s = await page.evaluate(() => window.__game.state);
+      if (s === 'flip') { refired = true; break; }
+    }
+    if (refired) throw new Error('the same flip re-fired after its win');
+    if (consoleErrors.length > 0) throw new Error(`Console errors during the Round 18 check: ${consoleErrors.join(' | ')}`);
+    console.log('  ✓ PASS: Block Kingdom fired from the TR corner; its win refilled ordinary pellets but left the firing corner empty, and walking the Menace back across it opened nothing.');
     passedCount++;
   } catch (err) {
     console.error(`\n❌ TEST FAILED: ${err.message}`);

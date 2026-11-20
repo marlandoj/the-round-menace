@@ -3095,6 +3095,8 @@ class Game {
   // `kind` is the module to run; `requestedKind` is what the pellet asked for before any fallback.
   startFlip(kind = 'valley', requestedKind = kind) {
     if (this.state !== 'playing' || this.flip) return;
+    this.flipActiveSource = this.flipSourceCell || null;
+    this.flipSourceCell = null;
     const module = FLIP_MODULES[kind] && FLIP_MODULES[kind].built ? FLIP_MODULES[kind] : FLIP_MODULES.valley;
     let ghostIndex = this.possessedIndex;
     if (!this.ghosts[ghostIndex] || this.ghosts[ghostIndex].isBenched) {
@@ -3166,7 +3168,8 @@ class Game {
         for (let r = 0; r < this.rows && restored < toRestore; r++) {
           for (let c = 0; c < this.cols && restored < toRestore; c++) {
             const orig = this.mazeSnapshot[r][c];
-            if ((orig === '.' || orig === 'o') && this.grid[r][c] === ' ') {
+            const isSource = this.flipActiveSource && c === this.flipActiveSource.c && r === this.flipActiveSource.r;
+            if (!isSource && (orig === '.' || orig === 'o') && this.grid[r][c] === ' ') {
               this.grid[r][c] = orig;
               restored++;
             }
@@ -3186,6 +3189,7 @@ class Game {
       // Caught: the existing bench flow (eyes float home, possession moves on, squad wipe = game over)
       this.handleGhostEatenByMenace(ghostIndex);
     }
+    this.flipActiveSource = null;
     this.syncMusic();
   }
 
@@ -3193,6 +3197,8 @@ class Game {
   abortFlip() {
     if (this.flip && this.flip.dispose) this.flip.dispose();
     this.flip = null;
+    this.flipActiveSource = null;
+    this.flipSourceCell = null;
     this.flipRequestedKind = null;
     this.isFrightMode = false;
     this.transition = null;
@@ -3724,6 +3730,7 @@ class Game {
 
       // The power pellet tears the maze open: each corner pellet routes to its own flip
       const route = routeFlip(c, r);
+      this.flipSourceCell = { c, r };   // The pellet that fired the flip is spent: its own win never restores it
       this.startFlip(route.kind, route.requested);
     }
   }
