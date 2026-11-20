@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>The Round Menace — You're the Ghosts</title>
+<meta name="description" content="The Round Menace is a remix of the arcade maze chase: this time you play the ghosts. Coordinate a squad of four, catch the Menace three times, and survive the four games hiding inside his power pellets. Play it free in your browser.">
+<meta name="theme-color" content="#04060f">
+<meta property="og:title" content="The Round Menace">
+<meta property="og:description" content="You know this maze. This time, you're the ghosts — and he's eating it. Four ghosts, four hidden games, one very round Menace.">
+<meta property="og:image" content="https://roundmenace.zouroboros.ai/assets/og.jpg">
+<meta property="og:url" content="https://roundmenace.zouroboros.ai/">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">
+{
+	"@context": "https://schema.org",
+	"@type": "VideoGame",
+	"name": "The Round Menace",
+	"description": "A remix of the arcade maze chase in which the player controls the ghost squad hunting the pellet-eating Menace. Each power pellet tears the maze open into a different game — a valley run, a block kingdom, a first-person corridor hunt and a kart grand prix — and winning a flip pours its pickups back into the maze as pellets.",
+	"url": "https://roundmenace.zouroboros.ai/",
+	"image": "https://roundmenace.zouroboros.ai/assets/og.jpg",
+	"genre": "Arcade",
+	"gamePlatform": "Web browser",
+	"applicationCategory": "Game",
+	"operatingSystem": "Any",
+	"numberOfPlayers": { "@type": "QuantitativeValue", "minValue": 1, "maxValue": 1 },
+	"playMode": "SinglePlayer",
+	"isAccessibleForFree": true,
+	"offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+	"author": { "@type": "Person", "name": "Marlando" },
+	"codeRepository": "https://github.com/marlandoj/the-round-menace"
+}
+</script>
+<link rel="icon" type="image/png" href="/assets/icon-192.png">
+<link rel="apple-touch-icon" href="/assets/icon-192.png">
+<link rel="stylesheet" href="/styles.css">
+<script>document.documentElement.classList.add('js');</script>
+</head>
+<body>
+<div class="sky" aria-hidden="true"></div>
+
+<header class="nav-wrap">
+	<nav class="nav" aria-label="Page">
+		<a class="brand" href="#top"><img src="/assets/icon-192.png" alt="" width="28" height="28">The Round Menace</a>
+		<a href="#watch">The flips</a>
+		<a href="#how">How to play</a>
+		<a href="#screens">Screens</a>
+		<a href="#build">The build</a>
+	</nav>
+</header>
+
+<main id="top">
+	<section class="hero">
+		<div class="hero-copy reveal">
+			<span class="eyebrow">A Hackyard Yard #7 entry · Remix</span>
+			<h1>The Round<br>Menace</h1>
+			<p class="pitch">You know this maze. The pellets, the corners, the chase. <b>This time, you're the ghosts</b> — and he's eating your maze.</p>
+			<div class="cta-row">
+				<a class="cta" href="#player" id="cta-play">Play now<span class="cta-dot" aria-hidden="true">&rarr;</span></a>
+				<a class="ghost" href="#how">How it works</a>
+			</div>
+			<p class="fine">Free in your browser. No install, no account — keyboard or touch.</p>
+		</div>
+
+		<div class="hero-stage reveal" id="player">
+			<div class="bezel">
+				<div class="bezel-core" id="stage">
+					<iframe id="game" src="/play/" title="The Round Menace game" allow="fullscreen; autoplay" allowfullscreen loading="eager"></iframe>
+				</div>
+			</div>
+			<div class="stage-bar">
+				<span class="stage-hint">Arrows or WASD steer. 1–4 possess a ghost. Space hops, pauses — and drifts.</span>
+				<button type="button" class="fs-btn" id="fs-btn" aria-pressed="false">Fullscreen</button>
+			</div>
+		</div>
+	</section>
+
+	<section class="watch" id="watch">
+		<div class="watch-head reveal">
+			<span class="eyebrow">The flips — one uncut run</span>
+			<h2>Every power pellet is a different game.</h2>
+			<p>One continuous run: the maze hunt, then the Menace takes his pellets and the maze tears open — a kart Grand Prix with a held drift, a first-person corridor hunt, a block kingdom, a ring valley. All four flips in a single take, and back to the maze to finish the hunt.</p>
+		</div>
+		<div class="watch-frame reveal">
+			<video controls preload="metadata" playsinline poster="/assets/demo-poster.jpg" src="/demo-take-a.mp4">
+				Your browser cannot play this video. <a href="/demo-take-a.mp4">Download the run (MP4)</a>.
+			</video>
+		</div>
+		<p class="fine watch-note">A silent capture of an AI-driven run on the shipped build — the game itself plays with its own original WebAudio score, so keep the sound on in the player above. Prefer to watch it with narration? <a href="/demo/">The demo page is here</a>.</p>
+	</section>
+
+	<section class="how" id="how">
+		<figure class="how-shot reveal">
+			<div class="bezel tilt-l"><div class="bezel-core"><img src="/assets/shot-maze.webp" alt="The maze hunt: Goldie closing on the Menace in the lower maze while Ember hunts above" width="540" height="810" loading="lazy"></div></div>
+		</figure>
+		<div class="how-copy">
+			<span class="eyebrow reveal">How to play</span>
+			<h2 class="reveal">Hunt. Possess. Survive the flip.</h2>
+			<ol class="steps">
+				<li class="reveal"><b>Catch him three times.</b> Steer your ghost with the arrows, WASD or a swipe. The Menace is clearing the maze pellet by pellet — every pellet he eats is ground you lose. Three catches end his run; an emptied maze ends yours.</li>
+				<li class="reveal"><b>You are four ghosts.</b> Ember chases, Rosé ambushes, Tide flanks and Goldie keeps her distance. Press 1–4 or tap a ghost to possess it — the rest hunt on their own instincts. You don't steer a ghost; you coordinate a squad.</li>
+				<li class="reveal"><b>When he takes a power pellet, the hunt flips.</b> Each corner tears the maze into a different game, with you in his shoes: a valley run, a block kingdom, a corridor hunt, a grand prix. Win the flip and the pickups you grabbed pour back into the maze as pellets. Lose, and your ghost rides the bench.</li>
+			</ol>
+		</div>
+	</section>
+
+	<section class="features" aria-label="Facts">
+		<ul class="chips">
+			<li class="chip big reveal"><strong>4</strong><span>ghosts in the squad, each with its own hunting instinct</span></li>
+			<li class="chip reveal"><strong>4 flips</strong><span>four whole games hide inside the power pellets</span></li>
+			<li class="chip reveal"><strong>3 catches</strong><span>end his run before he clears all 191 pellets</span></li>
+			<li class="chip reveal"><strong>500</strong><span>points for every catch, 200 for surviving a flip</span></li>
+			<li class="chip wide reveal"><strong>WIN THE FLIP, REFILL THE MAZE</strong><span>pickups won in a flip return as pellets — a lost flip restores nothing</span></li>
+		</ul>
+	</section>
+
+	<section class="screens" id="screens">
+		<div class="screens-head reveal">
+			<h2>Straight from the game.</h2>
+			<p>Every image here is a real capture of The Round Menace running, nothing painted over.</p>
+		</div>
+		<div class="rail" tabindex="0" aria-label="Screenshots, scroll sideways">
+			<figure class="shot reveal"><div class="bezel"><div class="bezel-core"><img src="/assets/shot-title.webp" alt="Title screen: The Round Menace" width="540" height="480" loading="lazy"></div></div><figcaption>You know this maze</figcaption></figure>
+			<figure class="shot reveal"><div class="bezel"><div class="bezel-core"><img src="/assets/shot-maze.webp" alt="The maze hunt: a ghost closing on the Menace among the pellets" width="540" height="810" loading="lazy"></div></div><figcaption>The hunt</figcaption></figure>
+			<figure class="shot reveal"><div class="bezel"><div class="bezel-core"><img src="/assets/shot-gp.webp" alt="Phantom Grand Prix: karts colliding mid-corner, star coins on the racing line" width="540" height="810" loading="lazy"></div></div><figcaption>Contact sport</figcaption></figure>
+			<figure class="shot reveal"><div class="bezel"><div class="bezel-core"><img src="/assets/shot-drift.webp" alt="Phantom Grand Prix: a kart in a super drift boost, flames at the wheels" width="540" height="480" loading="lazy"></div></div><figcaption>Super drift boost</figcaption></figure>
+			<figure class="shot reveal"><div class="bezel"><div class="bezel-core"><img src="/assets/shot-valley.webp" alt="The maze tearing open as the hunt flips into Green Valley" width="540" height="480" loading="lazy"></div></div><figcaption>The hunt flips</figcaption></figure>
+		</div>
+	</section>
+
+	<section class="build" id="build">
+		<div class="bezel reveal">
+			<div class="bezel-core build-core">
+				<div>
+					<h2>Directed by a human. Built by the workshop.</h2>
+					<p>The Round Menace was built for Hackyard Yard #7, “Remix”, by the Zouroboros Workshop from written briefs: seventeen build rounds, every round gated by an automated acceptance battery — 33 checks, zero console errors on the shipped build. Every sprite, sound and note of music is original, generated or synthesised in code during build week. It remixes an idea, never its assets.</p>
+				</div>
+				<div class="build-side">
+					<span class="stamp" aria-hidden="true">33/33 · ZERO CONSOLE ERRORS</span>
+					<a class="ghost" href="https://github.com/marlandoj/the-round-menace">Read the source</a>
+					<p class="fine">Open source. Ships Friday Nov 20, 2026.</p>
+				</div>
+			</div>
+		</div>
+	</section>
+</main>
+
+<footer class="foot">
+	<p><b>The Round Menace</b> is an original game by Marlando, built with the Zouroboros Workshop for Hackyard Yard #7.</p>
+</footer>
+
+<script src="/main.js" defer></script>
+</body>
+</html>
